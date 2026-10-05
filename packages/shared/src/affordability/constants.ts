@@ -88,27 +88,6 @@ export const MEDIA_STORAGE_COST_PER_BYTE =
   Number(MEDIA_STORAGE_COST_PER_BYTE_NANO) / Number(NANO_USD_PER_DOLLAR);
 
 /**
- * Conservative byte estimate for a generated image (encrypted).
- * Used for pre-flight budget reservation — overestimates so the user is
- * never charged more than reserved. Actual cost uses real sizeBytes.
- */
-export const ESTIMATED_IMAGE_BYTES = 8_000_000;
-
-/**
- * Conservative byte estimate per second of generated video (encrypted).
- * Used only for pre-flight reservation. Worst-case 1080p; actual cost
- * uses real `sizeBytes` from the R2 upload.
- */
-export const ESTIMATED_VIDEO_BYTES_PER_SECOND = 5_000_000;
-
-/**
- * Conservative byte estimate per second of generated audio (encrypted).
- * 256 kbps ≈ 32 KB/s — well above typical TTS output. Used only for
- * pre-flight reservation; actual cost uses real `sizeBytes` from R2.
- */
-export const ESTIMATED_AUDIO_BYTES_PER_SECOND = 32_000;
-
-/**
  * Maximum allowed negative balance in cents for paid users.
  * Paid users get this cushion above their actual balance.
  * $0.50 = 50 cents

@@ -1,19 +1,30 @@
 import { type Locator } from '@playwright/test';
-import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { isMobileWidth, TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { expect } from '../helpers/expect.js';
 import { ChatTranscriptPage } from './chat-transcript.page.js';
 
 /** Every branch row: the builder's id with no fork id is the prefix every row's id shares. */
 const BRANCH_ROW_SELECTOR = `[data-testid^="${TEST_ID_BUILDERS.branchRow('')}"]`;
 
+/** The thread's fork mark reads "Branched here · N more". */
+const FORK_MARK_NAME = /^Branched here · \d+ more$/;
+
 /**
- * The conversation's branches: the switcher that lists them, switching between them by
- * name, their rename and delete actions, and the dialogs those actions open.
+ * The conversation's branches: the switcher that lists them, the thread's fork mark that opens
+ * it, switching between them by name, the way back to the first branch, their rename and delete
+ * actions, and the dialogs those actions open.
  */
 export class ChatBranchesPage extends ChatTranscriptPage {
   /** The header control that opens the switcher; drawn while the conversation has branches. */
   getBranchSwitcher(): Locator {
     return this.page.getByTestId(TEST_IDS.branchSwitcher);
+  }
+
+  /** The thread's mark where the shown branch parts from others; below 768 the way in. */
+  getForkMark(): Locator {
+    return this.page
+      .getByRole('log', { name: 'Chat messages' })
+      .getByRole('button', { name: FORK_MARK_NAME });
   }
 
   /** The open switcher: anchored under the header from 768, a sheet below. */
@@ -29,13 +40,51 @@ export class ChatBranchesPage extends ChatTranscriptPage {
     return this.getBranchList().getByRole('button', { name: branchName, exact: true }).first();
   }
 
+  /** The switcher's first entry on any branch but the first: "Back to <its name>". */
+  getBackTo(branchName: string): Locator {
+    return this.getBranchList().getByRole('button', { name: `Back to ${branchName}`, exact: true });
+  }
+
   /**
-   * Opens the switcher from whatever the page drew: from 768, the header's control. Every
-   * method here starts with the switcher closed and leaves it closed.
+   * Opens the switcher from whatever the page drew: from 768, the header's control; below it,
+   * the thread's fork mark. Every method here starts with the switcher closed and leaves it
+   * closed.
    */
   async openBranches(): Promise<void> {
-    await this.getBranchSwitcher().click();
+    const viewport = this.page.viewportSize();
+    await (viewport !== null && isMobileWidth(viewport.width)
+      ? this.getForkMark().first().click()
+      : this.getBranchSwitcher().click());
     await expect(this.getBranchList()).toBeVisible();
+  }
+
+  /** Opens the switcher from the thread's fork mark, at any width. */
+  async openBranchesFromForkMark(): Promise<void> {
+    await this.getForkMark().first().click();
+    await expect(this.getBranchList()).toBeVisible();
+  }
+
+  /** The fork mark counts the other branches parting where the shown one does. */
+  async expectForkMark(more: number): Promise<void> {
+    await expect(this.getForkMark()).toHaveAccessibleName(`Branched here · ${String(more)} more`);
+  }
+
+  async expectNoForkMark(): Promise<void> {
+    await expect(this.getForkMark()).toHaveCount(0);
+  }
+
+  /** Goes back to the first branch through the switcher's "Back to" entry. */
+  async backTo(branchName: string): Promise<void> {
+    await this.openBranches();
+    await this.getBackTo(branchName).click();
+    await expect(this.getBranchList()).not.toBeVisible();
+  }
+
+  /** On the first branch the switcher offers no way back. */
+  async expectNoBackTo(): Promise<void> {
+    await this.openBranches();
+    await expect(this.getBranchList().getByRole('button', { name: /^Back to / })).toHaveCount(0);
+    await this.closeBranches();
   }
 
   async closeBranches(): Promise<void> {

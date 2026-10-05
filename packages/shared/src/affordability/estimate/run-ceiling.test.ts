@@ -89,24 +89,28 @@ describe('reservedCallParts', () => {
     expect(result.ok && result.value.providerNanoUsd).toBe(100n);
   });
 
-  it('reserves a media call’s stored bytes when a storage context is present', () => {
+  it('marks a persisting media call as persisting and reserves no storage of its own', () => {
+    // A media run's stored bytes are the run's, reserved once by the run
+    // estimator; a per-call term would reserve them a second time.
     const result = reservedCallParts(
       IMAGE_PRICING,
       { kind: 'media', rateKey: 'perImage', units: 1 },
       CEILING,
-      { mediaStorageBytes: 1000 }
+      { persists: true }
     );
-    expect(result.ok && result.value.storageNanoUsd > 0n).toBe(true);
+    expect(result.ok && [result.value.quantities.persists, result.value.storageNanoUsd]).toEqual([
+      true,
+      0n,
+    ]);
   });
 
-  it('fails closed on a negative stored byte count', () => {
+  it('marks a media call with no storage context as not persisting', () => {
     const result = reservedCallParts(
       IMAGE_PRICING,
       { kind: 'media', rateKey: 'perImage', units: 1 },
-      CEILING,
-      { mediaStorageBytes: -1 }
+      CEILING
     );
-    expect(result.ok).toBe(false);
+    expect(result.ok && result.value.quantities.persists).toBe(false);
   });
 
   it('fails closed on a media call against a token price', () => {
@@ -118,22 +122,14 @@ describe('reservedCallParts', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('multiplies both parts by the declared width × iterations', () => {
+  it('multiplies a media call’s generation by the declared width × iterations', () => {
     const result = reservedCallParts(
       IMAGE_PRICING,
       { kind: 'media', rateKey: 'perImage', units: 1 },
       { maxFanOutWidth: 2, maxIterations: 3 },
-      { mediaStorageBytes: 1000 }
+      { persists: true }
     );
-    const single = reservedCallParts(
-      IMAGE_PRICING,
-      { kind: 'media', rateKey: 'perImage', units: 1 },
-      CEILING,
-      { mediaStorageBytes: 1000 }
-    );
-    expect(result.ok && single.ok && result.value.storageNanoUsd).toBe(
-      single.ok ? single.value.storageNanoUsd * 6n : undefined
-    );
+    expect(result.ok && result.value.providerNanoUsd).toBe(600n);
   });
 });
 
@@ -295,7 +291,7 @@ describe('estimateRunCeilingNanoUsd', () => {
       TOKEN_PRICING,
       { kind: 'tokens', inputTokens: 1000, outputTokens: 1000 },
       CEILING,
-      { mediaStorageBytes: 0 }
+      { persists: true }
     );
     expect(withStorage.ok && withoutStorage.ok && withStorage.value > withoutStorage.value).toBe(
       true

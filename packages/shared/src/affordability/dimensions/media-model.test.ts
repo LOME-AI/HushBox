@@ -62,7 +62,7 @@ function descriptorOf(row: MediaRow): ModelDescriptor {
   return {
     id: row.id,
     provider: 'vendor',
-    version: '3',
+    version: '4',
     inputs: ['text'],
     outputs: [...row.outputs],
     parameters: { ...row.parameters },
@@ -81,7 +81,7 @@ function languageDescriptor(): ModelDescriptor {
   return {
     id: 'vendor/model',
     provider: 'vendor',
-    version: '3',
+    version: '4',
     inputs: ['text'],
     outputs: ['text'],
     parameters: {},

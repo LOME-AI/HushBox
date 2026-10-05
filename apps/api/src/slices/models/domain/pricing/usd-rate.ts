@@ -1,15 +1,15 @@
+import { DECIMAL_USD_PATTERN } from '@hushbox/shared';
+
 /**
  * Gateway pricing rates arrive as decimal USD strings (for example
  * "0.0000025" per token); catalog pricing is integer nano-USD strings
  * (the `NanoUSD` wire form). The conversion is exact string math — never
  * float — and rounds half-even once when a rate carries more than nine
- * fractional digits. An unparseable or negative rate returns `undefined`, and
- * ingestion never persists a price built on one: the model is priced from its
- * readable rates alone (an image's other per-image row, a video resolution's
- * loudly flagged fallback) or, when those cannot price it, excluded.
+ * fractional digits. An unparseable or negative rate returns `undefined`.
+ * Ingestion reads it only for rates already checked against the decimal
+ * pattern, to take the pre-fee nano figure the commercial floor and the
+ * zero-rate gates compare.
  */
-
-const DECIMAL_USD_PATTERN = /^\d+(?:\.\d+)?$/;
 
 const NANO_FRACTION_DIGITS = 9;
 

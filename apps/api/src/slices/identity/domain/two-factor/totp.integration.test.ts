@@ -90,6 +90,15 @@ describe('verifyStoredTotp single-use replay claim', () => {
 });
 
 describe('verifyStoredTotp consecutive-failure ceiling', () => {
+  it('keeps the guessing window’s cap below the ceiling’s', () => {
+    // The freeze is read off the admitted count, which is the highest across the
+    // layers; only while the window's cap is lower can that count at the
+    // ceiling's cap be the ceiling's own.
+    expect(IDENTITY_KEYS.twoFactorLockout.maxAttempts).toBeLessThan(
+      IDENTITY_KEYS.twoFactorCeiling.maxAttempts
+    );
+  });
+
   it('clears the ceiling counter when a code verifies', async () => {
     const args = verifyArgs();
     const { maxAttempts, windowSeconds } = IDENTITY_KEYS.twoFactorCeiling;
@@ -103,7 +112,7 @@ describe('verifyStoredTotp consecutive-failure ceiling', () => {
 
   it('still accepts a verified code when nothing can be deleted afterwards', async () => {
     // Every clear after a verified code is best-effort: a store refusing the
-    // deletes leaves a counter or the first-trip latch standing, never a
+    // deletes leaves a counter or the once-per-run email latch standing, never a
     // refused code.
     const refusingDeletes = new Proxy(redis, {
       get(target, property) {

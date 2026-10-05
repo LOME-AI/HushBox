@@ -358,10 +358,10 @@ describe('chargeWithinTx', () => {
 
   it('charges an image generation exactly its deterministic billable catalog estimate', async () => {
     const fixture = await seedFixture('purchased', 10_000_000_000n);
-    // Image bills the deterministic billable catalog estimate (no inline
-    // provider cost by design, isEstimated=true). The charge must be that
-    // estimate EXACTLY — any fee application here would double-mark the
-    // already-billable catalog rate (the retired interim ~+32% double markup).
+    // This fixture's image bills its deterministic billable catalog estimate,
+    // as an image does on the missing-cost path (isEstimated=true). The charge
+    // must be that estimate EXACTLY — any fee application here would double-mark
+    // the already-billable catalog rate (the retired interim ~+32% double markup).
     const billableCatalogEstimate = 46_000_000n;
     const input = chargeInput(fixture, {
       modality: 'image',

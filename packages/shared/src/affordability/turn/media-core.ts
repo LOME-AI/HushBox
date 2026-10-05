@@ -6,9 +6,9 @@
  * median, the premium price threshold and the classifier engine are taken over.
  *
  * No per-unit pricing expression lives here: every amount comes from the price
- * core's media curve, through the dimension registry, and the one byte estimate
- * (`estimate/output-bytes.ts`). Pure, content-free and clock-free, exactly as
- * the token core is.
+ * core's media curve, through the dimension registry, and the run's media
+ * storage bound (`estimate/output-bytes.ts`). Pure, content-free and clock-free,
+ * exactly as the token core is.
  *
  * The provider composition is the registry's own, read through
  * {@link reserveContribution} at a single-option support so the cost class
@@ -19,13 +19,13 @@
  * generation cost is that unit.
  *
  * The storage leg rides this core rather than a dimension's requirement because
- * it is a property of the generated OUTPUT, not of any axis: charging it per
- * dimension would charge it once per axis. It rides the same unit count as the
- * provider leg, which is what makes a longer video cost more bytes as well as
- * more seconds. Omitting it is not a rounding difference — a cheap image's
- * stored bytes cost several times its generation — and it fails in the
- * permissive direction, presenting a row as affordable that admission then
- * refuses.
+ * it is a property of the run's OUTPUT, not of any axis: charging it per
+ * dimension would charge it once per axis. It is charged once per turn, at the
+ * byte budget the run's value store admits, because that is what admission
+ * holds: no axis, duration or sibling count moves it. Omitting it is not a
+ * rounding difference — the stored bytes cost several times a cheap image's
+ * generation — and it fails in the permissive direction, presenting a row as
+ * affordable that admission then refuses.
  */
 
 import {
@@ -36,8 +36,7 @@ import {
 import { MEDIA_REFERENCE_UNITS, mediaDimensionFor } from '../dimensions/media.ts';
 import { mediaParameterSpecs } from '../dimensions/media-params.ts';
 import { MEDIA_DIMENSION_IDS } from '../dimensions/types.ts';
-import { mediaOutputBytes } from '../estimate/output-bytes.ts';
-import { mediaStorageNanoUsd } from '../estimate/storage-rate.ts';
+import { mediaRunStorageNanoUsd } from '../estimate/output-bytes.ts';
 import { pricedSelection } from './priced-selection.ts';
 import { inputStorageNanoUsd, maxMediaCallCostNanoUsd } from './turn-arithmetic.ts';
 import { refusalPrecedence } from './turn-types.ts';
@@ -62,10 +61,7 @@ import type {
 
 /** What the user has fixed on a media turn (`Selection`'s per-unit counterpart). */
 export interface MediaSelection {
-  /**
-   * What the turn generates. It fixes the byte estimate the generated output is
-   * stored at, so it is part of the price and not merely of the picker's filter.
-   */
+  /** What the turn generates. */
   readonly modality: StoredMediaModality;
   /** The models that will generate; every one of them is charged. */
   readonly selectedIds: readonly ModelId[];
@@ -342,12 +338,12 @@ function axisRefusalFor(reading: AxisReading): UnpricedMediaPrice | undefined {
 
 /**
  * What one model's generation costs at a reading, in nano-USD — the provider leg
- * PLUS the bytes its output is stored at, or a {@link MediaPrice} refusal.
+ * alone, or a {@link MediaPrice} refusal. Storage is the turn's, not the model's.
  */
 function mediaModelCostNanoUsd(model: MediaModel, reading: MediaReading): MediaPrice {
   let amountNanoUsd: bigint | undefined;
   // A multiplicative axis scales how many reference units the call generates
-  // (duration is the registered one), so the same count scales both legs.
+  // (duration is the registered one), and the generation is priced at that count.
   let units = 1;
   let refusal: UnpricedMediaPrice | undefined;
   for (const axis of MEDIA_AXES) {
@@ -369,22 +365,21 @@ function mediaModelCostNanoUsd(model: MediaModel, reading: MediaReading): MediaP
   // here. It prices nothing, so it refuses; a stand-in zero would read as a
   // free generation and send.
   if (base === undefined) return NOT_PRICEABLE;
-  const storage = mediaStorageNanoUsd(mediaOutputBytes(reading.selection.modality, units));
-  return { kind: 'priced', nanoUsd: base * BigInt(units) + storage };
+  return { kind: 'priced', nanoUsd: base * BigInt(units) };
 }
 
 /**
- * What the whole turn costs at a reading: every selected model generates and
- * stores, so those legs are a `Σ`, and the prompt's own storage is added once —
- * the same shape the server's admission ceiling composes (one input-storage term
- * per turn, never one per sibling).
+ * What the whole turn costs at a reading: every selected model generates, so
+ * that leg is a `Σ`, and the run's media storage and the prompt's own storage
+ * are each added once — the same shape the server's admission ceiling composes
+ * (one storage term of each kind per turn, never one per sibling).
  */
 function mediaTurnCostWithInputStorageNanoUsd(
   models: readonly MediaModel[],
   reading: MediaReading,
   inputStorageNano: bigint
 ): MediaPrice {
-  let total = inputStorageNano;
+  let total = inputStorageNano + mediaRunStorageNanoUsd();
   let refusal: UnpricedMediaPrice | undefined;
   // Every model is asked, and the reason is the one precedence picks, so the
   // turn's answer does not depend on the order the selection lists them in.
@@ -548,7 +543,7 @@ function mediaEntriesFor(
  * Everything it decides comes off the media registry — each dimension's own
  * `support` for what a model offers and its own `requirement` for what an option
  * costs — reduced through the one shared media core. It prices the WHOLE turn
- * (generation, the output's stored bytes, and the prompt's storage once), which
+ * (generation, the run's media storage once, and the prompt's storage once), which
  * is what lets its send gate agree with the figure admission holds.
  */
 export function evaluateMediaTurn(input: MediaCoreInput): MediaOptionSet {

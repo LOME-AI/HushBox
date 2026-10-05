@@ -122,6 +122,7 @@ export function accountDeletionRoutes(deps: IdentityRouteDeps) {
               )
               .with({ kind: 'totp-not-configured' }, () => errorJson(c, ERROR_CODES.INTERNAL, 500))
               .with({ kind: 'totp-stranded' }, () => totpSecretStranded(c, userId))
+              .with({ kind: 'totp-frozen' }, () => errorJson(c, ERROR_CODES.TWO_FACTOR_FROZEN, 403))
               .with({ kind: 'forfeit-unacknowledged' }, (o) =>
                 c.json(
                   createErrorResponse(ERROR_CODES.DELETE_ACCOUNT_FORFEIT_UNACKNOWLEDGED, {

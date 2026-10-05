@@ -11,6 +11,7 @@ import {
 } from './gateway-fixtures.js';
 import {
   CATALOG_STALENESS_WINDOW_MS,
+  exposedCatalogGeneration,
   listDescriptors,
   readExposedCatalog,
 } from './list-descriptors.js';
@@ -144,7 +145,7 @@ describe('listDescriptors', () => {
     );
     const descriptor = descriptors.find((entry: ModelDescriptor) => entry.id === modelId);
     // Provider is derived from the model id's first path segment.
-    expect(descriptor).toMatchObject({ provider: RUN_PREFIX, version: '3', zdrReachable: true });
+    expect(descriptor).toMatchObject({ provider: RUN_PREFIX, version: '4', zdrReachable: true });
   });
 
   it('injects the persisted popularity rank onto the exposed descriptor', async () => {
@@ -265,7 +266,7 @@ describe('listDescriptors', () => {
         descriptor: {
           id: modelId,
           provider: 'x',
-          version: '3',
+          version: '4',
           inputs: ['text'],
           outputs: ['audio'],
           parameters: {},
@@ -297,7 +298,7 @@ describe('listDescriptors', () => {
           descriptor: {
             id: modelId,
             provider: 'x',
-            version: '3',
+            version: '4',
             inputs: ['text'],
             outputs: ['audio'],
             parameters: {},
@@ -361,13 +362,17 @@ describe('listDescriptors', () => {
         descriptor: {
           id: modelId,
           provider: 'x',
-          version: '3',
+          version: '4',
           inputs: ['text'],
           outputs: ['text', 'image'],
           parameters: {},
           behaviors: [],
           limits: {},
-          pricing: { kind: 'tokens', anchor: { base: { input: '1', output: '1' }, tiers: [] } },
+          pricing: {
+            kind: 'tokens',
+            anchorContextTokens: 1_000_000,
+            anchor: { base: { input: '1', output: '1' }, tiers: [] },
+          },
           zdrReachable: true,
           releasedAt: OLD_RELEASE_SECONDS,
           fetchedAt: 0,
@@ -393,13 +398,17 @@ describe('listDescriptors', () => {
         descriptor: {
           id: modelId,
           provider: 'x',
-          version: '3',
+          version: '4',
           inputs: ['text'],
           outputs: ['embedding'],
           parameters: {},
           behaviors: [],
           limits: {},
-          pricing: { kind: 'tokens', anchor: { base: { input: '1', output: '1' }, tiers: [] } },
+          pricing: {
+            kind: 'tokens',
+            anchorContextTokens: 1_000_000,
+            anchor: { base: { input: '1', output: '1' }, tiers: [] },
+          },
           zdrReachable: true,
           releasedAt: OLD_RELEASE_SECONDS,
           fetchedAt: 0,
@@ -436,7 +445,7 @@ describe('listDescriptors', () => {
         descriptor: {
           id: modelId,
           provider: 'x',
-          version: '3',
+          version: '4',
           inputs: ['text'],
           outputs: ['image'],
           parameters: {},
@@ -455,10 +464,14 @@ describe('listDescriptors', () => {
     expect(read.defects).toContainEqual({ modelId, defect: 'descriptor-invalid' });
   });
 
-  it('fails the whole read fast on a v2 row whose pricing predates the schedule — never hidden as invalid', async () => {
+  it('never exposes a v2 row whose pricing predates the schedule, nor reports it as corrupt', async () => {
     // A v2 row carries flat rates the current pricing contract cannot parse, so
     // the version is read before the contract: a whole-contract parse first
-    // would hide it as a corrupt row instead of naming the refresh it needs.
+    // would report it as a corrupt row instead of naming the refresh it needs.
+    const current = freshModelId('beside-flat-v2');
+    await refresh(
+      catalogFetch({ models: [modelEntryFixture({ id: current })], zdrModelIds: [current] })
+    );
     const modelId = freshModelId('flat-v2');
     await db
       .insert(modelCatalog)
@@ -478,22 +491,27 @@ describe('listDescriptors', () => {
           releasedAt: OLD_RELEASE_SECONDS,
           fetchedAt: 0,
         },
+        lastSeenAt: SEEN_AT,
       })
       .onConflictDoNothing();
     try {
-      const result = await readExposedCatalog({ db, telemetry: silentTelemetry });
-      const error = result._unsafeUnwrapErr();
-      expect(error.code).toBe('unavailable');
-      expect(error.message).toMatch(/descriptor version '2'/);
+      const read = await readExposedCatalog({ db, telemetry: silentTelemetry }, SEEN_AT.getTime());
+      const { descriptors, defects } = read._unsafeUnwrap();
+      expect(descriptors.map((entry) => entry.id)).toContain(current);
+      expect(descriptors.map((entry) => entry.id)).not.toContain(modelId);
+      expect(defects.map((defect) => defect.modelId)).not.toContain(modelId);
     } finally {
       await db.delete(modelCatalog).where(eq(modelCatalog.modelId, modelId));
     }
   });
 
-  it('fails the whole read fast on an unbaked v1 descriptor row — never a silent skip', async () => {
+  it('never exposes an unbaked v1 descriptor row beside current rows', async () => {
     // A v1 row carries PRE-fee provider rates; serving it would price turns
-    // below billable. The read refuses outright (cheap structural
-    // enforcement — zero-users ruling: no migration tooling).
+    // below billable.
+    const current = freshModelId('beside-unbaked-v1');
+    await refresh(
+      catalogFetch({ models: [modelEntryFixture({ id: current })], zdrModelIds: [current] })
+    );
     const modelId = freshModelId('unbaked-v1');
     await db
       .insert(modelCatalog)
@@ -513,16 +531,13 @@ describe('listDescriptors', () => {
           releasedAt: OLD_RELEASE_SECONDS,
           fetchedAt: 0,
         },
+        lastSeenAt: SEEN_AT,
       })
       .onConflictDoNothing();
     try {
-      const result = await listDescriptors({ db, telemetry: silentTelemetry });
-      const error = result._unsafeUnwrapErr();
-      expect(error.code).toBe('unavailable');
-      expect(error.message).toMatch(/version/);
+      expect(await exposedIds([current, modelId])).toEqual([current]);
     } finally {
-      // Remove the poison row so no later whole-table read in this file trips
-      // over it.
+      // Remove the held-back row so no later whole-table read in this file sees it.
       await db.delete(modelCatalog).where(eq(modelCatalog.modelId, modelId));
     }
   });
@@ -577,5 +592,49 @@ describe('listDescriptors delisting', () => {
     const back = new Date(afterWindow);
     await sight([returning], back);
     expect(await exposedIds([returning], back.getTime())).toEqual([returning]);
+  });
+});
+
+describe('readExposedCatalog generation', () => {
+  /** One exposure read at the clock the fixture refreshes stamp `last_seen_at` with. */
+  async function readNow(): Promise<{
+    readonly descriptors: readonly ModelDescriptor[];
+    readonly generation: string;
+  }> {
+    const settled = await readExposedCatalog({ db, telemetry: silentTelemetry }, SEEN_AT.getTime());
+    return settled._unsafeUnwrap();
+  }
+
+  it('names the generation of exactly the rows it exposed', async () => {
+    const modelId = freshModelId('generation-named');
+    await refresh(
+      catalogFetch({ models: [modelEntryFixture({ id: modelId })], zdrModelIds: [modelId] })
+    );
+    const read = await readNow();
+    expect(read.generation).toBe(await exposedCatalogGeneration(read.descriptors));
+  });
+
+  it('moves on an admin enable while the enabled row keeps its fetchedAt', async () => {
+    const modelId = freshModelId('generation-enabled');
+    await refresh(
+      catalogFetch({ models: [modelEntryFixture({ id: modelId })], zdrModelIds: [modelId] })
+    );
+    const first = await readNow();
+    await db
+      .update(modelCatalog)
+      .set({ adminDisabledAt: new Date(TEST_DAY_START) })
+      .where(eq(modelCatalog.modelId, modelId));
+    const disabled = await readNow();
+
+    await db
+      .update(modelCatalog)
+      .set({ adminDisabledAt: null })
+      .where(eq(modelCatalog.modelId, modelId));
+    const enabled = await readNow();
+
+    const fetchedAtOf = (read: typeof first): number | undefined =>
+      read.descriptors.find((entry) => entry.id === modelId)?.fetchedAt;
+    expect(fetchedAtOf(enabled)).toBe(fetchedAtOf(first));
+    expect(enabled.generation).not.toBe(disabled.generation);
   });
 });

@@ -1,4 +1,4 @@
-import { ResultAsync, err, fromPromise, ok, okAsync } from '../result/index.js';
+import { ResultAsync, err, ok, okAsync } from '../result/index.js';
 import { brandIdempotent } from './brands.js';
 import { hashRequestBody } from './body-hash.js';
 import { REQUEST_LEASE_SECONDS } from './config.js';
@@ -53,12 +53,10 @@ class FenceLost extends Error {
  * exactly one serialized re-execution.
  */
 export function byKey<T>(params: ByKeyParams<T>): ResultAsync<Idempotent<T>, DomainError> {
-  // Hashed on a microtask so a body that cannot canonicalize rejects the
-  // returned ResultAsync rather than throwing at the call.
-  return fromPromise(
-    Promise.resolve().then(() => hashRequestBody(params.body)),
-    defectRethrow
-  )
+  // A body that cannot canonicalize throws inside `map`, rejecting the
+  // returned ResultAsync: a caller defect, never an err().
+  return okAsync(params.body)
+    .map((body) => hashRequestBody(body))
     .andThen((bodyHash) =>
       claimKeyRow(params.db, {
         scope: params.scope,
@@ -138,9 +136,4 @@ async function runFenced<T>(
 async function markFailed(db: Database, fence: KeyRowFence): Promise<void> {
   const flip = await failKeyRow(db, fence);
   flip.unwrapOr('lost');
-}
-
-/** Body canonicalization failures are caller defects — keep them throwing. */
-function defectRethrow(cause: unknown): never {
-  throw cause;
 }

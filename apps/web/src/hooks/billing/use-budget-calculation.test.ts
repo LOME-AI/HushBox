@@ -76,7 +76,7 @@ const SERVED_ROW: Model = {
   provider: 'vendor',
   modality: 'text',
   contextLength: 128_000,
-  pricing: { inputPerToken: '10000', outputPerToken: '30000' },
+  pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000', outputPerToken: '30000' },
   description: 'a text model',
   supportedParameters: [],
 };
@@ -398,7 +398,14 @@ describe('useBudgetCalculation', () => {
           ...defaultInput,
           promptCharacterCount: 100_000,
           models: [
-            { ...SERVED_ROW, pricing: { inputPerToken: '1000000', outputPerToken: '30000' } },
+            {
+              ...SERVED_ROW,
+              pricing: {
+                anchorContextTokens: 1_000_000,
+                inputPerToken: '1000000',
+                outputPerToken: '30000',
+              },
+            },
           ],
         })
       );
@@ -445,7 +452,10 @@ describe('useBudgetCalculation', () => {
     });
 
     it('marks a composer whose selected row serves no price unpriced, rather than pricing it free', () => {
-      const halfPriced: Model = { ...SERVED_ROW, pricing: { inputPerToken: '10000' } };
+      const halfPriced: Model = {
+        ...SERVED_ROW,
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000' },
+      };
       const { result } = renderHook(() =>
         useBudgetCalculation({ ...defaultInput, models: [halfPriced] })
       );
@@ -495,6 +505,7 @@ describe('useBudgetCalculation', () => {
           modality: 'text',
           pinned: {},
           webSearch: false,
+          effortAuto: true,
         },
         // At the epoch's recency edge: no premium leg confounds the money verdict.
         { models: [candidateModel], nowMs: PREMIUM_RECENCY_MS }

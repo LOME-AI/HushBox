@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TEST_IDS } from '@hushbox/shared';
-import { Facepile } from './facepile';
+import { AvatarPile, Facepile } from './facepile';
 
 const noop = (): void => {};
 
@@ -120,5 +120,39 @@ describe('Facepile', () => {
       'pointer-coarse:before:inset-x-0',
       'pointer-coarse:before:-inset-y-2'
     );
+  });
+});
+
+describe('AvatarPile', () => {
+  it('draws three avatars then the number left over', () => {
+    const { container } = render(<AvatarPile members={members(5)} />);
+
+    expect(container.querySelectorAll('[data-slot="avatar"]')).toHaveLength(3);
+    expect(container).toHaveTextContent('ABC+2');
+  });
+
+  it('is decorative, with nothing to press', () => {
+    const { container } = render(<AvatarPile members={members(3)} />);
+
+    expect(container.firstElementChild).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('overlaps and rims its avatars as the facepile does', () => {
+    const { container } = render(<AvatarPile members={members(3)} />);
+
+    expect(container.firstElementChild).toHaveClass(
+      'flex',
+      'items-center',
+      '[&>*+*]:-ml-1.5',
+      '[&>[data-slot=avatar]]:shadow-[0_0_0_2px_var(--background)]',
+      '[&>[data-slot=avatar][data-online]]:shadow-[0_0_0_2px_var(--background),0_0_0_3.5px_var(--success)]'
+    );
+  });
+
+  it('takes the caller classes beside its own', () => {
+    const { container } = render(<AvatarPile members={members(3)} className="shrink-0" />);
+
+    expect(container.firstElementChild).toHaveClass('shrink-0', 'flex');
   });
 });

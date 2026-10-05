@@ -10,13 +10,12 @@ import {
 } from '@hushbox/shared';
 import { pickClassifiedEffortPlan } from '@hushbox/shared/affordability';
 import { err } from '../../../../lib/result/index.js';
-import { streamModelCall } from './model-call-execution.js';
+import { streamModelCall, withPriceReservation } from './model-call-execution.js';
 import { validateNodeInput } from './node-input.js';
 import { callInputOf, decisionOf } from './turn-decision.js';
 import { portsAccepting } from '../engine/model-ports.js';
 import type {
   ClassifierEffortLevel,
-  InferenceRequest,
   ModelDescriptor,
   Node,
   NodePortDeclaration,
@@ -303,7 +302,8 @@ async function answerCall(
     args.effort,
     candidate.maxOutputTokens
   );
-  const request: InferenceRequest = {
+  // Priced on the resolved candidate's own binding, never the dearest one the hold reserved.
+  const request = withPriceReservation(binding, ctx.reservation, {
     model: modelId,
     inputs: [{ modality: 'text', text: prompt }],
     parameters: call.parameters,
@@ -311,7 +311,7 @@ async function answerCall(
     ...(history === undefined || history.length === 0 ? {} : { history: [...history] }),
     ...(customInstructions === undefined ? {} : { customInstructions }),
     utcDay: utcDayKeyAt(ctx.clock.now()),
-  };
+  });
   const result = await streamModelCall({ ...deps, binding }, request, {
     ...ctx,
     ...(call.level === undefined ? {} : { resolvedEffort: call.level }),

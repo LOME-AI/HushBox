@@ -30,7 +30,11 @@ export function fixtureCatalog(names: readonly (readonly [string, string])[]): {
         contextLength: 128_000,
         created: OLD_RELEASE_SECONDS,
         maxOutputTokens: 4096,
-        pricing: { inputPerToken: '10000', outputPerToken: '30000' },
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: '10000',
+          outputPerToken: '30000',
+        },
       })),
       premiumIds: new Set(),
     },

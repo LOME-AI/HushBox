@@ -45,6 +45,8 @@ interface TrialChatState {
   removeMessagesAfter: (messageId: string) => void;
   /** Drop a single message by id; no-op if not present */
   removeMessage: (messageId: string) => void;
+  /** Replace the whole thread, as when a failed regenerate puts back the rows it cut */
+  setMessages: (messages: TrialMessage[]) => void;
   /** Clear all trial messages and reset state */
   reset: () => void;
 }
@@ -95,6 +97,9 @@ export const useTrialChatStore = create<TrialChatState>((set) => ({
   },
   removeMessage: (messageId) => {
     set((state) => ({ messages: state.messages.filter((m) => m.id !== messageId) }));
+  },
+  setMessages: (messages) => {
+    set({ messages });
   },
   reset: () => {
     set({ messages: [], pendingMessage: null, isRateLimited: false });

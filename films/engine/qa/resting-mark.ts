@@ -74,10 +74,10 @@ export type RestingMark = { frame: number; id: string } & (
  * drawing box-filtered down to it, or the box's in drawn pixels, with the file
  * box-filtered down to it.
  */
-export type GridSide = 'file' | 'box';
+type GridSide = 'file' | 'box';
 
 /** The grid a resting mark was compared on: its size in cells, and the resolution each axis took. */
-export interface ComparisonGrid {
+interface ComparisonGrid {
   width: number;
   height: number;
   across: GridSide;

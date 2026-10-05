@@ -158,16 +158,25 @@ export function resolveRegenerateTarget(
   return { targetMessageId: messageId, action: 'retry' };
 }
 
+/**
+ * The model a reply's turn asked for: Smart Model for a reply Smart Model routed, whose
+ * `modelName` is the model it resolved to; otherwise the reply's own model. None for a reply
+ * that names no model.
+ */
+export function askedModelId(
+  message: Pick<MessageWithModelName, 'modelName' | 'isSmartModel'>
+): string | undefined {
+  if (message.isSmartModel) return SMART_MODEL_ID;
+  const name = message.modelName;
+  return name != null && name !== '' ? name : undefined;
+}
+
 function collectSiblingModels(messages: MessageWithModelName[], parentId: string): string[] {
   const out: string[] = [];
   for (const m of messages) {
     if (m.role !== 'assistant' || m.parentMessageId !== parentId) continue;
-    if (m.isSmartModel) {
-      out.push(SMART_MODEL_ID);
-      continue;
-    }
-    const name = m.modelName;
-    if (name != null && name !== '') out.push(name);
+    const asked = askedModelId(m);
+    if (asked !== undefined) out.push(asked);
   }
   return out;
 }
@@ -183,10 +192,7 @@ function modelOfAssistant(
   assistantId: string
 ): string | undefined {
   const target = messages.find((m) => m.id === assistantId);
-  if (target?.isSmartModel) return SMART_MODEL_ID;
-  const name = target?.modelName;
-  if (name == null || name === '') return undefined;
-  return name;
+  return target === undefined ? undefined : askedModelId(target);
 }
 
 /**

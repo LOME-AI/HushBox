@@ -4,7 +4,12 @@ import { useLayoutEffect } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TEST_IDS } from '@hushbox/shared';
 import { ThemeProvider, useTheme } from '@/providers/theme-provider';
-import { BOOT_DEADLINE_MS, CONSOLE_LINE_CAP, DocumentSandbox } from './document-sandbox';
+import {
+  BOOT_DEADLINE_MS,
+  CONSOLE_LINE_CAP,
+  DocumentSandbox,
+  type DocumentView,
+} from './document-sandbox';
 
 // Shiki lazy-loads through React.lazy() inside Streamdown, so highlighted source
 // is invisible to a synchronous test. The stub echoes the fenced block it was
@@ -146,6 +151,9 @@ function renderSandbox(
     title: 'Preview',
     isStreaming: false,
     pendingView: <div data-testid="pending-source" />,
+    view: 'output' as const,
+    onViewChange: vi.fn<(view: DocumentView) => void>(),
+    codeView: <div data-testid="code-view" />,
     ...props,
   };
   const { container, rerender } = render(
@@ -298,6 +306,9 @@ describe('DocumentSandbox', () => {
             title={title}
             isStreaming={false}
             pendingView={null}
+            view="output"
+            onViewChange={vi.fn<(view: DocumentView) => void>()}
+            codeView={null}
           />
           <ReadyDuringCommit />
         </>
@@ -503,9 +514,10 @@ describe('DocumentSandbox', () => {
       expect(screen.getByRole('button', { name: /run/i })).toBeInTheDocument();
     });
 
-    it('disables Run until the frame is ready', () => {
+    it('offers Stop rather than Run while the frame is still booting', () => {
       renderSandbox({ kind: 'python' });
-      expect(screen.getByRole('button', { name: /run/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: /^run/i })).not.toBeInTheDocument();
     });
 
     it('sends init then run when Run is clicked', async () => {
@@ -736,14 +748,14 @@ describe('DocumentSandbox', () => {
   });
 
   describe('content sits on the panel background', () => {
-    it('gives the console strip no fill of its own', async () => {
+    it('sets the console in the subtle well the panel draws program output in', async () => {
       const user = userEvent.setup();
       const { emit, handshake } = renderSandbox({ kind: 'python' });
       handshake();
       await user.click(screen.getByRole('button', { name: /run/i }));
       await emit({ type: 'console', requestId: 'req-1', stream: 'stdout', text: 'out' });
 
-      expect(screen.getByRole('log').className).not.toMatch(/\bbg-/);
+      expect(screen.getByRole('log')).toHaveClass('bg-background-subtle');
     });
 
     it('gives a text result no fill of its own', async () => {
@@ -1036,18 +1048,24 @@ describe('DocumentSandbox', () => {
       expect(statusOf(container)).not.toBe('error');
     });
 
-    it('leaves python Run unpressable on a frame that never handed a port over', () => {
+    it('replaces a python frame that never announced itself from Stop', async () => {
       const { container } = renderSandbox({ kind: 'python' });
-
       act(() => {
         vi.advanceTimersByTime(BOOT_DEADLINE_MS);
       });
-
-      // A run needs a port to ask on. Offering it against a frame that never
-      // answered posts into nothing, and the panel is left announcing work
-      // nobody can report on.
-      expect(screen.getByRole('button', { name: /run/i })).toBeDisabled();
+      const dead = screen.getByTitle('Preview');
       expect(statusOf(container)).toBe('error');
+
+      // A run needs a port to ask on, so Run cannot help here; Stop needs none, since it replaces
+      // the frame, and it is the way back from a frame that never answered.
+      await act(async () => {
+        screen.getByRole('button', { name: 'Stop' }).click();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(screen.getByTitle('Preview')).not.toBe(dead);
+      expect(statusOf(container)).toBe('booting');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
     it('clears the boot failure once a slow python frame answers late', () => {
@@ -1179,9 +1197,175 @@ describe('DocumentSandbox', () => {
       expect(toFrame).toHaveBeenCalledTimes(callsToDeadPort);
     });
 
-    it('disables Stop before a run has started', () => {
+    it('offers no Stop once the frame is ready and before a run has started', () => {
+      const { handshake } = renderSandbox({ kind: 'python' });
+      handshake();
+      expect(screen.queryByRole('button', { name: /stop/i })).not.toBeInTheDocument();
+    });
+  });
+  describe('the bar', () => {
+    it('offers Run before a python document has run', () => {
+      const { handshake } = renderSandbox({ kind: 'python' });
+      handshake();
+
+      expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
+    });
+
+    it('offers Stop while a python run is in flight', async () => {
+      const user = userEvent.setup();
+      const { handshake } = renderSandbox({ kind: 'python' });
+      handshake();
+
+      await user.click(screen.getByRole('button', { name: 'Run' }));
+
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Run' })).not.toBeInTheDocument();
+    });
+
+    it('offers Run again once a python run has finished', async () => {
+      const user = userEvent.setup();
+      const { emit, handshake } = renderSandbox({ kind: 'python' });
+      handshake();
+      await user.click(screen.getByRole('button', { name: 'Run' }));
+
+      await emit({ type: 'result', requestId: 'req-1', outputs: [] });
+
+      expect(screen.getByRole('button', { name: 'Run again' })).toBeEnabled();
+    });
+
+    it('runs the document again from Run again', async () => {
+      const user = userEvent.setup();
+      const { emit, handshake, toFrame } = renderSandbox({ kind: 'python', code: 'print(1)' });
+      handshake();
+      await user.click(screen.getByRole('button', { name: 'Run' }));
+      await emit({ type: 'result', requestId: 'req-1', outputs: [] });
+
+      await user.click(screen.getByRole('button', { name: 'Run again' }));
+
+      expect(toFrame).toHaveBeenLastCalledWith({ type: 'run', requestId: 'req-2' });
+    });
+
+    it('offers no run control for a document that renders on its own', () => {
+      const { handshake } = renderSandbox({ kind: 'html' });
+      handshake();
+
+      expect(screen.queryByRole('button', { name: /^(run|stop)/i })).not.toBeInTheDocument();
+    });
+
+    it('shows the finished run as complete', async () => {
+      const user = userEvent.setup();
+      const { emit, handshake } = renderSandbox({ kind: 'python' });
+      handshake();
+      await user.click(screen.getByRole('button', { name: 'Run' }));
+
+      await emit({ type: 'result', requestId: 'req-1', outputs: [] });
+
+      expect(screen.getByText('Run complete', { ignore: '.sr-only' })).toBeVisible();
+    });
+
+    it('shows a painted preview as rendered', async () => {
+      const { emit, handshake } = renderSandbox({ kind: 'html' });
+      handshake();
+
+      await emit({ type: 'rendered', requestId: 'req-1' });
+
+      expect(screen.getByText('Preview rendered', { ignore: '.sr-only' })).toBeVisible();
+    });
+
+    it('switches to the code view from the toggle', async () => {
+      const user = userEvent.setup();
+      const onViewChange = vi.fn<(view: DocumentView) => void>();
+      renderSandbox({ onViewChange });
+
+      await user.click(screen.getByRole('radio', { name: 'Code' }));
+
+      expect(onViewChange).toHaveBeenCalledWith('code');
+    });
+
+    it('marks the view on screen as the chosen one', () => {
+      renderSandbox({ view: 'code' });
+
+      expect(screen.getByRole('radio', { name: 'Code' })).toBeChecked();
+      expect(screen.getByRole('radio', { name: 'Output' })).not.toBeChecked();
+    });
+  });
+
+  describe('the output view', () => {
+    it('closes with the sandbox badge', () => {
+      renderSandbox();
+
+      expect(screen.getByText("Sandboxed. It can't reach your account.")).toBeVisible();
+    });
+
+    it('labels the program output as its console', async () => {
+      const user = userEvent.setup();
+      const { emit, handshake } = renderSandbox({ kind: 'python' });
+      handshake();
+      await user.click(screen.getByRole('button', { name: 'Run' }));
+
+      await emit({ type: 'console', requestId: 'req-1', stream: 'stdout', text: 'out' });
+
+      expect(screen.getByText('Console')).toBeInTheDocument();
+    });
+
+    it('replaces the python source with what the run produced', async () => {
+      const user = userEvent.setup();
+      const { emit, handshake } = renderSandbox({ kind: 'python', code: 'print("marker")' });
+      handshake();
+      await user.click(screen.getByRole('button', { name: 'Run' }));
+
+      await emit({ type: 'result', requestId: 'req-1', outputs: [] });
+
+      expect(screen.queryByTestId(TEST_IDS.highlightedCode)).not.toBeInTheDocument();
+    });
+
+    it('draws a figure at the panel width at most, keeping its proportions', async () => {
+      const user = userEvent.setup();
+      const { emit, handshake } = renderSandbox({ kind: 'python' });
+      handshake();
+      await user.click(screen.getByRole('button', { name: 'Run' }));
+
+      await emit({
+        type: 'result',
+        requestId: 'req-1',
+        outputs: [{ type: 'image/png', data: 'iVBORw0KGgo=' }],
+      });
+
+      expect(screen.getByRole('img', { name: 'Generated figure' })).toHaveClass(
+        'max-w-full',
+        'h-auto'
+      );
+    });
+  });
+
+  describe('the python output', () => {
+    it('takes its unseen frame out of the column, so no gap opens above the output', () => {
       renderSandbox({ kind: 'python' });
-      expect(screen.getByRole('button', { name: /stop/i })).toBeDisabled();
+
+      expect(screen.getByTitle('Preview')).toHaveClass('absolute', 'h-0');
+    });
+  });
+
+  describe('the code view', () => {
+    it('shows the source it was handed', () => {
+      renderSandbox({ view: 'code' });
+
+      expect(screen.getByTestId('code-view')).toBeInTheDocument();
+    });
+
+    it('keeps the frame alive behind the source, so the output survives the switch', () => {
+      renderSandbox({ view: 'code' });
+
+      // The stylesheet is absent here, so the concealing class stands in for what a browser hides.
+      expect(screen.getByTitle('Preview').closest('.invisible')).not.toBeNull();
+    });
+
+    it('hides the badge with the output it describes', () => {
+      renderSandbox({ view: 'code' });
+
+      expect(
+        screen.getByText("Sandboxed. It can't reach your account.").closest('.invisible')
+      ).not.toBeNull();
     });
   });
 });

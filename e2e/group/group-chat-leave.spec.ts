@@ -31,25 +31,23 @@ const WS_HANDSHAKE_REJECTED_AFTER_LEAVE =
 // prefix) with the subresource after the id. Reads of the conversation and its
 // messages/members/links/keychain/budgets 404 (gone or access revoked), and the
 // rejected websocket upgrade for the just-left id 404s the same way (one
-// browser-timing-dependent attempt, then the app drops the socket); the
-// membership-gated budgets read can also 403 for a non-owner. Scoped to these
-// exact conversation-subresource reads and the observed statuses so an
+// browser-timing-dependent attempt, then the app drops the socket). Scoped to
+// these exact conversation-subresource reads and the observed statuses so an
 // unexpected error elsewhere still fails the test.
 const POST_LEAVE_PREFETCH_404 =
   /404 Not Found GET .*\/conversations\/[0-9a-f-]+(?:\/(?:messages|members|links|keychain|budgets|websocket))?(?=\?|\s|$)/;
-const POST_LEAVE_BUDGETS_403 =
-  /403 Forbidden GET .*\/conversations\/[0-9a-f-]+\/budgets(?=\?|\s|$)/;
+const POST_LEAVE_BUDGETS_404 =
+  /404 Not Found GET .*\/conversations\/[0-9a-f-]+\/budgets(?=\?|\s|$)/;
 
 test.describe('Group Chat Leave', SPEC_MATRIX, () => {
   // Each test is destructive (leaving a conversation), so each gets its own groupConversation fixture
   test('non-owner leave navigates to /chat', async ({ testBobPage, groupConversation }) => {
     // Deliberate: after Bob leaves and navigates back to the conversation
     // URL, the router prefetches per-conversation resources Bob has now
-    // lost access to — the conversation reads 404 and the budgets read 403.
-    expectApiErrors(testBobPage, [POST_LEAVE_PREFETCH_404, POST_LEAVE_BUDGETS_403]);
+    // lost access to — the conversation and its budgets read 404.
+    expectApiErrors(testBobPage, [POST_LEAVE_PREFETCH_404, POST_LEAVE_BUDGETS_404]);
     expectConsoleErrors(testBobPage, [
       /Failed to load resource: the server responded with a status of 404/,
-      /Failed to load resource: the server responded with a status of 403/,
       WS_HANDSHAKE_REJECTED_AFTER_LEAVE,
     ]);
     // Verify message visibility BEFORE opening sidebar — on mobile the sidebar
@@ -97,10 +95,9 @@ test.describe('Group Chat Leave', SPEC_MATRIX, () => {
     // Deliberate: after the owner leaves, the conversation is destroyed.
     // The post-leave `goto` then prefetches resources that no longer
     // exist for anyone — the conversation and its subresources read 404.
-    expectApiErrors(authenticatedPage, [POST_LEAVE_PREFETCH_404, POST_LEAVE_BUDGETS_403]);
+    expectApiErrors(authenticatedPage, [POST_LEAVE_PREFETCH_404, POST_LEAVE_BUDGETS_404]);
     expectConsoleErrors(authenticatedPage, [
       /Failed to load resource: the server responded with a status of 404/,
-      /Failed to load resource: the server responded with a status of 403/,
       WS_HANDSHAKE_REJECTED_AFTER_LEAVE,
     ]);
     const { sidebar } = await setupConversationWithSidebar(authenticatedPage, groupConversation.id);
@@ -141,11 +138,10 @@ test.describe('Group Chat Leave', SPEC_MATRIX, () => {
   }) => {
     // Deliberate: after Bob leaves and `goto`s back to the conversation,
     // the prefetch for per-conversation resources he can no longer access
-    // reads 404 for the conversation and 403 for the membership-gated budgets.
-    expectApiErrors(testBobPage, [POST_LEAVE_PREFETCH_404, POST_LEAVE_BUDGETS_403]);
+    // reads 404 for the conversation and its membership-gated budgets.
+    expectApiErrors(testBobPage, [POST_LEAVE_PREFETCH_404, POST_LEAVE_BUDGETS_404]);
     expectConsoleErrors(testBobPage, [
       /Failed to load resource: the server responded with a status of 404/,
-      /Failed to load resource: the server responded with a status of 403/,
       WS_HANDSHAKE_REJECTED_AFTER_LEAVE,
     ]);
     // The keychain is read by the owner throughout: the departing member loses

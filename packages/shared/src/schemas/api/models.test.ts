@@ -637,6 +637,24 @@ describe('modelSchema long-context rates', () => {
     expect(result.success && result.data.pricing.longContextRates).toEqual(longContextRates);
   });
 
+  it('keeps a text row’s anchor context', () => {
+    const result = modelSchema.safeParse({
+      ...textRow,
+      pricing: { inputPerToken: '3450', outputPerToken: '17250', anchorContextTokens: 400_000 },
+    });
+
+    expect(result.success && result.data.pricing.anchorContextTokens).toBe(400_000);
+  });
+
+  it('rejects an anchor context that is not a positive whole token count', () => {
+    const result = modelSchema.safeParse({
+      ...textRow,
+      pricing: { inputPerToken: '3450', outputPerToken: '17250', anchorContextTokens: 0 },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it('rejects long-context rates on an image row and flags the field', () => {
     const result = modelSchema.safeParse({
       ...textRow,

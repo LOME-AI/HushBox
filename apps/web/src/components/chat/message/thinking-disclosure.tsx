@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { REASONING_EFFORT_LABELS, TEST_IDS } from '@hushbox/shared';
+import { TEST_IDS } from '@hushbox/shared';
 import { cn } from '@hushbox/ui';
 import { answerSubject, thinkingLabel } from '@/components/chat/indicators/thinking-label';
 import {
@@ -75,8 +75,8 @@ function latestRow(
 /**
  * The quiet line for a model that bills reasoning and emits none. Plain text
  * rather than a control, because there is nothing behind it to open; the count
- * stays here because the reader is billed for it and no other row accounts for
- * it once the effort rung takes the label.
+ * stays here because the reader is billed for it and no reasoning row exists to
+ * carry it.
  */
 export function ReasoningNotShared({
   tokenCount,
@@ -91,16 +91,31 @@ export function ReasoningNotShared({
   );
 }
 
-/** What follows "Reasoning" on a settled label, before the children's fragments. */
-function disclosureDetail(nodeKey: string, context: SegmentRenderContext): string | undefined {
-  // Effort is one setting per message, so only the first span names it.
-  if (nodeKey !== context.firstReasoningKey) return undefined;
-  // A turn can stream reasoning and never reach an answer — the hard stop cutting
-  // the stream mid-reasoning is one way — which leaves a trace with no answer
-  // after it.
-  if (!context.hasAnswer && !context.isStreaming) return 'stopped before an answer';
-  if (context.reasoningEffort === undefined) return undefined;
-  return `${REASONING_EFFORT_LABELS[context.reasoningEffort]} effort`;
+/** A reasoning span's length in whole seconds, never under one, then minutes and seconds. */
+function formatReasoningDuration(durationMs: number): string {
+  const seconds = Math.max(1, Math.round(durationMs / 1000));
+  if (seconds < 60) return `${String(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0 ? `${String(minutes)}m` : `${String(minutes)}m ${String(rest)}s`;
+}
+
+/**
+ * A settled span's label before its children's fragments. Duration and count
+ * are one figure per message, so only the first span carries them.
+ */
+function settledParts(nodeKey: string, context: SegmentRenderContext): string[] {
+  if (nodeKey !== context.firstReasoningKey) return ['Reasoned'];
+  const duration = context.reasoningDurationMs;
+  const tokens = context.reasoningTokens ?? 0;
+  return [
+    duration === undefined ? 'Reasoned' : `Reasoned for ${formatReasoningDuration(duration)}`,
+    ...(tokens > 0 ? [`${formatTokenCount(tokens)} tokens`] : []),
+    // A turn can stream reasoning and never reach an answer — the hard stop cutting
+    // the stream mid-reasoning is one way — which leaves a trace with no answer
+    // after it.
+    ...(!context.hasAnswer && !context.isStreaming ? ['stopped before an answer'] : []),
+  ];
 }
 
 /** What the span's hidden status says: the latest search's milestone, else that the model is thinking. */
@@ -110,7 +125,7 @@ function spanMilestone(live: boolean, searchNews: string | undefined, modelName?
   return searchNews === undefined || searchNews === '' ? thinkingLabel(modelName) : searchNews;
 }
 
-/** A settled span's disclosure button: "Reasoning", its detail, and its children's fragments. */
+/** A settled span's disclosure button: "Reasoned", its figures, and its children's fragments. */
 function SettledHeader({
   nodeKey,
   context,
@@ -126,12 +141,11 @@ function SettledHeader({
   panelId: string;
   onToggle: () => void;
 }>): React.JSX.Element {
-  const detail = disclosureDetail(nodeKey, context);
   return (
     <BlockToggle
       open={open}
       panelId={panelId}
-      parts={['Reasoning', ...(detail === undefined ? [] : [detail]), ...fragments]}
+      parts={[...settledParts(nodeKey, context), ...fragments]}
       testId={TEST_IDS.thinkingDisclosureToggle}
       onToggle={onToggle}
     />
@@ -146,30 +160,21 @@ function SettledHeader({
 function TracePanel({
   panelId,
   open,
-  tokenCount,
   children,
 }: Readonly<{
   panelId: string;
   open: boolean;
-  tokenCount: number;
   children: React.ReactNode;
 }>): React.JSX.Element {
   return (
     <div id={panelId} hidden={!open}>
       {open ? (
-        <>
-          <div
-            data-testid={TEST_IDS.thinkingDisclosureContent}
-            className={cn(READING, 'mt-2 leading-[1.7] break-words')}
-          >
-            {children}
-          </div>
-          {tokenCount > 0 ? (
-            <p className="text-muted-foreground pl-[1.125rem] font-sans text-xs">
-              {`${formatTokenCount(tokenCount)} reasoning tokens`}
-            </p>
-          ) : null}
-        </>
+        <div
+          data-testid={TEST_IDS.thinkingDisclosureContent}
+          className={cn(READING, 'mt-2 leading-[1.7] break-words')}
+        >
+          {children}
+        </div>
       ) : null}
     </div>
   );
@@ -199,7 +204,6 @@ export function ThinkingDisclosure({
   // Once a search has spoken, its result stays the status while the model
   // thinks on, so "is thinking" is announced once and never repeated.
   const searchNews = useSearchAnnouncement(latestRow(node, context), context.isStreaming);
-  const tokenCount = nodeKey === context.firstReasoningKey ? (context.reasoningTokens ?? 0) : 0;
 
   return (
     <Surface>
@@ -216,7 +220,7 @@ export function ThinkingDisclosure({
         />
       )}
       {live ? null : (
-        <TracePanel panelId={panelId} open={open} tokenCount={tokenCount}>
+        <TracePanel panelId={panelId} open={open}>
           {children}
         </TracePanel>
       )}

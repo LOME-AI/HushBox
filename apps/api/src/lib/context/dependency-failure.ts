@@ -4,7 +4,6 @@ import { isDomainError } from '../errors/index.js';
 import { failureOfBoundedCall, rateLimitFailureOf } from '../rate-limit/consume.js';
 import { BoundedRedisFailure } from '../resilience/bounded-redis.js';
 import { DeadlineExpired } from '../resilience/policies.js';
-import type { DomainError } from '../errors/index.js';
 import type { RateLimitFailure } from '../rate-limit/consume.js';
 
 /**
@@ -48,6 +47,23 @@ export interface DependencyFailure {
   readonly dependency: Dependency;
   readonly failure: DependencyFailureArm;
   readonly late: boolean;
+}
+
+const REACHABILITY_FAILURES: ReadonlySet<DependencyFailureArm> = new Set([
+  'acquire-timeout',
+  'connect-timeout',
+  'statement-timeout',
+  'deadline',
+  'transport',
+]);
+
+/**
+ * Whether the arm says the dependency was not reached in time, as opposed to
+ * the store answering with an error or the caller overlapping its own
+ * statements: those name a defect in the calling code, not an outage.
+ */
+export function isReachabilityFailure(failure: DependencyFailureArm): boolean {
+  return REACHABILITY_FAILURES.has(failure);
 }
 
 /** What one link of a cause chain reveals; a link may reveal either half, both, or neither. */
@@ -130,7 +146,7 @@ function observe(link: object): Observation {
   return stamped === undefined ? {} : { dependency: 'redis', failure: COUNTER_ARMS[stamped] };
 }
 
-function chainOf(error: DomainError): object[] {
+function chainOf(error: unknown): object[] {
   const chain: object[] = [];
   let current: unknown = error;
   while (typeof current === 'object' && current !== null && chain.length < MAX_CHAIN_LENGTH) {
@@ -147,9 +163,10 @@ function chainOf(error: DomainError): object[] {
  * failure's meaning than the driver error it wraps; lateness is read from
  * wherever a deadline sits. It reads classes, codes and the driver's fixed
  * literals, and returns only closed-set values: no message and no cause text
- * leaves it.
+ * leaves it. It takes any thrown value, not only a domain error, because a cron
+ * entry's failure reaches it as whatever the entry threw.
  */
-export function dependencyFailureOf(error: DomainError): DependencyFailure {
+export function dependencyFailureOf(error: unknown): DependencyFailure {
   let dependency: Dependency = 'unknown';
   let failure: DependencyFailureArm = 'unknown';
   let late = false;
@@ -162,4 +179,26 @@ export function dependencyFailureOf(error: DomainError): DependencyFailure {
     if (link instanceof DeadlineExpired && link.late) late = true;
   }
   return { dependency, failure, late };
+}
+
+/**
+ * The error a dependency failure is reported under: its name and the
+ * classification, plus the route when the failure was a request's. It is built
+ * from the classification alone, never from the failing error, whose message
+ * and cause chain carry query text, parameters and store commands.
+ *
+ * Its stack starts at the caller: the frames reach Sentry and its default
+ * grouping reads them, so a frame of this builder's own would regroup every
+ * report it is shared into.
+ */
+export function dependencyUnavailableReport(classified: DependencyFailure, route?: string): Error {
+  const report = new Error('an availability refusal named the dependency behind it');
+  Error.captureStackTrace(report, dependencyUnavailableReport);
+  report.name = 'DependencyUnavailable';
+  return Object.assign(report, {
+    ...(route === undefined ? {} : { dependencyRoute: route }),
+    dependency: classified.dependency,
+    dependencyFailure: classified.failure,
+    dependencyLate: classified.late,
+  });
 }

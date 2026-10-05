@@ -1,11 +1,21 @@
+import { parseChargeKey } from '@hushbox/shared/affordability';
 import {
   runSettlement,
   runSettlementSavepoint,
   succeedRunKeyRow,
 } from '../../../../lib/idempotency/index.js';
 import { chargeWithinTx } from '../../../billing/index.js';
-import { AbsorbedSettlementRefusal, SettlementConflictError } from './failures.js';
-import type { SettlementCharge, SettlementHook, SettlementRequest } from '@hushbox/shared';
+import {
+  AbsorbedSettlementRefusal,
+  BilledSettlementRefusal,
+  SettlementConflictError,
+} from './failures.js';
+import type {
+  SettlementCharge,
+  SettlementHook,
+  SettlementReceipt,
+  SettlementRequest,
+} from '@hushbox/shared';
 import type { Database } from '@hushbox/db';
 import type { KeyRowFence, SettlementTx } from '../../../../lib/idempotency/index.js';
 import type { BillingStores, ChargeInput, ChargeSender } from '../../../billing/index.js';
@@ -39,8 +49,14 @@ export class SettlementCompletionError extends Error {
   }
 }
 
-/** Persists content + charges within the settlement transaction. */
-export type SettlementCommit = (tx: SettlementTx, request: SettlementRequest) => Promise<void>;
+/**
+ * Persists content + charges within the settlement transaction, and yields the
+ * charges it posted, each with the storage fee it was posted with.
+ */
+export type SettlementCommit = (
+  tx: SettlementTx,
+  request: SettlementRequest
+) => Promise<readonly SettlementCharge[]>;
 
 /**
  * The fenced `claimed → succeeded` flip; production wires `keyRowCompletion`.
@@ -53,13 +69,15 @@ export type KeyRowCompletion = (
   fence: KeyRowFence
 ) => Promise<'flipped' | 'lost' | 'missing'>;
 
-/** What a refusal commit did with a refused run's charges. */
-type RefusalDisposition = 'billed' | 'absorbed';
+/**
+ * What a refusal commit did with a refused run's charges: the charges it posted,
+ * or `'absorbed'` when nobody was left to pay and nothing was written.
+ */
+type RefusalDisposition = SettlementReceipt | 'absorbed';
 
 /**
  * Bills a refused run inside the settlement transaction, after its commit's
- * savepoint rolled back: `'billed'` when the charges landed, `'absorbed'` when
- * nobody was left to pay and nothing was written.
+ * savepoint rolled back.
  */
 export type SettlementRefusalCommit = (
   tx: SettlementTx,
@@ -92,34 +110,36 @@ interface FencedSettlementDeps {
  */
 export function createFencedSettlementHook(deps: FencedSettlementDeps): SettlementHook {
   return async (request) => {
-    const refused = await runSettlement(deps.db, async (tx) => {
-      const refusal = await commitOrBillRefusal(tx, request, deps);
+    const settled = await runSettlement(deps.db, async (tx) => {
+      const result = await commitOrBillRefusal(tx, request, deps);
       const outcome = await deps.complete(tx, deps.fence);
       if (outcome === 'lost') throw new SettlementFenceLost();
-      return refusal;
+      return result;
     });
-    if (refused !== undefined) throw refused;
+    if (settled instanceof SettlementConflictError) throw settled;
+    return { billed: settled };
   };
 }
 
-/** Runs the commit, or bills its refusal; yields the refusal, marked absorbed when nobody paid. */
+/**
+ * Runs the commit and yields what it posted, or bills its refusal and yields the
+ * refusal: carrying the charges it posted, or marked absorbed when nobody paid.
+ */
 async function commitOrBillRefusal(
   tx: SettlementTx,
   request: SettlementRequest,
   deps: FencedSettlementDeps
-): Promise<SettlementConflictError | undefined> {
+): Promise<readonly SettlementCharge[] | SettlementConflictError> {
   const { refusalCommit } = deps;
-  if (refusalCommit === undefined) {
-    await deps.commit(tx, request);
-    return undefined;
-  }
+  if (refusalCommit === undefined) return deps.commit(tx, request);
   try {
-    await runSettlementSavepoint(tx, (savepoint) => deps.commit(savepoint, request));
-    return undefined;
+    return await runSettlementSavepoint(tx, (savepoint) => deps.commit(savepoint, request));
   } catch (error) {
     if (!(error instanceof SettlementConflictError)) throw error;
     const disposition = await refusalCommit(tx, request);
-    return disposition === 'absorbed' ? new AbsorbedSettlementRefusal(error) : error;
+    return disposition === 'absorbed'
+      ? new AbsorbedSettlementRefusal(error)
+      : new BilledSettlementRefusal(error, disposition.billed);
   }
 }
 
@@ -213,13 +233,13 @@ export function createRefusalChargingCommit(
   deps: RefusalChargingCommitDeps
 ): SettlementRefusalCommit {
   return async (tx, request) => {
+    const billed: SettlementCharge[] = [];
     for (const charge of request.charges) {
-      await chargeWithinTx(deps.stores, tx, {
-        ...chargeInputFor(charge, null, deps.context),
-        storageFeeNanoUsd: 0n,
-      });
+      const posted = { ...charge, storageFeeNanoUsd: 0n };
+      await chargeWithinTx(deps.stores, tx, chargeInputFor(posted, null, deps.context));
+      billed.push(posted);
     }
-    return 'billed';
+    return { billed };
   };
 }
 
@@ -233,6 +253,7 @@ export function createRefusalChargingCommit(
 export function createChargingCommit(deps: ChargingCommitDeps): SettlementCommit {
   return async (tx, request) => {
     const runChargeKeys = request.charges.map((charge) => charge.key);
+    const billed: SettlementCharge[] = [];
     for (const charge of request.charges) {
       const contentItemId = anchorContentItemId(
         charge.key,
@@ -241,7 +262,9 @@ export function createChargingCommit(deps: ChargingCommitDeps): SettlementCommit
       );
       if (contentItemId === undefined) continue;
       await chargeWithinTx(deps.stores, tx, chargeInputFor(charge, contentItemId, deps.context));
+      billed.push(charge);
     }
+    return billed;
   };
 }
 
@@ -277,11 +300,8 @@ export function anchorChargeKey(
   runChargeKeys: readonly string[]
 ): string | undefined {
   if (persistedContentFor(key)) return key;
-  const separator = key.lastIndexOf('#');
-  if (separator !== -1) {
-    const base = key.slice(0, separator);
-    if (persistedContentFor(base)) return base;
-  }
+  const { parentKey } = parseChargeKey(key);
+  if (parentKey !== undefined && persistedContentFor(parentKey)) return parentKey;
   return runChargeKeys.find((candidate) => persistedContentFor(candidate));
 }
 

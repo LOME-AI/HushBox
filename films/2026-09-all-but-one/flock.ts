@@ -423,10 +423,10 @@ const FACE_X = CX;
 const FACE_Y = 1330;
 const FACE_R = 330;
 
-export const DROP = bf(24);
+const DROP = bf(24);
 const CONVERGE = bf(30.75);
 /** The beat the flock becomes the Devil's face. */
-export const FACE_BEAT = 32;
+const FACE_BEAT = 32;
 const FACE = bf(FACE_BEAT);
 
 /** The three heroes: each carries one secret across the lens, from `from` to `to`, lunging on its swoop. */

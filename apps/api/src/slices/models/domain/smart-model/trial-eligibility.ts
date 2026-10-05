@@ -1,7 +1,6 @@
 import { isRunnableModelShape } from '@hushbox/shared';
 import {
-  exceedsTrialBudget,
-  isPremiumModel,
+  isTrialPremiumModel,
   premiumPriceThresholdNanoUsd,
   priceableModelFrom,
 } from '@hushbox/shared/affordability';
@@ -21,7 +20,7 @@ import type { DomainError } from '../../../../lib/errors/index.js';
  *
  * Every classification rule is the money layer's: the price percentile, the
  * recency window and the minimal-exchange affordability leg are
- * `premiumPriceThresholdNanoUsd`, `isPremiumModel` and `exceedsTrialBudget`, and
+ * `premiumPriceThresholdNanoUsd` and `isTrialPremiumModel`, and
  * both affordability legs price through the money layer's one trial turn price.
  * This file contributes what counts as a TEXT model, and nothing about premium.
  *
@@ -41,15 +40,6 @@ import type { DomainError } from '../../../../lib/errors/index.js';
 // against the reserve-side price of a trial turn, which covers the provider
 // legs only.
 export { TRIAL_MESSAGE_COST_CAP_NANO_USD } from '@hushbox/shared/affordability';
-
-/**
- * The coarse prompt-character basis the MODEL-level classification leg prices
- * its minimal exchange over. A fixed figure, not the turn's real prompt: this
- * leg answers "may this model ever be used on trial", which must not move with
- * what a user typed. At 3 characters per token it is 334 input tokens, and the
- * 2,000 output tokens dominate it.
- */
-const TRIAL_CLASSIFICATION_PROMPT_CHARS = 1000;
 
 type TrialEligibility =
   | { readonly eligible: true }
@@ -129,9 +119,9 @@ export function premiumThresholdFor(
  * models. `nowMs` is the reference clock for recency.
  *
  * Both premium legs and the trial affordability leg are the money layer's own
- * (`isPremiumModel`, `premiumPriceThresholdNanoUsd`, `exceedsTrialBudget`): the
- * percentile and the recency window exist ONCE, inside the module, so this gate
- * and every other premium surface cannot drift apart.
+ * (`isTrialPremiumModel`, `premiumPriceThresholdNanoUsd`): the percentile, the
+ * recency window and the trial classification's prompt size exist ONCE, inside
+ * the module, so this gate and the trial tier's row verdict cannot drift apart.
  */
 export function trialEligibilityAgainst(
   target: ModelDescriptor,
@@ -146,15 +136,13 @@ export function trialEligibilityAgainst(
 
   // The release date rides the projection, which is also where the catalog's
   // seconds become the milliseconds every comparison in the money module uses.
-  const premium = isPremiumModel({
+  const premium = isTrialPremiumModel({
     model,
     ...(priceThresholdNanoUsd === undefined ? {} : { priceThresholdNanoUsd }),
     nowMs,
   });
 
-  if (premium || exceedsTrialBudget(model, TRIAL_CLASSIFICATION_PROMPT_CHARS)) {
-    return { eligible: false, reason: 'premium' };
-  }
+  if (premium) return { eligible: false, reason: 'premium' };
   return { eligible: true };
 }
 

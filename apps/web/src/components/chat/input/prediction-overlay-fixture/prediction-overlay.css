@@ -1,0 +1,6 @@
+/* The app's own entry stylesheet, so the overlay and the composer resolve their wrap under
+   the cascade they ship in, the repo's own utility overrides included. */
+@import '../../../../app.css';
+
+/* The overlay's classes live in its own file, which this fixture's directory does not contain. */
+@source '../*.tsx';

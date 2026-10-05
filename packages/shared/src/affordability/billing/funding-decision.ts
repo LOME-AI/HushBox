@@ -152,12 +152,15 @@ interface GroupTerm {
 function groupTerms(
   memberRemainingNanoUsd: bigint,
   conversationRemainingNanoUsd: bigint,
-  ownerPurchasedBalanceNanoUsd: bigint
+  ownerPurchasedBalanceNanoUsd: bigint,
+  ownerHeldNanoUsd: bigint
 ): readonly [GroupTerm, GroupTerm, GroupTerm] {
   return [
     {
       limit: 'owner_balance',
-      nanoUsd: clampNonNegative(spendableFundsNanoUsd(ownerPurchasedBalanceNanoUsd)),
+      nanoUsd: clampNonNegative(
+        spendableFundsNanoUsd(ownerPurchasedBalanceNanoUsd) - ownerHeldNanoUsd
+      ),
     },
     { limit: 'member_allocation', nanoUsd: clampNonNegative(memberRemainingNanoUsd) },
     { limit: 'conversation_budget', nanoUsd: clampNonNegative(conversationRemainingNanoUsd) },
@@ -206,14 +209,20 @@ export function groupHeadroom(
   ownerPurchasedBalanceNanoUsd: bigint
 ): bigint {
   return bindingTerm(
-    groupTerms(memberRemainingNanoUsd, conversationRemainingNanoUsd, ownerPurchasedBalanceNanoUsd)
+    groupTerms(
+      memberRemainingNanoUsd,
+      conversationRemainingNanoUsd,
+      ownerPurchasedBalanceNanoUsd,
+      0n
+    )
   ).nanoUsd;
 }
 
 /**
- * The five figures a hold-aware group headroom is composed from: each scoped
- * cap's remaining allowance, the amount that scope's own in-flight runs have
- * reserved, and the owner's raw purchased balance.
+ * The figures a hold-aware group headroom is composed from: each scoped cap's
+ * remaining allowance and what that scope's own in-flight runs have reserved,
+ * and the owner's raw purchased balance and what every in-flight run on that
+ * wallet has reserved.
  */
 export interface HoldAwareGroupDimensions {
   /** Sender's per-member allowance, cap − spent; `0n` when no row exists. */
@@ -226,6 +235,8 @@ export interface HoldAwareGroupDimensions {
   readonly conversationHeldNanoUsd: bigint;
   /** Owner's RAW purchased balance — {@link groupHeadroom} adds the cushion. */
   readonly ownerPurchasedBalanceNanoUsd: bigint;
+  /** What the active holds on the owner's purchased wallet have reserved, from any conversation. */
+  readonly ownerHeldNanoUsd: bigint;
 }
 
 /**
@@ -237,9 +248,11 @@ export interface HoldAwareGroupDimensions {
  * hand-written compositions can drift while both still call the same min, which
  * is the drift `docs/BILLING.md` §Affordability 8 records the cost of.
  *
- * The owner dimension takes no subtraction: an owner's holds are their own
- * wallet's business, and a hold the owner placed on an unrelated conversation
- * must not shrink what a member here may spend.
+ * The owner dimension subtracts every active hold on the owner's wallet,
+ * whichever conversation placed it, because admission refuses a run once the
+ * paying wallet's spendable funds less its holds fall short of the estimate. It
+ * moves the figure only when the owner term, with those holds taken off, is the
+ * smallest of the three.
  */
 export function holdAwareGroupHeadroom(dimensions: HoldAwareGroupDimensions): bigint {
   return bindingTerm(holdAwareTerms(dimensions)).nanoUsd;
@@ -260,7 +273,8 @@ function holdAwareTerms(
   return groupTerms(
     dimensions.memberRemainingNanoUsd - dimensions.memberHeldNanoUsd,
     dimensions.conversationRemainingNanoUsd - dimensions.conversationHeldNanoUsd,
-    dimensions.ownerPurchasedBalanceNanoUsd
+    dimensions.ownerPurchasedBalanceNanoUsd,
+    dimensions.ownerHeldNanoUsd
   );
 }
 

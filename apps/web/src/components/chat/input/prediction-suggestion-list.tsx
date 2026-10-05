@@ -42,13 +42,8 @@ function suggestionTail(typedText: string): string {
 interface SuggestionRowsProps {
   readonly typedText: string;
   readonly candidates: readonly string[];
-  /** Omit to render the rows as pure reserved space. */
-  readonly onSelect: ((completion: string) => void) | undefined;
-  /**
-   * The row holding the keyboard's virtual focus, or `null` while none does.
-   * Ignored on the reserved (non-interactive) rendering, which never becomes
-   * the target of a keypress in the first place.
-   */
+  readonly onSelect: (completion: string) => void;
+  /** The row holding the keyboard's virtual focus, or `null` while none does. */
   readonly activeIndex: number | null;
 }
 
@@ -60,7 +55,6 @@ function SuggestionRows({
 }: Readonly<SuggestionRowsProps>): React.JSX.Element {
   const tail = suggestionTail(typedText);
   const elided = tail !== typedText;
-  const interactive = onSelect !== undefined;
 
   return (
     <div
@@ -75,10 +69,11 @@ function SuggestionRows({
       // margin against subpixel rounding, on every row including the first and
       // last.
       className="mt-2 flex flex-col gap-0.5 p-1"
-      {...(interactive ? { id: PREDICTION_SUGGESTION_LISTBOX_ID, role: 'listbox' } : {})}
+      id={PREDICTION_SUGGESTION_LISTBOX_ID}
+      role="listbox"
     >
       {candidates.map((completion, index) => {
-        const active = interactive && index === activeIndex;
+        const active = index === activeIndex;
         return (
           // Slot identity is positional, not content-based: row N stays the
           // same DOM node when one settled set replaces another, so the
@@ -87,19 +82,13 @@ function SuggestionRows({
           <button
             key={index}
             type="button"
-            data-slot={
-              interactive ? 'prediction-suggestion-row' : 'prediction-suggestion-reserve-row'
-            }
-            {...(interactive
-              ? { id: suggestionRowId(index), role: 'option', 'aria-selected': active }
-              : { tabIndex: -1 })}
-            {...(onSelect === undefined
-              ? {}
-              : {
-                  onClick: (): void => {
-                    onSelect(completion);
-                  },
-                })}
+            data-slot="prediction-suggestion-row"
+            id={suggestionRowId(index)}
+            role="option"
+            aria-selected={active}
+            onClick={(): void => {
+              onSelect(completion);
+            }}
             className={cn(
               'hover:bg-accent focus-visible:ring-ring flex w-full items-baseline overflow-hidden rounded-md px-3 py-1 text-left text-sm focus-visible:ring-2 focus-visible:outline-hidden',
               // The keyboard's virtual focus never lands DOM focus on the row —
@@ -161,51 +150,14 @@ export function PredictionSuggestionList({
   const rows = React.useMemo(() => rowsToDraw(candidates), [candidates]);
   const activeIndex = useActiveSuggestionIndex();
   return (
-    <AnimatedHeight>
-      {rows === null ? null : (
-        <SuggestionRows
-          typedText={typedText}
-          candidates={rows}
-          onSelect={onSelect}
-          activeIndex={activeIndex}
-        />
-      )}
-    </AnimatedHeight>
-  );
-}
-
-type PredictionSuggestionListSpacerProps = Omit<PredictionSuggestionListProps, 'onSelect'>;
-
-/**
- * The list's height, reserved above the composer instead of below it.
- *
- * `ChatWelcome`'s column is centred, so a list appearing under the composer
- * would pull the composer up by half its height. This renders the identical
- * subtree ahead of the greeting: the same height then enters the column twice,
- * once on each side of the composer, and a centred column that grows equally
- * above and below leaves everything between the two additions exactly where it
- * was. It is the list component itself rather than a matching constant because
- * a reserved height that has to be kept in step with a real one drifts the
- * first time a row's type size changes.
- *
- * It is `invisible` rather than `display: none` deliberately — hidden
- * visibility still lays out, which is the whole point, and it takes the rows
- * out of the tab order and the accessibility tree at the same time.
- */
-export function PredictionSuggestionListSpacer({
-  typedText,
-  candidates,
-}: Readonly<PredictionSuggestionListSpacerProps>): React.JSX.Element {
-  const rows = React.useMemo(() => rowsToDraw(candidates), [candidates]);
-  return (
-    <div data-slot="prediction-suggestion-spacer" aria-hidden="true" className="invisible">
+    <div data-slot="prediction-suggestion-list">
       <AnimatedHeight>
         {rows === null ? null : (
           <SuggestionRows
             typedText={typedText}
             candidates={rows}
-            onSelect={undefined}
-            activeIndex={null}
+            onSelect={onSelect}
+            activeIndex={activeIndex}
           />
         )}
       </AnimatedHeight>

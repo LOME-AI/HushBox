@@ -293,7 +293,23 @@ describe('identity routes: account-deletion request', () => {
     const init = await deleteInit(cookie, account.password);
     const res = await deleteFinish(cookie, init, { totpCode: generateTotpCodeSync(secret) });
     expect(res.status).toBe(403);
-    const body = await res.json<{ code: string }>();
+    const body = await res.json<{ code: string; details: { retryAfterSeconds: number } }>();
     expect(body.code).toBe(ERROR_CODES.DELETE_ACCOUNT_LOCKED);
+    expect(body.details.retryAfterSeconds).toBeGreaterThan(0);
+  });
+
+  it('answers the frozen code with no wait when the consecutive-failure ceiling is spent at deletion', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+    const { maxAttempts, windowSeconds } = IDENTITY_KEYS.twoFactorCeiling;
+    await redis.set(
+      rateLimitKey(IDENTITY_KEYS.twoFactorCeiling, account.userId)._unsafeUnwrap(),
+      maxAttempts,
+      { ex: windowSeconds }
+    );
+    const init = await deleteInit(cookie, account.password);
+    const res = await deleteFinish(cookie, init, { totpCode: generateTotpCodeSync(secret) });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ code: ERROR_CODES.TWO_FACTOR_FROZEN });
   });
 });

@@ -104,16 +104,18 @@ export interface AccountLockedEmailPort {
 }
 
 /**
- * Security notification sent when a login that already passed the password
- * first trips the two-factor guessing gate: whoever is sending wrong codes
- * holds the password. Same shape and doctrine as AccountLockedEmailPort —
- * composition-root adapter over the notifications slice's template +
- * EmailSender, best-effort, never changing the verify response.
+ * Security notification sent once per run of failed codes at a login that
+ * already passed the password: whoever is sending wrong codes holds the
+ * password. AccountLockedEmailPort's shape and doctrine — composition-root
+ * adapter over the notifications slice's template + EmailSender, best-effort,
+ * never changing the verify response — except that `lockoutMinutes` is absent
+ * when the consecutive-failure ceiling froze two-factor sign-in: no wait in
+ * minutes applies there, and the recovery-phrase reset is the remedy.
  */
 export interface TwoFactorLockedEmailPort {
   sendTwoFactorLockedEmail(args: {
     readonly to: string;
     readonly userName?: string;
-    readonly lockoutMinutes: number;
+    readonly lockoutMinutes: number | undefined;
   }): ResultAsync<void, DomainError>;
 }

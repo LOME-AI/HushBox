@@ -32,6 +32,7 @@ import { CLAIM_FLAG } from './release/compute-next-version.js';
 import { SHIPPED_OUTPUT } from './release/deploy-shipped.js';
 import { readRepositories } from './configure-git-clone.js';
 import { deploySecretKeys, escrowEnvironments, workflowSections } from './generate-env.js';
+import { PUBLISHING_ENVIRONMENT, sweepBindings } from './lib/artifact-sweep/registry-values.js';
 import { SURFACES } from './lib/deployed-surfaces.js';
 import { ENV_MODE_VARIABLE } from './lib/stack/stack-mode.js';
 import { composeProjectName } from './lib/cli/worktree.js';
@@ -132,6 +133,8 @@ interface WorkflowJob {
   readonly needs?: string | string[];
   readonly steps?: WorkflowStep[];
   readonly env?: Record<string, unknown>;
+  /** The GitHub environment whose secrets the job reads, beside the repository's. */
+  readonly environment?: unknown;
   /** Present instead of `steps` on a reusable-workflow call. */
   readonly uses?: string;
   /** The inputs a reusable-workflow call passes. */
@@ -1590,6 +1593,9 @@ describe('the mobile emulator image push', () => {
 
 /** The script both build-identity steps run: the build stamps, the deploy checks. */
 const STAMP_ENTRY = 'scripts/stamp-build-identity.ts';
+const SWEEP_ENTRY = 'scripts/sweep-shipped-artifacts.ts';
+/** The production values the generated sweep block binds, by the key each step reads. */
+const artifactSweepKeys = (): string[] => sweepBindings().bound.map(({ key }) => key);
 const SURFACE_PROBE_ENTRY = 'scripts/release/verify-deployed-surfaces.ts';
 const SURFACE_PROBE_STEP = 'Verify every deployed surface serves this version';
 const API_HEALTH_STEP = 'Verify API health (real host + version/OTA assert)';
@@ -1770,6 +1776,63 @@ describe('the deploy order', () => {
     for (const name of PUBLISHING_STEPS) {
       expect(position(name), name).toBeGreaterThan(check);
     }
+  });
+
+  const SWEEP_STEP = 'Sweep shipped artifacts for secrets';
+  const SWEEP_COMMAND = `pnpm tsx ${SWEEP_ENTRY} `;
+
+  /** The OTA bundle directories, read off the platform loop of the step that zips and uploads them. */
+  const otaDists = (): string[] => {
+    const loop = /for platform in ([^;\n]+); do/u.exec(
+      step('Upload mobile OTA bundles to R2')?.run ?? ''
+    );
+    return (loop?.[1] ?? '')
+      .trim()
+      .split(/\s+/u)
+      .map((platform) => `apps/web/dist-${platform}`);
+  };
+
+  it('sweeps every dist it publishes, the OTA bundles included', () => {
+    const published = [...downloadedDists(ci), ...otaDists()];
+
+    expect(otaDists()).not.toEqual([]);
+    expect(namedDists(step(SWEEP_STEP)?.run ?? '', SWEEP_COMMAND)).toEqual(alphabetical(published));
+  });
+
+  it('sweeps after the deep-link substitution edits the web dist and every dist is downloaded', () => {
+    const sweep = position(SWEEP_STEP);
+
+    expect(sweep).toBeGreaterThanOrEqual(0);
+    for (const earlier of [
+      'Substitute deep-link association files',
+      'Download web build artifact',
+      'Download admin build artifact',
+      'Download sandbox build artifact',
+      'Download mobile build artifacts',
+    ]) {
+      expect(position(earlier), earlier).toBeGreaterThanOrEqual(0);
+      expect(position(earlier), earlier).toBeLessThan(sweep);
+    }
+  });
+
+  it('sweeps before every step that publishes, under no condition of its own', () => {
+    const sweep = position(SWEEP_STEP);
+
+    expect(sweep).toBeGreaterThanOrEqual(0);
+    expect(step(SWEEP_STEP)?.if).toBeUndefined();
+    for (const name of PUBLISHING_STEPS) {
+      expect(position(name), name).toBeGreaterThan(sweep);
+    }
+  });
+
+  it('runs under the environment the sweep reads its values from', () => {
+    expect(deploy?.environment).toBe(PUBLISHING_ENVIRONMENT);
+  });
+
+  it('binds the sweep exactly the generated set of production values', () => {
+    expect(Object.keys(step(SWEEP_STEP)?.env ?? {}).toSorted(byKey)).toEqual(
+      artifactSweepKeys().toSorted(byKey)
+    );
   });
 
   const probe = step(SURFACE_PROBE_STEP);
@@ -2483,7 +2546,8 @@ describe('the deploy job secret scope', () => {
    * The backend keys each other step's command reads, which is all of the
    * ops-script set it may name. Every wrangler call reads the account id; the
    * weights publish signs its probes with the R2 keys; the API deploy binds
-   * the secret set it uploads with the code; the migration selects
+   * the secret set it uploads with the code; the artifact sweep looks for
+   * every production value it can read; the migration selects
    * `DATABASE_URL` by `NODE_ENV`; the health probe addresses the production
    * API; the surface probe addresses every surface origin and the Access team
    * its admin redirect must reach.
@@ -2501,6 +2565,7 @@ describe('the deploy job secret scope', () => {
     'Verify secrets deployed': WRANGLER_ACCOUNT,
     'Run database migrations (production)': ['DATABASE_URL', 'NODE_ENV'],
     'Deploy API to Workers': deploySecretKeys(),
+    'Sweep shipped artifacts for secrets': artifactSweepKeys(),
     'Deploy Web to Pages': WRANGLER_ACCOUNT,
     'Deploy Admin assets Worker': WRANGLER_ACCOUNT,
     'Deploy Sandbox assets Worker': WRANGLER_ACCOUNT,
@@ -3215,5 +3280,111 @@ describe('the e2e bundle builds', () => {
 
   it('declares one copy of the e2e build env per step that builds an e2e bundle', () => {
     expect(section?.owners.filter((owner) => owner === ciFile)).toHaveLength(builds.length);
+  });
+});
+
+/**
+ * Each native build sweeps the app archive it is about to publish, between its
+ * build and its first publish, whatever output the caller asked for.
+ */
+describe('the native app sweeps', () => {
+  const SWEEP_STEP = 'Sweep the built app for secrets';
+
+  const native = [
+    {
+      file: 'build-android.yml',
+      builds: ['Build APK', 'Build AAB'],
+      publishes: [
+        'Create GitHub Release',
+        'Upload AAB to Play Store',
+        'Upload AAB as workflow artifact',
+      ],
+    },
+    {
+      file: 'build-ios.yml',
+      builds: ['Build IPA'],
+      publishes: ['Upload IPA as workflow artifact', 'Upload to App Store Connect'],
+    },
+  ] as const;
+
+  it.each(native)(
+    '$file sweeps after every build and before every publish',
+    ({ file, builds, publishes }) => {
+      const steps = stepsOf(load(file));
+      const at = (name: string): number => steps.findIndex((candidate) => candidate.name === name);
+      const sweep = at(SWEEP_STEP);
+
+      expect(sweep).toBeGreaterThanOrEqual(0);
+      for (const name of builds) {
+        expect(at(name), name).toBeGreaterThanOrEqual(0);
+        expect(at(name), name).toBeLessThan(sweep);
+      }
+      for (const name of publishes) {
+        expect(at(name), name).toBeGreaterThan(sweep);
+      }
+    }
+  );
+
+  it.each(native)(
+    '$file builds under the environment the sweep reads its values from',
+    ({ file }) => {
+      expect(load(file).jobs['build']?.environment).toBe(PUBLISHING_ENVIRONMENT);
+    }
+  );
+
+  it.each(native)('$file sweeps under no condition of its own', ({ file }) => {
+    const sweep = stepsOf(load(file)).find((candidate) => candidate.name === SWEEP_STEP);
+
+    expect(sweep?.if).toBeUndefined();
+    expect(sweep?.run).toMatch(new RegExp(`^pnpm tsx ${SWEEP_ENTRY} `, 'u'));
+  });
+
+  it.each(native)('$file binds the sweep the generated set of production values', ({ file }) => {
+    const sweep = stepsOf(load(file)).find((candidate) => candidate.name === SWEEP_STEP);
+    const bound = Object.keys(sweep?.env ?? {}).filter((key) => key !== 'APP_ARCHIVE');
+
+    expect(bound.toSorted(byKey)).toEqual(artifactSweepKeys().toSorted(byKey));
+  });
+
+  it('sweeps the archive each Android output publishes', () => {
+    const steps = stepsOf(load('build-android.yml'));
+    const sweep = steps.find((candidate) => candidate.name === SWEEP_STEP);
+    const archive = sweep?.env?.['APP_ARCHIVE'] ?? '';
+    const release = steps.find((candidate) => candidate.name === 'Create GitHub Release');
+    const artifact = steps.find(
+      (candidate) => candidate.name === 'Upload AAB as workflow artifact'
+    );
+
+    expect(sweep?.run).toBe(`pnpm tsx ${SWEEP_ENTRY} "$APP_ARCHIVE"`);
+    expect(release?.run).toContain(
+      'apps/web/android/app/build/outputs/apk/release/app-release.apk'
+    );
+    expect(archive).toContain(
+      "inputs.output == 'apk-github-release' && 'apps/web/android/app/build/outputs/apk/release/app-release.apk'"
+    );
+    expect(archive).toContain(`|| '${String(artifact?.with?.['path'])}'`);
+  });
+
+  it('sweeps the IPA that iOS uploads', () => {
+    const steps = stepsOf(load('build-ios.yml'));
+    const sweep = steps.find((candidate) => candidate.name === SWEEP_STEP);
+    const artifact = steps.find(
+      (candidate) => candidate.name === 'Upload IPA as workflow artifact'
+    );
+
+    expect(sweep?.run).toBe(`pnpm tsx ${SWEEP_ENTRY} ${String(artifact?.with?.['path'])}`);
+  });
+
+  it('builds the IPA in a step of its own, so no fastlane run both builds and uploads', () => {
+    const fastlaneRuns = stepsOf(load('build-ios.yml'))
+      .map((candidate) => candidate.run ?? '')
+      .filter((run) => run.includes('fastlane'));
+
+    expect(fastlaneRuns.toSorted(byKey)).toEqual(
+      [
+        'bundle exec fastlane build',
+        'bundle exec fastlane upload submit_for_review:"$SUBMIT_FOR_REVIEW"',
+      ].toSorted(byKey)
+    );
   });
 });

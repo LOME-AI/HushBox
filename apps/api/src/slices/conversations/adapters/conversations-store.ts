@@ -1,4 +1,17 @@
-import { and, count, desc, eq, exists, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+  type SQL,
+  type SQLWrapper,
+} from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { conversationMembers, conversations, epochs, users } from '@hushbox/db';
 import { fromPromise, okAsync } from '../../../lib/result/index.js';
@@ -22,6 +35,13 @@ const conversationColumns = {
 export function createConversationsStore(db: DbWriter): ConversationsStore {
   const inviter = alias(users, 'inviter');
   const seat = alias(conversationMembers, 'seat');
+  // The one member count both reads serve: seats not left. A lapsed link still counts
+  // until its seat is marked left, as the member list shows it.
+  const memberCountOf = (conversationId: SQLWrapper | string): SQL<number> =>
+    sql<number>`(${db
+      .select({ count: count() })
+      .from(seat)
+      .where(and(eq(seat.conversationId, conversationId), notLeft(seat)))})`.mapWith(Number);
 
   return {
     insert: ({ id, ownerUserId, title }) =>
@@ -74,13 +94,18 @@ export function createConversationsStore(db: DbWriter): ConversationsStore {
         storeFailure
       ).map((rows) => rows[0] ?? null),
 
+    memberCount: (conversationId) =>
+      fromPromise(
+        db
+          .select({ memberCount: memberCountOf(conversationId) })
+          .from(conversations)
+          .where(eq(conversations.id, conversationId)),
+        storeFailure
+      ).map((rows) => rows[0]?.memberCount ?? 0),
+
     listForUser: ({ userId, limit, cursor }) => {
-      // Correlated per row, so the page and its counts stay one statement. A lapsed
-      // link still counts until its seat is marked left, as the member list shows it.
-      const memberCount = sql<number>`(${db
-        .select({ count: count() })
-        .from(seat)
-        .where(and(eq(seat.conversationId, conversations.id), notLeft(seat)))})`.mapWith(Number);
+      // Correlated per row, so the page and its counts stay one statement.
+      const memberCount = memberCountOf(conversations.id);
       // `and()` drops undefined members, so the no-cursor case needs no guard.
       const conditions = and(
         eq(conversationMembers.userId, userId),

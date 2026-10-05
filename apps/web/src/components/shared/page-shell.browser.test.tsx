@@ -1,12 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createServer, type Plugin, type ViteDevServer } from 'vite';
+import { type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { chromium, firefox, type Browser, type Page } from '@playwright/test';
+import { startFixtureServer, type FixtureServer } from '@/test-utils/fixture-server';
 
 /**
  * Measures the shell's header in real engines, which lay out the wrap that no test DOM
@@ -113,33 +112,6 @@ function pageModules(): Plugin {
   };
 }
 
-async function startServer(): Promise<{ origin: string; close: () => Promise<void> }> {
-  // A private dependency cache: the app's `node_modules/.vite` is the running dev server's,
-  // and a second optimiser rewriting it leaves that server answering 504.
-  const cacheDir = await mkdtemp(path.join(os.tmpdir(), 'page-shell-header-vite-'));
-  const server: ViteDevServer = await createServer({
-    root: WEB_DIR,
-    configFile: false,
-    cacheDir,
-    logLevel: 'error',
-    plugins: [react(), tailwindcss(), pageModules()],
-    resolve: { alias: [{ find: /^@\/(.*)$/, replacement: path.join(SRC_DIR, '$1') }] },
-    server: { port: 0, host: '127.0.0.1', hmr: false },
-  });
-  await server.listen();
-  const address = server.httpServer?.address();
-  if (address === null || address === undefined || typeof address === 'string') {
-    throw new Error('page shell header server has no port');
-  }
-  return {
-    origin: `http://127.0.0.1:${String(address.port)}`,
-    close: async () => {
-      await server.close();
-      await rm(cacheDir, { recursive: true, force: true });
-    },
-  };
-}
-
 declare global {
   var __pageShellReady: boolean | undefined;
 }
@@ -156,12 +128,17 @@ type EngineName = 'chromium' | 'firefox';
 const ENGINES: readonly EngineName[] = ['chromium', 'firefox'];
 
 describe('page shell header at large text (real browser)', () => {
-  let server: { origin: string; close: () => Promise<void> };
+  let server: FixtureServer;
   const browsers: Partial<Record<EngineName, Browser>> = {};
   const pages: Partial<Record<EngineName, Page>> = {};
 
   beforeAll(async () => {
-    server = await startServer();
+    server = await startFixtureServer({
+      root: WEB_DIR,
+      configFile: false,
+      plugins: [react(), tailwindcss(), pageModules()],
+      resolve: { alias: [{ find: /^@\/(.*)$/, replacement: path.join(SRC_DIR, '$1') }] },
+    });
     const [chromiumBrowser, firefoxBrowser] = await Promise.all([
       chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] }),
       firefox.launch(),
@@ -172,7 +149,7 @@ describe('page shell header at large text (real browser)', () => {
       const browser = browsers[engine];
       if (browser === undefined) throw new Error(`${engine} did not launch`);
       const page = await browser.newPage({ viewport: { width: PHONE_WIDTH_PX, height: 800 } });
-      await page.goto(`${server.origin}/page-shell-header.html`, {
+      await page.goto(`${server.url}/page-shell-header.html`, {
         waitUntil: 'commit',
         timeout: LOAD_MS,
       });

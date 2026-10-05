@@ -1,8 +1,8 @@
 /**
  * The limit an owner-funded snapshot names is the dimension its served figure
- * comes from: over every combination of remaining allowances, holds and owner
- * balance, the named dimension's clamped, hold-adjusted value is the hold-aware
- * headroom, and no other dimension is smaller.
+ * comes from: over every combination of remaining allowances, scope holds, owner
+ * balance and owner wallet holds, the named dimension's clamped, hold-adjusted
+ * value is the hold-aware headroom, and no other dimension is smaller.
  *
  * The generator is `groupDimensionsArb`. It draws every figure from a pool
  * weighted onto negative, zero and positive amounts, with small magnitudes so
@@ -34,6 +34,7 @@ const groupDimensionsArb: fc.Arbitrary<HoldAwareGroupDimensions> = fc.record({
   conversationRemainingNanoUsd: nanoArb,
   conversationHeldNanoUsd: nanoArb,
   ownerPurchasedBalanceNanoUsd: nanoArb,
+  ownerHeldNanoUsd: nanoArb,
 });
 
 function clamp(value: bigint): bigint {
@@ -45,7 +46,9 @@ function clampedDimensions(
   dimensions: HoldAwareGroupDimensions
 ): Readonly<Record<OwnerFundingLimit, bigint>> {
   return {
-    owner_balance: clamp(spendableFundsNanoUsd(dimensions.ownerPurchasedBalanceNanoUsd)),
+    owner_balance: clamp(
+      spendableFundsNanoUsd(dimensions.ownerPurchasedBalanceNanoUsd) - dimensions.ownerHeldNanoUsd
+    ),
     member_allocation: clamp(dimensions.memberRemainingNanoUsd - dimensions.memberHeldNanoUsd),
     conversation_budget: clamp(
       dimensions.conversationRemainingNanoUsd - dimensions.conversationHeldNanoUsd

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import {
   TEXTAREA_MIRROR_CLASSES,
-  TEXTAREA_WRAP_CLASSES,
+  TEXTAREA_NATIVE_WRAP_CLASSES,
   TouchDeviceOverrideContext,
 } from '@hushbox/ui';
-import { PredictionOverlay } from '@/components/chat/input/prediction-overlay';
+import { PredictionOverlay, TAP_CLICK_WINDOW_MS } from '@/components/chat/input/prediction-overlay';
 import { initialPredictionState, type PredictionState } from '@/lib/prediction/state';
 import type { SuppressionReason } from '@/lib/prediction/suppression';
 
@@ -92,11 +92,16 @@ describe('PredictionOverlay', () => {
       // Both the wrap behavior and the metrics that align the mirror come from
       // the primitive the composer renders, so there is one definition of them
       // and not two.
-      ...TEXTAREA_WRAP_CLASSES.split(' '),
+      ...TEXTAREA_NATIVE_WRAP_CLASSES.split(' '),
       ...TEXTAREA_MIRROR_CLASSES.split(' '),
     ]) {
       expect(overlay).toHaveClass(className);
     }
+  });
+
+  it("does not carry the sizing replica's break-anywhere wrap, which the textarea itself does not compute", () => {
+    render(<PredictionOverlay state={readyState()} onAccept={vi.fn()} />);
+    expect(overlayElement()).not.toHaveClass('wrap-anywhere');
   });
 
   it('hides the overlay from assistive technology and from the pointer', () => {
@@ -254,5 +259,132 @@ describe('PredictionOverlay Tab hint at each form factor', () => {
     stubFormFactor(390, 'fine');
     render(<PredictionOverlay state={readyState()} onAccept={vi.fn()} />);
     expect(hintElement()).toHaveTextContent('Tab');
+  });
+});
+
+/**
+ * The overlay beside a control standing in for whatever the page lays under the finger once the
+ * hint is taken. Returns the control and the spy its click handler reports to.
+ */
+function renderBesideAControl(): { control: HTMLElement; onControlClick: Mock } {
+  const onControlClick = vi.fn();
+  render(
+    <>
+      <PredictionOverlay state={readyState()} onAccept={vi.fn()} />
+      <button type="button" onClick={onControlClick}>
+        Model
+      </button>
+    </>
+  );
+  return { control: screen.getByRole('button', { name: 'Model' }), onControlClick };
+}
+
+/** A finger's accepting press on the hint, released. */
+function tapHint(): void {
+  fireEvent.pointerDown(predictionElement()!, { pointerType: 'touch' });
+  fireEvent.pointerUp(predictionElement()!, { pointerType: 'touch' });
+}
+
+describe('PredictionOverlay click that follows an accepting tap', () => {
+  it('reaches no control', () => {
+    const { control, onControlClick } = renderBesideAControl();
+    tapHint();
+    fireEvent.click(control);
+    expect(onControlClick).not.toHaveBeenCalled();
+  });
+
+  it('has its default action prevented', () => {
+    const { control } = renderBesideAControl();
+    tapHint();
+    expect(fireEvent.click(control)).toBe(false);
+  });
+
+  it('is swallowed after a pen press as after a finger', () => {
+    const { control, onControlClick } = renderBesideAControl();
+    fireEvent.pointerDown(predictionElement()!, { pointerType: 'pen' });
+    fireEvent.click(control);
+    expect(onControlClick).not.toHaveBeenCalled();
+  });
+
+  it('is the only click swallowed', () => {
+    const { control, onControlClick } = renderBesideAControl();
+    tapHint();
+    fireEvent.click(control);
+    fireEvent.click(control);
+    expect(onControlClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not awaited once the press is cancelled', () => {
+    const { control, onControlClick } = renderBesideAControl();
+    fireEvent.pointerDown(predictionElement()!, { pointerType: 'touch' });
+    fireEvent.pointerCancel(predictionElement()!, { pointerType: 'touch' });
+    fireEvent.click(control);
+    expect(onControlClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not awaited once a new press begins', () => {
+    const { control, onControlClick } = renderBesideAControl();
+    tapHint();
+    fireEvent.pointerDown(control, { pointerType: 'touch' });
+    fireEvent.click(control);
+    expect(onControlClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not awaited once the overlay unmounts', () => {
+    const { unmount } = render(<PredictionOverlay state={readyState()} onAccept={vi.fn()} />);
+    tapHint();
+    unmount();
+    const onLaterClick = vi.fn();
+    const later = document.createElement('button');
+    later.addEventListener('click', onLaterClick);
+    document.body.append(later);
+    fireEvent.click(later);
+    later.remove();
+    expect(onLaterClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not awaited past the window after the release, so a later click is delivered', () => {
+    vi.useFakeTimers();
+    try {
+      const { control, onControlClick } = renderBesideAControl();
+      tapHint();
+      vi.advanceTimersByTime(TAP_CLICK_WINDOW_MS);
+      fireEvent.click(control);
+      expect(onControlClick).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is still swallowed just inside the window after the release', () => {
+    vi.useFakeTimers();
+    try {
+      const { control, onControlClick } = renderBesideAControl();
+      tapHint();
+      vi.advanceTimersByTime(TAP_CLICK_WINDOW_MS - 1);
+      fireEvent.click(control);
+      expect(onControlClick).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('PredictionOverlay accepted by a mouse', () => {
+  it('arms nothing, so a following keyboard click on another control is delivered', () => {
+    const { control, onControlClick } = renderBesideAControl();
+    // A mouse press on the hint produces no click of its own: the pressed node is gone by the
+    // release. The next click is the user's, from the keyboard.
+    fireEvent.pointerDown(predictionElement()!, { pointerType: 'mouse' });
+    fireEvent.pointerUp(control, { pointerType: 'mouse' });
+    fireEvent.click(control, { detail: 0 });
+    expect(onControlClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('still accepts', () => {
+    const onAccept = vi.fn();
+    render(<PredictionOverlay state={readyState()} onAccept={onAccept} />);
+    fireEvent.pointerDown(predictionElement()!, { pointerType: 'mouse' });
+    expect(onAccept).toHaveBeenCalledTimes(1);
   });
 });

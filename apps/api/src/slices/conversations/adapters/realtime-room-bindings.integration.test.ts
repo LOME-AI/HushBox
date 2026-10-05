@@ -56,7 +56,7 @@ const fakeRuntime: CreateRoomRuntime = () => ({
   },
   bindHooks: () => ({
     admission: () => Promise.resolve({ admitted: false, code: 'INTERNAL' }),
-    settlement: () => Promise.resolve(),
+    settlement: () => Promise.resolve({ billed: [] }),
     assistantMessageIds: [],
   }),
   claimRun: () => Promise.resolve({ outcome: 'attach' }),

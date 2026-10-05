@@ -3,11 +3,10 @@ import {
   ALLOWED_MEDIA_MIME_TYPES,
   ASSISTANT_FRAMING_MAX_CHARS,
   ERROR_CODES,
-  ESTIMATED_IMAGE_BYTES,
-  ESTIMATED_VIDEO_BYTES_PER_SECOND,
   MEDIA_STORAGE_COST_PER_BYTE_NANO,
   ReasoningWire,
   STORAGE_COST_PER_CHARACTER_NANO,
+  VALUE_STORE_BYTE_BUDGET_BYTES,
   modelId,
   nanoUSD,
 } from '@hushbox/shared';
@@ -193,6 +192,7 @@ describe('buildMediaTurn', () => {
       params: { aspectRatio: '1:1' },
       nodes,
       constraints,
+      resolve: mediaResolver,
     });
     const definition = result._unsafeUnwrap();
     // A media turn is deadline-classed 'media', not 'text'.
@@ -211,6 +211,7 @@ describe('buildMediaTurn', () => {
       params: { aspectRatio: '16:9', durationSeconds: 6, resolution: '720p' },
       nodes,
       constraints,
+      resolve: mediaResolver,
     });
     const definition = result._unsafeUnwrap();
     expect(definition.nodes).toHaveLength(1);
@@ -230,6 +231,7 @@ describe('buildMediaTurn', () => {
       params: {},
       nodes,
       constraints,
+      resolve: mediaResolver,
     });
     expect(result._unsafeUnwrapErr().code).toBe('validation');
   });
@@ -244,6 +246,7 @@ describe('buildMediaTurn', () => {
       params: {},
       nodes,
       constraints,
+      resolve: mediaResolver,
     });
     expect(result._unsafeUnwrapErr().code).toBe('validation');
   });
@@ -256,6 +259,7 @@ describe('buildMediaTurn', () => {
       params: { aspectRatio: '1:1' },
       nodes,
       constraints,
+      resolve: mediaResolver,
     })._unsafeUnwrap();
     // N=1 must stay behaviorally identical to the historical single-model media
     // turn: one node under CHAT_TURN_NODE_ID (the settlement charge key), not a
@@ -297,6 +301,7 @@ describe('buildMediaTurn multi-model', () => {
       params: { aspectRatio: '1:1' },
       nodes,
       constraints,
+      resolve: threeImageResolver,
     })._unsafeUnwrap();
     expect(definition.deadlineClass).toBe('media');
     const siblings = definition.nodes.filter((node) => node.type === 'modelCall');
@@ -319,7 +324,14 @@ describe('buildMediaTurn multi-model', () => {
     // Total over all three on purpose: an `ok` regression must surface as a
     // named key in the diff below, not as a throw that names no position.
     const codeFor = (models: readonly string[]): string =>
-      buildMediaTurn({ models, modality: 'image', params: {}, nodes, constraints }).match(
+      buildMediaTurn({
+        models,
+        modality: 'image',
+        params: {},
+        nodes,
+        constraints,
+        resolve: threeImageResolver,
+      }).match(
         () => 'ok',
         (error) => error.code
       );
@@ -362,6 +374,7 @@ describe('buildMediaTurn — admission storage stamp', () => {
       params: { aspectRatio: '1:1' },
       nodes,
       constraints,
+      resolve: pricedMediaResolver,
       ...(budget === undefined ? {} : { budget }),
     })._unsafeUnwrap();
   }
@@ -374,6 +387,7 @@ describe('buildMediaTurn — admission storage stamp', () => {
       params: { resolution: '720p', durationSeconds: 4 },
       nodes,
       constraints,
+      resolve: pricedMediaResolver,
       ...(budget === undefined ? {} : { budget }),
     })._unsafeUnwrap();
   }
@@ -386,34 +400,30 @@ describe('buildMediaTurn — admission storage stamp', () => {
     expect(imageTurn().storage).toBeUndefined();
   });
 
-  it('reserves image byte-storage + prompt char-storage at the settlement rates', () => {
-    // Founder-ruled fix: a media turn's hold must reserve what settlement bills —
-    // media byte-storage (estimated) + prompt char-storage — at the SAME nano
-    // rates settlement charges (char 300n, byte 18n). The delta between the
-    // stamped hold and the provider-only (unstamped) hold is EXACTLY that
-    // storage, proving no spurious text-output char-storage rides a media node
-    // (a media node produces zero output tokens).
+  it('reserves the run media storage + prompt char-storage at the settlement rates', () => {
+    // A media turn's hold must cover what settlement bills — the bytes the run's
+    // value store can admit + prompt char-storage — at the SAME nano rates
+    // settlement charges (char 300n, byte 18n). The delta between the stamped
+    // hold and the provider-only (unstamped) hold is EXACTLY that storage,
+    // proving no spurious text-output char-storage rides a media node (a media
+    // node produces zero output tokens).
     const estimateRun = createEstimateTotal(pricedMediaResolver);
     const stamped = estimateRun(imageTurn(paidBudget))._unsafeUnwrap();
     const providerOnly = estimateRun(imageTurn())._unsafeUnwrap();
     const storage =
       30n * STORAGE_COST_PER_CHARACTER_NANO +
-      BigInt(ESTIMATED_IMAGE_BYTES) * MEDIA_STORAGE_COST_PER_BYTE_NANO;
+      BigInt(VALUE_STORE_BYTE_BUDGET_BYTES) * MEDIA_STORAGE_COST_PER_BYTE_NANO;
     expect(stamped - providerOnly).toBe(storage);
-    // 9_000n (the 30 new-message chars × 300n) + 144_000_000n (8_000_000 bytes × 18n).
-    expect(storage).toBe(144_009_000n);
+    // 9_000n (the 30 new-message chars × 300n) + 377_487_360n (20,971,520 bytes × 18n).
+    expect(storage).toBe(377_496_360n);
   });
 
-  it('reserves video byte-storage + prompt char-storage at the settlement rates', () => {
+  it('reserves a video turn the same run media storage, whatever its duration', () => {
     const estimateRun = createEstimateTotal(pricedMediaResolver);
     const stamped = estimateRun(videoTurn(paidBudget))._unsafeUnwrap();
     const providerOnly = estimateRun(videoTurn())._unsafeUnwrap();
-    const storage =
-      30n * STORAGE_COST_PER_CHARACTER_NANO +
-      BigInt(4 * ESTIMATED_VIDEO_BYTES_PER_SECOND) * MEDIA_STORAGE_COST_PER_BYTE_NANO;
-    expect(stamped - providerOnly).toBe(storage);
-    // 9_000n (the 30 new-message chars × 300n) + 360_000_000n (20_000_000 bytes × 18n).
-    expect(storage).toBe(360_009_000n);
+    // 9_000n (the 30 new-message chars × 300n) + 377_487_360n (20,971,520 bytes × 18n).
+    expect(stamped - providerOnly).toBe(377_496_360n);
   });
 });
 
@@ -1603,9 +1613,10 @@ describe('trialReasoningSelection', () => {
   // and the 1¢ ceiling buys purely provider tokens. Rates are therefore chosen so the
   // MONEY term actually binds: the fit prices on the reserve side, so the stored
   // 1,000 / 1,500 billable nano per token are held at their ceilings, 1,250 /
-  // 1,875, and `low` costs 3 × 1,250 + (4,096 + 1,000) × 1,875 = 9,558,750 nano
-  // and fits the 10,000,000-nano ceiling, while `medium` costs
-  // 3 × 1,250 + (12,288 + 1,000) × 1,875 = 24,918,750 and does not. A 2–3 nano
+  // 1,875; the 5 prompt characters are 2 input tokens, so `low` costs
+  // 2 × 1,250 + (4,096 + 1,000) × 1,875 = 9,557,500 nano and fits the
+  // 10,000,000-nano ceiling, while `medium` costs
+  // 2 × 1,250 + (12,288 + 1,000) × 1,875 = 24,917,500 and does not. A 2–3 nano
   // fixture cannot tell the two apart — every level fits — so it would pin nothing.
   function trialDescriptor(reasoning?: ModelDescriptor['reasoning']): ModelDescriptor {
     return {

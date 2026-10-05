@@ -188,21 +188,33 @@ function highest(values: readonly bigint[]): string {
   return serializeNanoUSD(nanoUSD(extreme(values, (a, b) => a > b)));
 }
 
+/** The rates in the anchor's schedule: its base rates and each long-context tier's. */
+function anchorRatesNanoUsd(pricing: TokenPricing): readonly TokenRates[] {
+  const { base, tiers } = scheduleFor(pricing, 'display');
+  return [base, ...tiers.map((tier) => tier.rates)];
+}
+
 /**
- * The Smart Model row's served range: each anchor base rate's minimum and
- * maximum across the pool, leg by leg, so the two bounds of one row may come
- * from different models. An empty pool has no extremum, and a zero would publish
- * a free rate, so it refuses instead.
+ * The Smart Model row's served range, leg by leg, so the two bounds of one row
+ * may come from different models. The minimum is the lowest anchor base rate
+ * across the pool. The maximum is the dearest rate in any pool model's anchor
+ * schedule, base and long-context alike. An empty pool has no extremum, and a
+ * zero would publish a free rate, so it refuses instead.
  */
 export function smartPoolRange(pool: readonly TokenPricing[]): {
   readonly minPricing: WireTokenRates;
   readonly maxPricing: WireTokenRates;
 } {
-  const rates = pool.map((pricing) => anchorBaseRatesNanoUsd(pricing));
-  const inputs = rates.map((rate) => rate.input);
-  const outputs = rates.map((rate) => rate.output);
+  const bases = pool.map((pricing) => anchorBaseRatesNanoUsd(pricing));
+  const billable = pool.flatMap((pricing) => anchorRatesNanoUsd(pricing));
   return {
-    minPricing: { inputPerToken: lowest(inputs), outputPerToken: lowest(outputs) },
-    maxPricing: { inputPerToken: highest(inputs), outputPerToken: highest(outputs) },
+    minPricing: {
+      inputPerToken: lowest(bases.map((rate) => rate.input)),
+      outputPerToken: lowest(bases.map((rate) => rate.output)),
+    },
+    maxPricing: {
+      inputPerToken: highest(billable.map((rate) => rate.input)),
+      outputPerToken: highest(billable.map((rate) => rate.output)),
+    },
   };
 }

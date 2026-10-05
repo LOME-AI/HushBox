@@ -11,7 +11,7 @@ function buildModel(overrides: Partial<Model> = {}): Model {
     provider: 'Anthropic',
     modality: 'text',
     contextLength: 200_000,
-    pricing: { inputPerToken: '3450', outputPerToken: '17250' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '3450', outputPerToken: '17250' },
     description: 'A capable model.',
     supportedParameters: [],
     ...overrides,
@@ -26,7 +26,10 @@ function smartModel(overrides: Partial<Model> = {}): Model {
     isSmartModel: true,
     pricing: {},
     minPricing: { inputPerToken: '35', outputPerToken: '115' },
-    maxPricing: { inputPerToken: '34500', outputPerToken: '207000' },
+    maxPricing: {
+      inputPerToken: '34500',
+      outputPerToken: '207000',
+    },
     ...overrides,
   });
 }
@@ -77,7 +80,9 @@ describe('modelInfoFacts', () => {
     });
 
     it('shows no rate for a row stating only one, which prices nothing rather than half', () => {
-      const model = buildModel({ pricing: { inputPerToken: '3450' } });
+      const model = buildModel({
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '3450' },
+      });
 
       expect(modelInfoFacts(model, 1, true).rates).toEqual([]);
     });

@@ -64,6 +64,7 @@ export async function resolveGatedTurnContext(
       telemetry: c.var.logger,
       conversations: deps.conversations,
       billing: deps.billing,
+      redis: c.var.redis,
     },
     body,
     caller,

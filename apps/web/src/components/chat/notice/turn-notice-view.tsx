@@ -3,9 +3,10 @@ import { Link } from '@tanstack/react-router';
 import { TEST_IDS, noticeText, type MessageSegment, type NoticeReason } from '@hushbox/shared';
 import { useCopyToClipboard } from '@hushbox/ui';
 import { Button, IconButton } from '@hushbox/ui/button';
-import { Check, CircleAlert, Copy, Hourglass, RefreshCw } from '@hushbox/ui/icons';
+import { Check, Copy, RefreshCw } from '@hushbox/ui/icons';
 import { Notice } from '@hushbox/ui/notice';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@hushbox/ui/popover';
+import { NOTICE_SHAPES, blockShape } from '@/lib/chat/notice-shape';
 import { turnNoticeText, type TurnNotice } from '@/lib/chat/turn-notice';
 
 interface TurnNoticeViewProps {
@@ -114,16 +115,16 @@ export function TurnNoticeView({
   onRegenerate,
   regenerateRefusal,
 }: Readonly<TurnNoticeViewProps>): React.JSX.Element {
-  const clearsOnItsOwn = notice.clears === 'on_its_own';
+  const shape = blockShape(notice.clears);
   const actions = regenerateAction(notice, onRegenerate, regenerateRefusal);
   return (
     <div
-      data-severity={clearsOnItsOwn ? 'hourglass' : 'circle'}
+      data-severity={shape}
       {...(placement === 'tile' && { 'data-testid': TEST_IDS.turnNoticeTile })}
     >
       <Notice
-        tone="error"
-        icon={clearsOnItsOwn ? Hourglass : CircleAlert}
+        tone={NOTICE_SHAPES[shape].tone}
+        icon={NOTICE_SHAPES[shape].icon}
         placement={placement}
         title={notice.cause}
         end={<CopyControl text={turnNoticeText(notice)} />}

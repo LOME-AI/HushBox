@@ -1,8 +1,8 @@
-import path from 'node:path';
-import { Node, Project, SyntaxKind } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import { failWith, isTestFile, relativePath, sourceFileAt } from '../lib/paths.js';
-import { REPO_ROOT, WEB_SOURCE_TREE } from '../lib/source-scope.js';
-import type { ObjectLiteralExpression, SourceFile, Type } from 'ts-morph';
+import { WEB_SOURCE_TREE } from '../lib/source-scope.js';
+import { webProgram } from '../lib/web-program.js';
+import type { ObjectLiteralExpression, Project, SourceFile, Type } from 'ts-morph';
 import type { ArchRule, ArchViolation } from '../types.js';
 
 /**
@@ -76,12 +76,6 @@ import type { ArchRule, ArchViolation } from '../types.js';
 const CONTRACT_MODULE = 'packages/shared/src/schemas/api/models.ts';
 const CONTRACT_TYPE = 'Model';
 
-/** The web package's own program, which is what resolves its `@/` alias. */
-const WEB_TSCONFIG = 'apps/web/tsconfig.json';
-
-/** The alias whose resolution decides whether a handed project can be read for types. */
-const WEB_ALIAS = '@/*';
-
 /**
  * Contract property names that are NOT evidence of a catalog row on their own,
  * each with a type in this repository that also carries it. Held back from the
@@ -109,30 +103,6 @@ const MESSAGE =
   'the position: annotate the stub factory (apps/web/src/test-utils/models-hook-stub.ts ' +
   'is the shared one for a useModels stub), annotate the declaration, or `satisfies` the ' +
   'contract at the literal.';
-
-/**
- * The program this rule reads types off.
- *
- * The layer's shared project is built with no compiler configuration, so the
- * web package's `@/` alias resolves to nothing in it: a fixture reached through
- * an aliased type reads as having no contextual type at all, and legitimate
- * code is reported. This rule therefore builds a program from the web package's
- * own tsconfig — unless it is handed one that already resolves that alias,
- * which is how the colocated test drives it.
- */
-function typedWebProject(project: Project): Project {
-  /* v8 ignore start -- @preserve the CLI path: the layer's shared project carries no compiler
-     configuration, so this is the arm `pnpm arch:check` takes on every run, in the pre-push
-     gate and in CI. Reaching it from an in-memory test means building the web package's whole
-     program inside the test, which is the reason the coverage config already holds the
-     arch runner itself out. */
-  const paths: Record<string, string[]> | undefined = project.getCompilerOptions().paths;
-  if (paths?.[WEB_ALIAS] === undefined) {
-    return new Project({ tsConfigFilePath: path.join(REPO_ROOT, WEB_TSCONFIG) });
-  }
-  /* v8 ignore stop */
-  return project;
-}
 
 /** The contract type, read off its declaration; every way of missing it throws. */
 function contractType(project: Project): Type {
@@ -295,7 +265,7 @@ function modelFixtureViolations(project: Project): ArchViolation[] {
 const rule: ArchRule = {
   name: RULE,
   check(project) {
-    return modelFixtureViolations(typedWebProject(project));
+    return modelFixtureViolations(webProgram(project));
   },
 };
 

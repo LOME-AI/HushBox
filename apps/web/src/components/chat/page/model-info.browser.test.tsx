@@ -55,11 +55,11 @@ const smart = { ...base, id: 'smart-model', name: 'Smart Model', provider: 'Hush
   minPricing: { inputPerToken: '35', outputPerToken: '115' },
   maxPricing: { inputPerToken: '34500', outputPerToken: '207000' } };
 const sonnet = { ...base, id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5', provider: 'Anthropic',
-  pricing: { inputPerToken: '3450', outputPerToken: '17250' } };
+  pricing: { anchorContextTokens: 1_000_000, inputPerToken: '3450', outputPerToken: '17250' } };
 const seedream = { ...base, id: 'bytedance-seed/seedream-4.5', name: 'Seedream 4.5', provider: 'ByteDance Seed',
   modality: 'image', contextLength: 0, pricing: { perImage: '46000000' } };
 const long = { ...base, id: 'nous/hermes-long', name: 'Hermes 4 405B Extended Reasoning Preview Edition',
-  provider: 'Nous Research Laboratories', pricing: { inputPerToken: '1150', outputPerToken: '3450' } };
+  provider: 'Nous Research Laboratories', pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1150', outputPerToken: '3450' } };
 
 const SAMPLES = [
   ['smart', smart, 1, true],

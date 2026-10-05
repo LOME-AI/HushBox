@@ -5,12 +5,6 @@ import type { ContentKey, WrappedSecret } from '@hushbox/crypto';
 import type { MessageMediaItem } from '@/lib/api/api';
 
 /**
- * Normalized media descriptor consumed by the shared media renderer. The
- * authenticated chat (`MessageMediaItem` carries `id`) and the public share
- * view (`SharedContentItem` carries `contentItemId`) each map their own media
- * shape onto this, so one `MediaContentItem` renders both.
- */
-/**
  * Message-level envelope context, resolved once per message (an
  * `unwrapContentKeyFromEpoch` for the member side, the share-secret unwrap for
  * the public share page) and threaded to each media item.
@@ -62,6 +56,10 @@ export function buildMessageEnvelopeContext(input: {
   return { contentKey, wrappedContentKey, conversationId, messageId, epochNumber, senderId };
 }
 
+/**
+ * The media item {@link MediaContentItem} draws, mapped from a message's media by
+ * {@link messageMediaToRenderable}.
+ */
 export interface RenderableMedia {
   /** Stable content-item id; doubles as the blob-cache key and decrypt id. */
   contentItemId: string;
@@ -77,9 +75,12 @@ export interface RenderableMedia {
   width: number | null | undefined;
   height: number | null | undefined;
   /**
-   * Presigned GET URL when the caller already holds one (share response, or the
-   * SSE `done` event). When omitted, the auth download-url query mints one.
-   * Share/guest callers MUST pass this — they cannot reach the auth query.
+   * Presigned GET URL when the message's media already carries one
+   * (`MessageMediaItem.downloadUrl`, which the public message share's read sets).
+   * When omitted, the download-url query mints one, through a route that admits
+   * only a member of the item's conversation and epoch, by session or link
+   * credential; a reader that route refuses, such as a public message share's
+   * reader who is not a member, MUST have it on the message's media.
    */
   downloadUrl?: string | undefined;
   /**
@@ -90,11 +91,10 @@ export interface RenderableMedia {
 }
 
 /**
- * Map an authenticated chat media item (`MessageMediaItem`) onto the shared
- * `RenderableMedia` shape. Shared by the chat bubble and the share dialog
- * preview so both feed the unified `MediaContentItem` identically. When the
- * caller supplies the message-level `envelope` context, each item is stamped
- * with its own position so the per-item `ContentLocation` AAD is complete.
+ * Map a message's media item (`MessageMediaItem`) onto the `RenderableMedia`
+ * shape. When the caller supplies the message-level `envelope` context, each
+ * item is stamped with its own position so the per-item `ContentLocation` AAD
+ * is complete.
  */
 export function messageMediaToRenderable(
   item: MessageMediaItem,
@@ -122,8 +122,7 @@ interface MediaContentItemProps {
    */
   contentKeyError?: Error | null;
   /**
-   * Accessibility prefix forwarded to the preview — short noun like "Generated"
-   * for member-side or "Shared" for the share-recipient side.
+   * Accessibility prefix forwarded to the preview: a short noun such as "Generated".
    */
   ariaPrefix: string;
   className?: string;
@@ -132,9 +131,9 @@ interface MediaContentItemProps {
 /**
  * Renders a single media content item (image/video/audio). Fetches + decrypts
  * bytes on mount, then delegates the loading/error/preview rendering to
- * `MediaItemShell`. Shared by the authenticated chat, the share dialog preview,
- * and the public share view — the only per-caller difference is where the
- * item's `envelope` and `downloadUrl` come from, both passed in.
+ * `MediaItemShell`. Every page that draws a message draws its media here; what
+ * differs per page is where the item's `envelope` and `downloadUrl` come from,
+ * both passed in.
  */
 export function MediaContentItem({
   item,

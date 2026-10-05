@@ -13,10 +13,7 @@ import { ChatHeader } from '@/components/chat/layout/chat-header';
 import { ModelSelectorButton } from '@/components/chat/model-selector/model-selector-button';
 import { SuggestionChips } from '@/components/chat/input/suggestion-chips';
 import { PromptInput } from '@/components/chat/input/prompt-input';
-import {
-  PredictionSuggestionList,
-  PredictionSuggestionListSpacer,
-} from '@/components/chat/input/prediction-suggestion-list';
+import { PredictionSuggestionList } from '@/components/chat/input/prediction-suggestion-list';
 import { WelcomeGreeting } from '@/components/chat/page/welcome-greeting';
 import { ModelInfo } from '@/components/chat/page/model-info';
 import { ContinueList } from '@/components/chat/page/continue-list';
@@ -47,7 +44,21 @@ interface ChatWelcomeProps extends Pick<ModelSelectorGatingProps, 'onPremiumClic
  * stack fits a small phone's first screen; from 768 they are fixed.
  */
 const STACK_CLASS =
-  'flex flex-col gap-[var(--welcome-gap)] [--welcome-gap:clamp(0.5rem,3.2dvh_-_0.75rem,0.875rem)] pt-[clamp(0.75rem,4dvh_-_0.75rem,2rem)] pb-[clamp(0.75rem,5dvh_-_0.75rem,2.5rem)] md:pt-8 md:pb-10 md:[--welcome-gap:1.5rem]';
+  'flex flex-col gap-[var(--welcome-gap)] [--welcome-gap:clamp(0.5rem,3.2dvh_-_0.75rem,0.875rem)] [--welcome-top:clamp(0.75rem,4dvh_-_0.75rem,2rem)] pt-[var(--welcome-top)] pb-[clamp(0.75rem,5dvh_-_0.75rem,2.5rem)] md:pb-10 md:[--welcome-gap:1.5rem] md:[--welcome-top:2rem]';
+
+/**
+ * The page body is a size container, so its height is a CSS length the head can be set
+ * against rather than one a script measures.
+ */
+const BODY_CLASS = 'min-h-0 flex-1 overflow-y-auto [container-type:size]';
+
+/**
+ * The greeting and the model readout. From 768 they sit at the foot of a region reaching a
+ * third of the way down the page body, so the composer's top lands there, or lower when the
+ * two need more room; below 768 the stack starts at the top of the body.
+ */
+const HEAD_CLASS =
+  'flex flex-col justify-end gap-[calc(var(--welcome-gap)/2)] md:min-h-[calc(100cqh/3_-_var(--welcome-top)_-_var(--welcome-gap))]';
 
 /**
  * The composer's focus tab rises 0.75rem above its field, so the composer never sits
@@ -55,7 +66,12 @@ const STACK_CLASS =
  */
 const COMPOSER_CLASS = 'mt-[max(0px,0.875rem_-_var(--welcome-gap))]';
 
-/** The new chat page: its blocks stacked in reading order and centred in the chat column. */
+/**
+ * The new chat page: its blocks stacked in reading order in the chat column. The composer is
+ * placed from the top: everything above it is final at first paint (the model readout holds
+ * its place before the catalog answers), so nothing that loads, opens or grows below it, the
+ * candidate list and the Continue list included, can move it.
+ */
 export function ChatWelcome({
   onSend,
   isAuthenticated,
@@ -155,84 +171,71 @@ export function ChatWelcome({
     >
       <ChatHeader isAuthenticated={isAuthenticated} />
 
-      {/* Auto margins centre the stack while it fits and let it scroll from its top when it
-          does not, where centring by justification would push its top out of reach. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div className="my-auto">
-          <ChatColumn>
-            <div className={STACK_CLASS}>
-              <div className="flex flex-col gap-[calc(var(--welcome-gap)/2)]">
-                {/* At large text a one-word greeting is wider than a narrow column; it breaks
-                    inside the word rather than run past the column's edges. */}
-                <div className="wrap-anywhere">
-                  {/* The list's height enters this centred stack twice, once on each
-                      side of the composer. A centred stack that grows equally above and
-                      below leaves everything between the two additions exactly where it
-                      was, which is what holds the composer still while the list pushes
-                      the blocks under it down. */}
-                  <PredictionSuggestionListSpacer
-                    typedText={inputValue}
-                    candidates={suggestionCandidates}
-                  />
-                  <WelcomeGreeting
-                    greeting={greeting}
-                    showSubtitle={showSubtitle}
-                    onTypingComplete={handleTypingComplete}
-                  />
-                </div>
-                <ModelInfo
-                  model={selectedModel}
-                  selectionCount={selectedModels.length}
-                  signedIn={isAuthenticated}
+      <div className={BODY_CLASS}>
+        <ChatColumn>
+          <div className={STACK_CLASS}>
+            <div className={HEAD_CLASS}>
+              {/* At large text a one-word greeting is wider than a narrow column; it breaks
+                  inside the word rather than run past the column's edges. */}
+              <div className="wrap-anywhere">
+                <WelcomeGreeting
+                  greeting={greeting}
+                  showSubtitle={showSubtitle}
+                  onTypingComplete={handleTypingComplete}
                 />
               </div>
-
-              <div className={COMPOSER_CLASS}>
-                <PromptInput
-                  ref={promptInputRef}
-                  value={inputValue}
-                  onChange={setInputValue}
-                  onSubmit={handleSubmit}
-                  placeholder={getPromptPlaceholder(activeModality, 'Ask me anything...')}
-                  disabled={isLoading}
-                  isAuthenticated={isAuthenticated}
-                  activeModality={activeModality}
-                  onSelectModality={selectModality}
-                  {...(searchProps !== undefined && { searchProps })}
-                  predictor={isLoading ? undefined : predictor}
-                  onPredictionCandidatesChange={setPredictionCandidates}
-                  modelControl={
-                    <ModelSelectorButton
-                      models={models}
-                      selectedModels={selectedModels}
-                      onSelect={handleModelSelect}
-                      premiumIds={premiumIds}
-                      isAuthenticated={isAuthenticated}
-                      onPremiumClick={onPremiumClick}
-                      activeModality={activeModality}
-                    />
-                  }
-                />
-                <PredictionSuggestionList
-                  typedText={inputValue}
-                  candidates={suggestionCandidates}
-                  onSelect={handlePredictionSelect}
-                />
-              </div>
-
-              {isAuthenticated ? <ContinueList /> : null}
-
-              <div className="flex flex-col gap-3.5">
-                <p className="text-muted-foreground text-center text-sm">
-                  {getInspirationLabel(activeModality)}
-                </p>
-                <SuggestionChips onSelect={handleSuggestionSelect} showSurpriseMe />
-              </div>
-
-              <StorageLine signedIn={isAuthenticated} />
+              <ModelInfo
+                model={selectedModel}
+                selectionCount={selectedModels.length}
+                signedIn={isAuthenticated}
+              />
             </div>
-          </ChatColumn>
-        </div>
+
+            <div className={COMPOSER_CLASS}>
+              <PromptInput
+                ref={promptInputRef}
+                value={inputValue}
+                onChange={setInputValue}
+                onSubmit={handleSubmit}
+                placeholder={getPromptPlaceholder(activeModality, 'Ask me anything...')}
+                disabled={isLoading}
+                isAuthenticated={isAuthenticated}
+                activeModality={activeModality}
+                onSelectModality={selectModality}
+                {...(searchProps !== undefined && { searchProps })}
+                predictor={isLoading ? undefined : predictor}
+                onPredictionCandidatesChange={setPredictionCandidates}
+                modelControl={
+                  <ModelSelectorButton
+                    models={models}
+                    selectedModels={selectedModels}
+                    onSelect={handleModelSelect}
+                    premiumIds={premiumIds}
+                    isAuthenticated={isAuthenticated}
+                    onPremiumClick={onPremiumClick}
+                    activeModality={activeModality}
+                  />
+                }
+              />
+              <PredictionSuggestionList
+                typedText={inputValue}
+                candidates={suggestionCandidates}
+                onSelect={handlePredictionSelect}
+              />
+            </div>
+
+            {isAuthenticated ? <ContinueList /> : null}
+
+            <div className="flex flex-col gap-3.5">
+              <p className="text-muted-foreground text-center text-sm">
+                {getInspirationLabel(activeModality)}
+              </p>
+              <SuggestionChips onSelect={handleSuggestionSelect} showSurpriseMe />
+            </div>
+
+            <StorageLine signedIn={isAuthenticated} />
+          </div>
+        </ChatColumn>
       </div>
     </div>
   );

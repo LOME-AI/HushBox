@@ -30,10 +30,9 @@ test.describe('Video Generation', SPEC_MATRIX, () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToVideoMode();
-    // Aspect-ratio pills, resolution pills, and the duration slider live
-    // inline on desktop and inside the bottom sheet on mobile. Open the
-    // sheet to make them reachable on both layouts, then close it so the
-    // composer isn't obscured.
+    // Aspect-ratio pills, resolution pills, and the duration slider live in
+    // the video settings popover, a bottom sheet on mobile. Open it to reach
+    // them, then close it so the composer isn't obscured.
     await chatPage.openGenerationSheetIfNeeded();
 
     await expect(
@@ -237,6 +236,7 @@ test.describe('Video Generation', SPEC_MATRIX, () => {
     const chatPage = new ChatPage(unauthenticatedPage);
     await chatPage.goto();
     await chatPage.expectNewChatPageVisible();
+    await chatPage.waitForAppStable();
 
     await chatPage.openModeMenu();
     const video = chatPage.modeMenuItem('video');
@@ -255,7 +255,7 @@ test.describe('Video Generation', SPEC_MATRIX, () => {
 
     await chatPage.switchToVideoMode();
     await chatPage.selectResolution('1080p');
-    // `selectResolution` opens the bottom sheet on mobile; close it before
+    // `selectResolution` opens the video settings; close them before
     // sending so the composer is interactive.
     await chatPage.closeGenerationSheetIfOpen();
 
@@ -280,16 +280,15 @@ test.describe('Video Generation', SPEC_MATRIX, () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToVideoMode();
-    // Both the slider and the cost preview live in the bottom sheet on mobile.
-    // Open it once for the whole test; no need to close — the test never
-    // sends a prompt.
+    // The slider lives in the video settings. Open them once for the whole
+    // test; no need to close — the test never sends a prompt.
     await chatPage.openGenerationSheetIfNeeded();
 
     const slider = authenticatedPage.getByRole('slider', { name: /video duration in seconds/i });
     const initialValue = await slider.inputValue();
     expect(Number(initialValue)).toBeGreaterThanOrEqual(1);
 
-    const costLine = authenticatedPage.getByText(/^≈\s+\$\d+\.\d{3}$/).first();
+    const costLine = chatPage.mediaEstimate();
     await expect(costLine).toBeVisible({ timeout: TIMEOUTS.ASSERT });
     const initialCost = await costLine.textContent();
 
@@ -308,7 +307,7 @@ test.describe('Video Generation', SPEC_MATRIX, () => {
 
     await chatPage.switchToVideoMode();
     await chatPage.selectAspectRatio('9:16');
-    // `selectAspectRatio` opens the bottom sheet on mobile; close it before
+    // `selectAspectRatio` opens the video settings; close them before
     // sending so the composer is reachable.
     await chatPage.closeGenerationSheetIfOpen();
 
@@ -391,12 +390,12 @@ test.describe('Video Generation', SPEC_MATRIX, () => {
 
     await chatPage.switchToVideoMode();
     await chatPage.selectSingleModel(E2E_SEEDED_VIDEO_MODEL_IDS[0]);
-    // Open the sheet once; setVideoDuration / selectResolution rely on the
-    // controls being mounted and the cost line lives in the sheet on mobile.
+    // Open the video settings once; setVideoDuration / selectResolution rely
+    // on their controls being mounted.
     await chatPage.openGenerationSheetIfNeeded();
     await chatPage.setVideoDuration(6);
 
-    const costLine = authenticatedPage.getByText(/^≈\s+\$\d+\.\d{3}$/).first();
+    const costLine = chatPage.mediaEstimate();
     await expect(costLine).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
     await chatPage.selectResolution('720p');

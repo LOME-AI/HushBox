@@ -13,7 +13,7 @@ import type {
 } from './gated-turn-context.js';
 import type { ConversationCaller, ConversationsStores } from '../../../conversations/index.js';
 import type { ConversationsStoresFactory } from './context.js';
-import type { BillingStores } from '../../../billing/index.js';
+import type { BillingStores, RedisClient } from '../../../billing/index.js';
 import type { Database } from '@hushbox/db';
 import type { MemberPrivilege } from '@hushbox/shared';
 import type { Telemetry } from '../../../../lib/telemetry/index.js';
@@ -53,7 +53,7 @@ function row(params: {
     descriptor: {
       id: params.modelId,
       provider: 'vendor',
-      version: '3',
+      version: '4',
       inputs: ['text'],
       outputs: ['text'],
       parameters: {},
@@ -61,6 +61,7 @@ function row(params: {
       limits: { contextLength: 128_000, maxOutputTokens: 8000 },
       pricing: {
         kind: 'tokens',
+        anchorContextTokens: 1_000_000,
         anchor: { base: { input: params.inputPerToken, output: params.outputPerToken }, tiers: [] },
       },
       zdrReachable: true,
@@ -165,12 +166,33 @@ function stores(stubs: StoreStubs = {}): {
     readMemberBudget: () => okAsync(null),
     readConversationSpent: () => okAsync(0n),
     readAllowanceSpent: () => okAsync(0n),
+    readWalletSnapshot: () =>
+      okAsync({
+        balanceNanoUsd: stubs.purchasedBalanceNanoUsd ?? 0n,
+        ledgerSeq: 1n,
+        type: 'purchased',
+      }),
   } as unknown as BillingStores;
   return { conversations, billing };
 }
 
+/**
+ * Redis with no snapshot cached and no hold placed: a snapshot read misses (so
+ * the balance comes from the wallet row), the snapshot write-through takes, and
+ * every holds hash reads zero. Cast because only the calls the funding read
+ * makes are stood in for; this file's subject is the gates, not the money.
+ */
+const EMPTY_REDIS = {
+  get: () => Promise.resolve(null),
+  createScript: () => ({
+    exec: (keys: readonly string[], args: readonly string[]) =>
+      // The holds read passes only the clock; the snapshot write-through passes three.
+      Promise.resolve(args.length === 1 ? keys.map(() => '0') : 1),
+  }),
+} as unknown as RedisClient;
+
 function deps(catalog: CatalogDb, stubs: StoreStubs = {}): GatedTurnContextDeps {
-  return { db: catalog.db, telemetry: silentTelemetry, ...stores(stubs) };
+  return { db: catalog.db, telemetry: silentTelemetry, redis: EMPTY_REDIS, ...stores(stubs) };
 }
 
 function bodyPinning(...ids: readonly string[]): GatedTurnRequest {

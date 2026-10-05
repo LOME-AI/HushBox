@@ -2,10 +2,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, act } from '@testing-library/react';
 import { useA11yStore } from '@hushbox/ui/accessibility/store';
-import {
-  PredictionSuggestionList,
-  PredictionSuggestionListSpacer,
-} from '@/components/chat/input/prediction-suggestion-list';
+import { PredictionSuggestionList } from '@/components/chat/input/prediction-suggestion-list';
 import {
   PREDICTION_SUGGESTION_LISTBOX_ID,
   setActiveSuggestionIndex,
@@ -21,12 +18,6 @@ const LONG_TYPED_TAIL = 'delta epsilon zeta eta theta';
 
 function rows(container: HTMLElement): HTMLElement[] {
   return [...container.querySelectorAll<HTMLElement>('[data-slot="prediction-suggestion-row"]')];
-}
-
-function reservedRows(container: HTMLElement): HTMLElement[] {
-  return [
-    ...container.querySelectorAll<HTMLElement>('[data-slot="prediction-suggestion-reserve-row"]'),
-  ];
 }
 
 function tailOf(row: HTMLElement): string {
@@ -100,6 +91,21 @@ describe('PredictionSuggestionList', () => {
     );
     expect(rows(container)).toHaveLength(0);
     expect(container.textContent).toBe('');
+  });
+
+  it('marks its block for the page to find while it has no rows', () => {
+    const { container } = render(
+      <PredictionSuggestionList typedText={TYPED} candidates={[]} onSelect={vi.fn()} />
+    );
+    expect(container.querySelector('[data-slot="prediction-suggestion-list"]')).not.toBeNull();
+  });
+
+  it('holds its rows inside its marked block', () => {
+    const { container } = render(
+      <PredictionSuggestionList typedText={TYPED} candidates={CANDIDATES} onSelect={vi.fn()} />
+    );
+    const block = container.querySelector('[data-slot="prediction-suggestion-list"]');
+    expect(rows(container).every((row) => block?.contains(row) === true)).toBe(true);
   });
 
   it('renders a single alternative as one row, since candidates never repeat the inline hint', () => {
@@ -278,70 +284,5 @@ describe('PredictionSuggestionList', () => {
     expect(first.parentElement).toBe(middle.parentElement);
     expect(middle.parentElement).toBe(last.parentElement);
     expect(first.parentElement).toHaveClass('p-1');
-  });
-});
-
-describe('PredictionSuggestionListSpacer', () => {
-  it('renders the same rows as the list so it takes exactly the same height', () => {
-    const list = render(
-      <PredictionSuggestionList typedText={TYPED} candidates={CANDIDATES} onSelect={vi.fn()} />
-    );
-    const spacer = render(
-      <PredictionSuggestionListSpacer typedText={TYPED} candidates={CANDIDATES} />
-    );
-    expect(reservedRows(spacer.container).map((row) => row.textContent)).toEqual(
-      rows(list.container).map((row) => row.textContent)
-    );
-  });
-
-  it('is invisible and hidden from assistive technology', () => {
-    const { container } = render(
-      <PredictionSuggestionListSpacer typedText={TYPED} candidates={CANDIDATES} />
-    );
-    const spacer = container.querySelector('[data-slot="prediction-suggestion-spacer"]');
-    expect(spacer).toHaveAttribute('aria-hidden', 'true');
-    expect(spacer).toHaveClass('invisible');
-  });
-
-  it('takes no row out of the tab order and answers no click', () => {
-    const { container } = render(
-      <PredictionSuggestionListSpacer typedText={TYPED} candidates={CANDIDATES} />
-    );
-    const reserved = reservedRows(container);
-    expect(reserved).toHaveLength(CANDIDATES.length);
-    for (const row of reserved) expect(row).toHaveAttribute('tabindex', '-1');
-    expect(() => {
-      fireEvent.click(reserved[0]!);
-    }).not.toThrow();
-  });
-
-  it('collapses to nothing exactly when the list does', () => {
-    const { container } = render(
-      <PredictionSuggestionListSpacer typedText={TYPED} candidates={[]} />
-    );
-    expect(reservedRows(container)).toHaveLength(0);
-    expect(container.textContent).toBe('');
-  });
-
-  it('carries no listbox or option semantics, since aria-hidden already removes it', () => {
-    act(() => {
-      setActiveSuggestionIndex(1);
-    });
-    const { container } = render(
-      <PredictionSuggestionListSpacer typedText={TYPED} candidates={CANDIDATES} />
-    );
-    expect(container.querySelector(`#${PREDICTION_SUGGESTION_LISTBOX_ID}`)).toBeNull();
-    for (const row of reservedRows(container)) {
-      expect(row).not.toHaveAttribute('role');
-      expect(row).not.toHaveAttribute('aria-selected');
-    }
-  });
-
-  it('reserves the same padded rows container as the real list, since it is the same subtree', () => {
-    const { container } = render(
-      <PredictionSuggestionListSpacer typedText={TYPED} candidates={CANDIDATES} />
-    );
-    const reserved = reservedRows(container);
-    expect(reserved[0]!.parentElement).toHaveClass('p-1');
   });
 });

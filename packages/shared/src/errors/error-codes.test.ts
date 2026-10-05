@@ -766,3 +766,23 @@ describe('rate-limit refusals', () => {
     expect(friendlyErrorMessage('TOO_MANY_ATTEMPTS')).toBe(rateLimitedMessage());
   });
 });
+
+describe('frozen two-factor refusal', () => {
+  const message = friendlyErrorMessage('TWO_FACTOR_FROZEN');
+
+  it('registers the frozen two-factor code in the closed set', () => {
+    expect(asErrorCode('TWO_FACTOR_FROZEN')).toBe('TWO_FACTOR_FROZEN');
+  });
+
+  it('tells the user two-factor is locked', () => {
+    expect(message).toMatch(/two-factor authentication is locked/i);
+  });
+
+  it('names the recovery phrase as what unlocks it', () => {
+    expect(message).toMatch(/reset your password with your recovery phrase to unlock it/i);
+  });
+
+  it('states no wait', () => {
+    expect(message).not.toMatch(/\d|try again/i);
+  });
+});

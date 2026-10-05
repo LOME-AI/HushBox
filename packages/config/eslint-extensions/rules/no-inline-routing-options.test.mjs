@@ -34,6 +34,48 @@ describe('no-inline-routing-options', () => {
     expect(findings[0]?.messageId).toBe('inlineProvider');
   });
 
+  it('names the image helper in its provider-literal message', async () => {
+    const code = 'const s = { provider: { zdr: true } };\nexport const x = s;\n';
+    const [finding] = await lint(code, 'image-adapter.ts');
+    expect(finding?.message).toContain('imageRoutingOptions()');
+  });
+
+  it('flags an inline provider block that pins endpoints with only', async () => {
+    const code =
+      'const settings = { provider: { only: ["google-vertex/global"], allow_fallbacks: false } };\n' +
+      'export const x = settings;\n';
+    const findings = await lint(code, 'image-adapter.ts');
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.messageId).toBe('inlineProvider');
+  });
+
+  it('flags an inline provider block whatever its keys, such as order alone', async () => {
+    const code =
+      'const settings = { provider: { order: ["google-vertex"] } };\nexport const x = settings;\n';
+    const findings = await lint(code, 'image-adapter.ts');
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.messageId).toBe('inlineProvider');
+  });
+
+  it('flags an inline provider block whose provider key is quoted', async () => {
+    const code =
+      'const settings = { "provider": { order: ["google-vertex"] } };\nexport const x = settings;\n';
+    expect(await lint(code, 'image-adapter.ts')).toHaveLength(1);
+  });
+
+  it('leaves an extraBody that carries no provider block, spread included', async () => {
+    const code =
+      'const settings = { extraBody: { ...shared, transforms: [] } };\nexport const x = settings;\n';
+    expect(await lint(code, 'language-adapter.ts')).toEqual([]);
+  });
+
+  it('allows image routing built by the shared image helper', async () => {
+    const code =
+      'import { imageRoutingOptions } from "@hushbox/shared";\n' +
+      'export const settings = imageRoutingOptions(["google-vertex/global"]);\n';
+    expect(await lint(code, 'image-adapter.ts')).toEqual([]);
+  });
+
   it('flags an inline extraBody.provider routing literal in adapter code', async () => {
     const code =
       'const settings = { extraBody: { provider: { zdr: true }, transforms: [] } };\n' +
@@ -66,16 +108,30 @@ describe('no-inline-routing-options', () => {
     expect(findings[0]?.messageId).toBe('inlineProvider');
   });
 
-  it('leaves a provider block assembled by spread alone — no key is written to judge', async () => {
+  it('flags a provider block assembled by spread alone, which is still built inline', async () => {
     const code =
       'const settings = { provider: { ...sharedRouting } };\nexport const x = settings;\n';
-    expect(await lint(code, 'language-adapter.ts')).toHaveLength(0);
+    expect(await lint(code, 'language-adapter.ts')).toHaveLength(1);
   });
 
   it('exempts the helper module itself', async () => {
     const code =
       'export function mediaRoutingOptions() {\n' +
       '  return { extraBody: { provider: { zdr: true, data_collection: "deny", allow_fallbacks: false }, transforms: [] } };\n' +
+      '}\n';
+    const [result] = await createLinter().lintText(code, {
+      filePath: path.join(adaptersDir, 'routing-options.ts'),
+    });
+    if (result === undefined) throw new Error('ESLint returned no lint result');
+    expect(
+      result.messages.filter((m) => m.ruleId === 'routing-options/no-inline-routing-options')
+    ).toEqual([]);
+  });
+
+  it('exempts the helper module itself for an image pin', async () => {
+    const code =
+      'export function imageRoutingOptions(pin) {\n' +
+      '  return { provider: { only: [...pin], allow_fallbacks: false } };\n' +
       '}\n';
     const [result] = await createLinter().lintText(code, {
       filePath: path.join(adaptersDir, 'routing-options.ts'),

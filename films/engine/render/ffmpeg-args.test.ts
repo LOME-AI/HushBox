@@ -152,6 +152,26 @@ describe('muxArguments', () => {
     expect(valueOf(muxArguments(WITH_AUDIO), '-movflags')).toBe('+faststart');
   });
 
+  it('writes no muxer identity tag', () => {
+    expect(valueOf(muxArguments(WITH_AUDIO), '-fflags')).toBe('+bitexact');
+  });
+
+  it('copies no metadata tag from the inputs', () => {
+    expect(valueOf(muxArguments(WITH_AUDIO), '-map_metadata')).toBe('-1');
+  });
+
+  it('names the AVC format in the sample entry, never the encoder', () => {
+    expect(valueOf(muxArguments(WITH_AUDIO), '-metadata:s:v')).toBe('encoder=AVC Coding');
+  });
+
+  it("drops the stream's SEI units, which carry x264's build banner", () => {
+    expect(valueOf(muxArguments(WITH_AUDIO), '-bsf:v')).toBe('filter_units=remove_types=6');
+  });
+
+  it("keeps the AAC encoder's build banner out of the sound", () => {
+    expect(valueOf(muxArguments(WITH_AUDIO), '-flags:a')).toBe('+bitexact');
+  });
+
   it('keeps warnings visible and hides the rest of the log', () => {
     expect(valueOf(muxArguments(WITH_AUDIO), '-loglevel')).toBe('warning');
   });
@@ -171,6 +191,10 @@ describe('muxArguments', () => {
   it('encodes no sound for a film with no score', () => {
     const args = muxArguments(PICTURE_ONLY);
 
-    expect([...valuesOf(args, '-af'), ...valuesOf(args, '-c:a')]).toEqual([]);
+    expect([
+      ...valuesOf(args, '-af'),
+      ...valuesOf(args, '-c:a'),
+      ...valuesOf(args, '-flags:a'),
+    ]).toEqual([]);
   });
 });

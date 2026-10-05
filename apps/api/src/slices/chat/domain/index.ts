@@ -60,6 +60,7 @@ export {
   listDescriptors,
   mockProviderEnabled,
   parseMockDirectives,
+  readExposedCatalog,
 } from '../../models/index.js';
 export { trialGateVerdict } from './trial/gate.js';
 export type { TrialGateRefusal } from './trial/gate.js';

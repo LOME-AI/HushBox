@@ -1,8 +1,9 @@
 import * as React from 'react';
 import { cn, Textarea, AnimatedHeight } from '@hushbox/ui';
 import { Button } from '@hushbox/ui/button';
+import { useFormFactor } from '@hushbox/ui/platform';
 import { ArrowUp, Icon, Loader2, Pencil, X } from '@hushbox/ui/icons';
-import { FEATURE_FLAGS, notices, TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
+import { FEATURE_FLAGS, TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
 import { getLinkGuestAuth } from '@/lib/auth/link-guest-auth';
 import { usePromptBudget, type PromptBudgetResult } from '@/hooks/billing/use-prompt-budget';
 import { usePayerPremiumAccess } from '@/hooks/models/use-payer-premium-access';
@@ -37,6 +38,8 @@ import {
 import { BottomRows, drawsTextRow } from '@/components/chat/input/bottom-rows';
 import { GenerationSettingsPopover } from '@/components/chat/media/generation-settings-popover';
 import { RatioChip } from '@/components/chat/media/ratio-chip';
+import { VideoSettingsChip } from '@/components/chat/media/video-settings-chip';
+import { MediaCostLine } from '@/components/chat/media/modality-config-panel';
 import { ContextGauge } from '@/components/chat/input/context-gauge';
 import { ComposerBar, type ComposerBarProps } from '@/components/chat/input/composer-bar';
 import { gestureFor } from '@/lib/prediction/gestures';
@@ -46,6 +49,7 @@ import type { FundingSource, MemberPrivilege, ChatModality } from '@hushbox/shar
 import type { PredictionState } from '@/lib/prediction/state';
 import type { PromptPredictor } from '@/lib/prediction/predictor';
 import type { PromptInputRef } from '@/components/chat/message/types';
+import type { FormFactor } from '@hushbox/ui/platform';
 
 export type { PromptInputRef } from '@/components/chat/message/types';
 export type { ChatSearchProps } from '@/components/chat/input/prompt-toolbar';
@@ -151,22 +155,38 @@ function contextGaugeFor(
   );
 }
 
-/** The image turn's ratio chip and its popover, hung below the field and graded by what the payer can afford. */
-function imageSettingsControl(
+/**
+ * A media turn's settings chip and its popover, hung below the field: the ratio chip for an
+ * image, the settings chip for a video. The popover greys by `affordable`, never `admissible`:
+ * what the payer's money can buy, which must not move while a run holds funds or while the
+ * user types (`docs/BILLING.md` §Affordability 2). It takes the refusal itself, not a flag read off it: the verdict is absent for
+ * a funding read that failed and for one still in flight alike, and only the refusal tells
+ * the two apart.
+ */
+function mediaSettingsControl(
   modality: ChatModality | undefined,
   budget: PromptBudgetResult,
   field: React.RefObject<HTMLElement | null>
 ): React.JSX.Element | null {
-  if (modality !== 'image') return null;
+  if (modality !== 'image' && modality !== 'video') return null;
   return (
     <GenerationSettingsPopover
-      modality="image"
-      trigger={<RatioChip />}
+      modality={modality}
+      trigger={modality === 'image' ? <RatioChip /> : <VideoSettingsChip />}
       anchor={field}
       dimensions={budget.mediaOptions?.affordable.turnDimensions}
       sendRefusal={budget.sendRefusal}
     />
   );
+}
+
+/** A media turn's estimate, laid out for its place; a text turn shows none before it is sent. */
+function mediaEstimate(
+  modality: ChatModality | undefined,
+  layout: 'stacked' | 'inline'
+): React.JSX.Element | null {
+  if (modality !== 'image' && modality !== 'video') return null;
+  return <MediaCostLine modality={modality} layout={layout} />;
 }
 
 /**
@@ -341,10 +361,8 @@ const PROMPT_INPUT_DEFAULTS: Pick<
   Required<PromptInputProps>,
   | 'placeholder'
   | 'historyCharacters'
-  | 'rows'
   | 'disabled'
   | 'isProcessing'
-  | 'minHeight'
   | 'maxHeight'
   | 'autoFocus'
   | 'isGroupChat'
@@ -354,20 +372,31 @@ const PROMPT_INPUT_DEFAULTS: Pick<
 > = {
   placeholder: 'Ask me anything...',
   historyCharacters: 0,
-  rows: 2,
   disabled: false,
   isProcessing: false,
-  // Founder-ruled sizing: start at 2 lines, auto-grow (the Textarea
-  // primitive's same-cell sizing replica, not field-sizing-content) to 7
-  // lines, scroll internally beyond. text-base = 1.5rem line-height,
-  // py-2 = 1rem vertical padding: 2×1.5+1 = 4rem, 7×1.5+1 = 11.5rem.
-  minHeight: '4rem',
+  // Founder-ruled sizing: start at one line below 768 and two from 768
+  // ({@link STARTING_HEIGHT}), auto-grow (the Textarea primitive's same-cell
+  // sizing replica, not field-sizing-content) to 7 lines, scroll internally
+  // beyond. text-base = 1.5rem line-height, py-2 = 1rem vertical padding:
+  // 7×1.5+1 = 11.5rem.
   maxHeight: '11.5rem',
   autoFocus: false,
   isGroupChat: false,
   queueCount: 0,
   queueFull: false,
   audioModalityEnabled: FEATURE_FLAGS.AUDIO_ENABLED,
+};
+
+/**
+ * The message box's starting height per band: one line on a phone, so the new chat
+ * fits a small phone's first screen, and two from 768. Each is n×1.5rem + 1rem.
+ */
+const STARTING_HEIGHT: Record<
+  FormFactor['band'],
+  Pick<Required<PromptInputProps>, 'rows' | 'minHeight'>
+> = {
+  phone: { rows: 1, minHeight: '2.5rem' },
+  desktop: { rows: 2, minHeight: '4rem' },
 };
 
 /**
@@ -405,6 +434,7 @@ function payerScope(conversationId: string | null | undefined): string | null {
 
 export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
   function PromptInput(rawProps, ref) {
+    const { band } = useFormFactor();
     const {
       value,
       onChange,
@@ -436,7 +466,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
       predictor,
       onPredictionCandidatesChange,
       modelControl,
-    } = { ...PROMPT_INPUT_DEFAULTS, ...rawProps };
+    } = { ...PROMPT_INPUT_DEFAULTS, ...STARTING_HEIGHT[band], ...rawProps };
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const fieldRef = React.useRef<HTMLDivElement>(null);
     const composerRef = React.useRef<HTMLDivElement>(null);
@@ -495,22 +525,6 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
       ...(currentUserPrivilege !== undefined && { currentUserPrivilege }),
       ...(reasoningEffort !== undefined && { reasoningEffort }),
     });
-
-    // §Notices 7: a blocked send ALWAYS carries a notice, and exactly one
-    // blocking demand renders. The refusal LEADS the list — an informational
-    // funding notice must not sit above the reason the send is refused — and
-    // any duplicate of the same condition is dropped so one cause yields one
-    // notice.
-    const composerNotices = React.useMemo(
-      () =>
-        budget.sendRefusal === undefined
-          ? budget.notifications
-          : [
-              notices(budget.sendRefusal),
-              ...budget.notifications.filter((notice) => notice.id !== budget.sendRefusal),
-            ],
-      [budget.sendRefusal, budget.notifications]
-    );
 
     // The AI toggle decides which send the control performs, so it decides which
     // verdict answers for it and which handler runs; one predicate serves both,
@@ -654,7 +668,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
     };
     const slots: ComposerSlots = {
       topEdge: contextGaugeFor(activeModality, audioModalityEnabled, budget),
-      // The ratio chip rides the mode slot: the Search and Effort slots leave the bar below 20rem.
+      // A media settings chip rides the mode slot: the Search and Effort slots leave the bar below 20rem.
       modeControl: (
         <>
           <PromptToolbar
@@ -675,7 +689,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
               />
             }
           />
-          {imageSettingsControl(activeModality, budget, fieldRef)}
+          {mediaSettingsControl(activeModality, budget, fieldRef)}
         </>
       ),
       searchControl: (
@@ -697,6 +711,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
         />
       ),
       modelControl,
+      estimate: mediaEstimate(activeModality, 'stacked'),
     };
 
     const buttonDisabled = isProcessing ? !canQueue : !canSubmit;
@@ -741,13 +756,14 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
           <div data-slot="composer-above-field" className="empty:hidden">
             {aboveField}
           </div>
-          {/* The estimate's place on a composer under 34rem, where the bar gives it up.
-              Each copy is display: none wherever the other shows, so a reader meets one. */}
+          {/* The estimate's place on a composer under 34rem, where the bar gives it up, on one
+              line so the row stays one line tall. Each copy is display: none wherever the
+              other shows, so a reader meets one. */}
           <div
             data-slot="composer-estimate-above"
             className="@max-composer-compact/composer:not-empty:flex hidden justify-end px-1 pb-1"
           >
-            {barSlots.estimate}
+            {mediaEstimate(activeModality, 'inline')}
           </div>
           <div
             ref={fieldRef}
@@ -813,21 +829,12 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
             </div>
 
             <MorphHeight>
-              {/* The per-modality row: the generation settings and their price.
-                  Its controls live in the bar below. */}
+              {/* The per-modality row under the text. Its controls live in the bar below. */}
               <BottomRows
                 activeModality={activeModality}
                 toolbar={null}
                 sendButton={null}
                 audioModalityEnabled={audioModalityEnabled}
-                // `affordable`, never `admissible`: greying answers what the
-                // payer's money can buy and must not move while a run holds
-                // funds or while the user types (BILLING §Affordability 2).
-                mediaDimensions={budget.mediaOptions?.affordable.turnDimensions}
-                // The refusal itself, not a flag read off it: the verdict above
-                // is absent for a funding read that FAILED and for one still in
-                // flight alike, and only this value tells the two apart.
-                sendRefusal={budget.sendRefusal}
               />
             </MorphHeight>
             <ComposerBar {...barSlots} send={sendControl} />
@@ -842,7 +849,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
 
         <StableContent isStable={isAppStable}>
           <ComposerMessages
-            notices={composerNotices}
+            notices={budget.notices}
             isTrial={spendsFreePreview(isAuthenticated)}
             runInFlight={isProcessing}
             className="mt-2"

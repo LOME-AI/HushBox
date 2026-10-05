@@ -356,6 +356,18 @@ describe('credential flows against a real OPAQUE server', () => {
       });
     });
 
+    it('reports a frozen second factor from the finish round as locked, with no wait', async () => {
+      fixture.serve('/auth/2fa/disable/finish', () =>
+        Response.json({ code: 'TWO_FACTOR_FROZEN' }, { status: 429 })
+      );
+
+      const result = await disable2FAFinish([4, 5, 6], fixture.totpCode, sessionId);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/two-factor authentication is locked/i);
+      expect(result.error).not.toMatch(/try again in/i);
+    });
+
     it('returns a verification failure when the network is down', async () => {
       fixture.serve('/auth/2fa/disable/finish', () => {
         throw new Error('Network error');

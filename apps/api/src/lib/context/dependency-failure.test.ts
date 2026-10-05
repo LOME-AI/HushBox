@@ -6,8 +6,14 @@ import { TEST_DAY_START, freezeClock, setClock } from '@hushbox/shared/test-time
 import { timeoutError, unavailableError } from '../errors/index.js';
 import { createBoundedRedis } from '../resilience/bounded-redis.js';
 import { DeadlineExpired, LATE_TIMER_THRESHOLD_MS, timeoutPolicy } from '../resilience/policies.js';
-import { dependencyFailureOf } from './dependency-failure.js';
+import { stackFrameLines } from '../telemetry/error-scrub.js';
+import {
+  dependencyFailureOf,
+  dependencyUnavailableReport,
+  isReachabilityFailure,
+} from './dependency-failure.js';
 import type { Socket } from 'node:net';
+import type { DependencyFailure, DependencyFailureArm } from './dependency-failure.js';
 import type { DomainError } from '../errors/index.js';
 import type { RateLimitFailure } from '../rate-limit/index.js';
 
@@ -229,6 +235,18 @@ describe('dependencyFailureOf: Postgres, through the installed driver', () => {
     });
   });
 
+  it('names a queued-acquire deadline thrown bare, with no domain error around it', async () => {
+    const { db, release } = await poolWithItsConnectionHeld();
+    const thrown = await rejectionOf(db.execute(sql`select 1`));
+    await release();
+
+    expect(dependencyFailureOf(thrown)).toEqual({
+      dependency: 'postgres',
+      failure: 'acquire-timeout',
+      late: false,
+    });
+  });
+
   it('names any other error the server answered with a postgres server error', async () => {
     const db = createDb(DATABASE_URL, { neonDev: LOCAL_NEON_DEV_CONFIG });
     const cause = await rejectionOf(db.execute(sql`select 1 / 0`));
@@ -346,6 +364,14 @@ describe('dependencyFailureOf: what it cannot name', () => {
     });
   });
 
+  it('names neither dependency nor arm for a thrown value that is not an object', () => {
+    expect(dependencyFailureOf('socket closed')).toEqual({
+      dependency: 'unknown',
+      failure: 'unknown',
+      late: false,
+    });
+  });
+
   it('ends its walk on a chain that cites itself', () => {
     const looped = new Error('looped');
     looped.cause = looped;
@@ -355,5 +381,74 @@ describe('dependencyFailureOf: what it cannot name', () => {
       failure: 'unknown',
       late: false,
     });
+  });
+});
+
+describe('isReachabilityFailure', () => {
+  it.each([
+    'acquire-timeout',
+    'connect-timeout',
+    'statement-timeout',
+    'deadline',
+    'transport',
+  ] as const)('reads a %s as the dependency not being reached', (arm: DependencyFailureArm) => {
+    expect(isReachabilityFailure(arm)).toBe(true);
+  });
+
+  it.each(['serial-overlap', 'server-error', 'unknown'] as const)(
+    'reads a %s as something other than the dependency not being reached',
+    (arm: DependencyFailureArm) => {
+      expect(isReachabilityFailure(arm)).toBe(false);
+    }
+  );
+});
+
+describe('dependencyUnavailableReport', () => {
+  const classified: DependencyFailure = {
+    dependency: 'postgres',
+    failure: 'acquire-timeout',
+    late: true,
+  };
+
+  it('carries the route, then the classification, under its own name', () => {
+    const report = dependencyUnavailableReport(classified, '$get /x');
+
+    expect(report.name).toBe('DependencyUnavailable');
+    expect(Object.keys(report)).toEqual([
+      'name',
+      'dependencyRoute',
+      'dependency',
+      'dependencyFailure',
+      'dependencyLate',
+    ]);
+    expect(report).toMatchObject({
+      dependencyRoute: '$get /x',
+      dependency: 'postgres',
+      dependencyFailure: 'acquire-timeout',
+      dependencyLate: true,
+    });
+  });
+
+  it('leaves the route key off a report given no route', () => {
+    expect(Object.keys(dependencyUnavailableReport(classified))).toEqual([
+      'name',
+      'dependency',
+      'dependencyFailure',
+      'dependencyLate',
+    ]);
+  });
+
+  it('carries no cause', () => {
+    expect(dependencyUnavailableReport(classified).cause).toBeUndefined();
+  });
+
+  it('starts its stack at the caller, so sharing the builder adds no frame to a report', () => {
+    function reportingCaller(): Error {
+      return dependencyUnavailableReport(classified);
+    }
+
+    const [topFrame] = stackFrameLines(reportingCaller());
+
+    expect(topFrame).toContain('reportingCaller');
   });
 });

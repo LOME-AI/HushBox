@@ -17,6 +17,7 @@ import type { useQueryClient } from '@tanstack/react-query';
 import type { useChatPageState } from '@/hooks/chat/use-chat-page';
 import type {
   useChatStream,
+  AuthenticatedStreamRequest,
   ModelResult,
   RekeyEventData,
   StartEventData,
@@ -176,6 +177,16 @@ function adoptFirstTurnUserRow(
   return userMessageId;
 }
 
+/** Marks the first turn's local question as one that was never saved, so it offers Copy alone. */
+function markQuestionUnsaved(
+  setLocalMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  questionId: string
+): void {
+  setLocalMessages((previous) =>
+    previous.map((m) => (m.id === questionId ? { ...m, unsavedQuestion: true } : m))
+  );
+}
+
 function removeLocalMessages(
   setLocalMessages: React.Dispatch<React.SetStateAction<Message[]>>,
   messageIds: readonly string[]
@@ -269,6 +280,7 @@ export function useCreateConversationFlow({
             conversation: response.conversation,
             membership: OWNER_MEMBERSHIP,
             forks: [],
+            memberCount: 1,
           });
           clearPendingMessage();
           setRealConversationId(realId);
@@ -297,6 +309,7 @@ export function useCreateConversationFlow({
           conversation: response.conversation,
           membership: OWNER_MEMBERSHIP,
           forks: [],
+          memberCount: 1,
         });
         queryClient.setQueryData<MessageResponse[]>(chatKeys.messages(realId), []);
         navigateToCreatedConversation(activeRef, navigate, realId);
@@ -328,55 +341,56 @@ export function useCreateConversationFlow({
       // The id the user row stands under: its local key until a run start names
       // the server's, then each new id a same-key re-execution names.
       const firstTurnRow = { id: userRow.id };
+      const request: AuthenticatedStreamRequest = {
+        conversationId: realId,
+        modality: activeModality,
+        models: selectedModels.map((m) => m.id),
+        userMessage: { content: message },
+        messagesForInference: [{ role: 'user', content: message }],
+        fundingSource,
+        webSearchEnabled,
+        ...(reasoningEffort !== undefined && { reasoningEffort }),
+        ...(customInstructions != null && { customInstructions }),
+        ...buildModalityConfigPayload(activeModality, imageConfig, videoConfig, audioConfig),
+      };
+      // The object the turn's Idempotency-Key is minted from, kept for a retry.
+      const turn = {};
       try {
-        const streamResult = await startStream(
-          {
-            conversationId: realId,
-            modality: activeModality,
-            models: selectedModels.map((m) => m.id),
-            userMessage: { content: message },
-            messagesForInference: [{ role: 'user', content: message }],
-            fundingSource,
-            webSearchEnabled,
-            ...(reasoningEffort !== undefined && { reasoningEffort }),
-            ...(customInstructions != null && { customInstructions }),
-            ...buildModalityConfigPayload(activeModality, imageConfig, videoConfig, audioConfig),
+        const streamResult = await startStream(request, {
+          turn,
+          onStart: (data: StartEventData) => {
+            firstTurnRow.id = adoptFirstTurnUserRow(
+              setLocalMessages,
+              firstTurnRow.id,
+              data.userMessageId
+            );
+            localMessageHandlers.onStart(data);
+            recordSmartTiles(data);
+            // for-loop, not .map: a nested arrow here would exceed the
+            // function-nesting depth lint rule at this call site.
+            for (const m of data.models) newChatAssistantIds.push(m.assistantMessageId);
           },
-          {
-            onStart: (data: StartEventData) => {
-              firstTurnRow.id = adoptFirstTurnUserRow(
-                setLocalMessages,
-                firstTurnRow.id,
-                data.userMessageId
-              );
-              localMessageHandlers.onStart(data);
-              recordSmartTiles(data);
-              // for-loop, not .map: a nested arrow here would exceed the
-              // function-nesting depth lint rule at this call site.
-              for (const m of data.models) newChatAssistantIds.push(m.assistantMessageId);
-            },
-            onContent: localMessageHandlers.onContent,
-            onReasoningTokens: localMessageHandlers.onReasoningTokens,
-            onReasoningEffort: localMessageHandlers.onReasoningEffort,
-            onModelError: localMessageHandlers.onModelError,
-            onModelMediaStart: localMessageHandlers.onModelMediaStart,
-            onModelMediaProgress: localMessageHandlers.onModelMediaProgress,
-            onModelMediaDone: localMessageHandlers.onModelMediaDone,
-            onModelResolved: localMessageHandlers.onModelResolved,
-            onRestart: localMessageHandlers.onRestart,
-            onRekey: (data: RekeyEventData) => {
-              firstTurnRow.id = adoptFirstTurnUserRow(
-                setLocalMessages,
-                firstTurnRow.id,
-                data.userMessageId
-              );
-              localMessageHandlers.onRekey(data);
-              recordSmartTiles(data);
-              newChatAssistantIds.length = 0;
-              for (const m of data.models) newChatAssistantIds.push(m.assistantMessageId);
-            },
-          }
-        );
+          onContent: localMessageHandlers.onContent,
+          onReasoningTokens: localMessageHandlers.onReasoningTokens,
+          onReasoningEffort: localMessageHandlers.onReasoningEffort,
+          onModelError: localMessageHandlers.onModelError,
+          onModelMediaStart: localMessageHandlers.onModelMediaStart,
+          onModelMediaProgress: localMessageHandlers.onModelMediaProgress,
+          onModelMediaDone: localMessageHandlers.onModelMediaDone,
+          onModelResolved: localMessageHandlers.onModelResolved,
+          onRestart: localMessageHandlers.onRestart,
+          onRekey: (data: RekeyEventData) => {
+            firstTurnRow.id = adoptFirstTurnUserRow(
+              setLocalMessages,
+              firstTurnRow.id,
+              data.userMessageId
+            );
+            localMessageHandlers.onRekey(data);
+            recordSmartTiles(data);
+            newChatAssistantIds.length = 0;
+            for (const m of data.models) newChatAssistantIds.push(m.assistantMessageId);
+          },
+        });
 
         attachModelErrorsToMessages(streamResult.models, setLocalMessages);
 
@@ -400,6 +414,7 @@ export function useCreateConversationFlow({
           conversation: conversationObject,
           membership: OWNER_MEMBERSHIP,
           forks: [],
+          memberCount: 1,
         });
         queryClient.setQueryData<MessageResponse[]>(chatKeys.messages(realId), []);
         await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(realId) });
@@ -417,13 +432,22 @@ export function useCreateConversationFlow({
         // Drop this turn's assistant placeholders so an empty row does not sit
         // between the user's message and the failure tile.
         removeLocalMessages(setLocalMessages, newChatAssistantIds);
-        // New-chat flow has no fork yet — error belongs on the main slot.
-        useChatErrorStore
-          .getState()
-          .setError(
-            MAIN_FORK_KEY,
-            createChatError({ notice: turnNoticeOf(streamError), failedContent: message })
-          );
+        markQuestionUnsaved(setLocalMessages, firstTurnRow.id);
+        // New-chat flow has no fork yet — error belongs on the main slot. The
+        // question is the local row the thread already shows.
+        useChatErrorStore.getState().setError(
+          MAIN_FORK_KEY,
+          createChatError({
+            notice: turnNoticeOf(streamError),
+            failedContent: message,
+            failedTurn: {
+              retry: { kind: 'send', request, turn, question: { ...userRow, id: firstTurnRow.id } },
+              storedIds: [firstTurnRow.id, ...newChatAssistantIds],
+            },
+          })
+        );
+        // A run the client saw fail may have settled; the reconcile reads this refetch.
+        void queryClient.invalidateQueries({ queryKey: chatKeys.conversation(realId) });
       }
     };
 

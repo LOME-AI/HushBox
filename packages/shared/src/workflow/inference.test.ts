@@ -13,7 +13,11 @@ import {
   ProviderMetadata,
   TOOL_ERROR_REASONS,
   Usage,
+  promptUtf8Bytes,
+  sentSystemPromptOf,
+  sentTextsOf,
 } from './inference.ts';
+import { buildTurnSystemPrompt } from '../prompt/system-prompt.ts';
 import type { FilePartMapper } from './inference.ts';
 
 const ref = { ref: 'inputs/run-1/u1', mimeType: 'image/png', byteLength: 64 };
@@ -100,6 +104,31 @@ describe('InferenceRequest', () => {
       utcDay,
     };
     expect(InferenceRequest.parse(request)).not.toHaveProperty('history');
+  });
+
+  it('parses a request carrying its price cap', () => {
+    const request = {
+      model: 'anthropic/claude-sonnet-4.5',
+      inputs: [{ modality: 'text', text: 'hello' }],
+      parameters: {},
+      outputs: ['text'],
+      utcDay,
+      routing: { maxPrice: { prompt: '7.500000', completion: '28.125217' } },
+    };
+    expect(InferenceRequest.parse(request)).toEqual(request);
+  });
+
+  it.each(['7.5', '-7.500000', '$7.500000'])('rejects a price cap of %s', (prompt) => {
+    expect(
+      InferenceRequest.safeParse({
+        model: 'anthropic/claude-sonnet-4.5',
+        inputs: [{ modality: 'text', text: 'hello' }],
+        parameters: {},
+        outputs: ['text'],
+        utcDay,
+        routing: { maxPrice: { prompt, completion: '28.125217' } },
+      }).success
+    ).toBe(false);
   });
 
   it('rejects a request carrying no day', () => {
@@ -424,5 +453,97 @@ describe('FilePart multi-output mapping', () => {
     const [start, done] = mapper({ mediaType: 'image/png', data: new Uint8Array([1]) }, 0);
     expect(start.kind).toBe('media-start');
     expect(done.kind).toBe('media-done');
+  });
+});
+
+describe('promptUtf8Bytes', () => {
+  it('counts each message content in UTF-8 bytes', () => {
+    expect(promptUtf8Bytes([{ content: 'hello' }, { content: 'world!' }])).toBe(11);
+  });
+
+  it('counts a CJK character as its three UTF-8 bytes, not one character', () => {
+    expect(promptUtf8Bytes([{ content: '漢字' }])).toBe(6);
+  });
+
+  it('counts a character outside the basic plane as its four UTF-8 bytes', () => {
+    expect(promptUtf8Bytes([{ content: '😀' }])).toBe(4);
+  });
+
+  it('counts no messages as no bytes', () => {
+    expect(promptUtf8Bytes([])).toBe(0);
+  });
+});
+
+describe('sentSystemPromptOf', () => {
+  const day = utcDayKey(new Date(TEST_DAY_START));
+  const answer: InferenceRequest = {
+    model: 'a/model',
+    inputs: [{ modality: 'text', text: 'hi' }],
+    parameters: {},
+    outputs: ['text'],
+    utcDay: day,
+  };
+
+  it('sends an answer call the base system prompt for its day', () => {
+    expect(sentSystemPromptOf(answer)).toBe(buildTurnSystemPrompt({ utcDay: day }));
+  });
+
+  it('folds an answer call’s custom instructions into its system prompt', () => {
+    expect(sentSystemPromptOf({ ...answer, customInstructions: 'be brief' })).toBe(
+      buildTurnSystemPrompt({ utcDay: day, customInstructions: 'be brief' })
+    );
+  });
+
+  it('sends a routing-only call no system prompt', () => {
+    expect(
+      sentSystemPromptOf({ ...answer, routingOnly: true, customInstructions: 'be brief' })
+    ).toBeUndefined();
+  });
+});
+
+describe('sentTextsOf', () => {
+  const day = utcDayKey(new Date(TEST_DAY_START));
+  const answer: InferenceRequest = {
+    model: 'a/model',
+    inputs: [{ modality: 'text', text: 'hi' }],
+    parameters: {},
+    outputs: ['text'],
+    utcDay: day,
+  };
+
+  it('sends an answer call its system prompt ahead of its input', () => {
+    expect(sentTextsOf(answer)).toEqual([
+      { content: buildTurnSystemPrompt({ utcDay: day }) },
+      { content: 'hi' },
+    ]);
+  });
+
+  it('sends the history between the system prompt and the input, in order', () => {
+    const texts = sentTextsOf({
+      ...answer,
+      history: [
+        { role: 'user', content: 'earlier' },
+        { role: 'assistant', content: 'reply' },
+      ],
+    });
+
+    expect(texts.map((text) => text.content).slice(1)).toEqual(['earlier', 'reply', 'hi']);
+  });
+
+  it('sends a routing-only call no system prompt', () => {
+    expect(sentTextsOf({ ...answer, routingOnly: true })).toEqual([{ content: 'hi' }]);
+  });
+
+  it('sends only the text parts of a mixed input', () => {
+    const texts = sentTextsOf({
+      ...answer,
+      routingOnly: true,
+      inputs: [
+        { modality: 'image', ref },
+        { modality: 'text', text: 'describe it' },
+      ],
+    });
+
+    expect(texts).toEqual([{ content: 'describe it' }]);
   });
 });

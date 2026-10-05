@@ -1,8 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { TEST_ID_BUILDERS } from '@hushbox/shared';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { useA11yStore } from '@hushbox/ui/accessibility/store';
 import { BudgetMessages } from '@/components/chat/budget/budget-messages';
+import { NOTICE_SHAPES, type NoticeShape } from '@/lib/chat/notice-shape';
 import type { BudgetError } from '@hushbox/shared';
 
 vi.mock('@tanstack/react-router', () => ({
@@ -21,574 +23,402 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
+const HELD: BudgetError = {
+  id: 'funds_held_by_run',
+  type: 'error',
+  message: 'Held',
+  blockClears: 'on_its_own',
+};
+const TOO_LONG: BudgetError = {
+  id: 'prompt_too_long',
+  type: 'error',
+  message: 'Too long',
+  blockClears: 'when_the_user_acts',
+};
+const CANNOT_START: BudgetError = { id: 'send_cannot_start', type: 'error', message: 'Error' };
+const SHORTENED: BudgetError = {
+  id: 'answer_may_be_shortened',
+  type: 'warning',
+  message: 'Warning',
+};
+const ALLOWANCE: BudgetError = { id: 'free_allowance_pays', type: 'info', message: 'Info' };
+
+function notice(id: BudgetError['id']): HTMLElement {
+  return screen.getByTestId(TEST_ID_BUILDERS.budgetMessage(id));
+}
+
+function severity(id: BudgetError['id']): string | undefined {
+  return notice(id).closest<HTMLElement>('[data-severity]')?.dataset['severity'];
+}
+
+function queryNotice(id: BudgetError['id']): HTMLElement | null {
+  return screen.queryByTestId(TEST_ID_BUILDERS.budgetMessage(id));
+}
+
+afterEach(() => {
+  act(() => {
+    useA11yStore.setState({ stopAnimations: false });
+  });
+});
+
 describe('BudgetMessages', () => {
   describe('rendering', () => {
-    it('renders no visible content when errors array is empty', () => {
+    it('renders nothing when there are no notices', () => {
       render(<BudgetMessages errors={[]} />);
-      expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.budgetMessages)).not.toBeInTheDocument();
     });
 
-    it('renders single error message', () => {
-      const errors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'Test error message' },
-      ];
-      render(<BudgetMessages errors={errors} />);
+    it('renders every notice it is given, in order', () => {
+      render(<BudgetMessages errors={[CANNOT_START, SHORTENED, ALLOWANCE]} />);
 
-      expect(screen.getByText('Test error message')).toBeInTheDocument();
+      const ids = [
+        ...screen
+          .getByTestId(TEST_IDS.budgetMessages)
+          .querySelectorAll<HTMLElement>('[data-slot="notice"]'),
+      ].map((element) => element.dataset['testid']);
+      expect(ids).toEqual([
+        TEST_ID_BUILDERS.budgetMessage('send_cannot_start'),
+        TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'),
+        TEST_ID_BUILDERS.budgetMessage('free_allowance_pays'),
+      ]);
     });
 
-    it('renders multiple error messages', () => {
-      const errors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'First error' },
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Second warning' },
-        { id: 'free_allowance_pays', type: 'info', message: 'Info message' },
-      ];
-      render(<BudgetMessages errors={errors} />);
+    it('draws each as the composer notice', () => {
+      render(<BudgetMessages errors={[CANNOT_START, SHORTENED, ALLOWANCE]} />);
 
-      expect(screen.getByText('First error')).toBeInTheDocument();
-      expect(screen.getByText('Second warning')).toBeInTheDocument();
-      expect(screen.getByText('Info message')).toBeInTheDocument();
+      for (const id of [
+        'send_cannot_start',
+        'answer_may_be_shortened',
+        'free_allowance_pays',
+      ] as const) {
+        expect(notice(id)).toHaveAttribute('data-placement', 'composer');
+      }
     });
 
-    it('renders container with testid', () => {
-      const errors: BudgetError[] = [{ id: 'send_cannot_start', type: 'error', message: 'Test' }];
-      render(<BudgetMessages errors={errors} />);
-
-      expect(screen.getByTestId('budget-messages')).toBeInTheDocument();
-    });
-  });
-
-  describe('accessible styling (neutral bg + colored border + colored icon)', () => {
-    it('all message types have neutral background and neutral text', () => {
-      const errors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'Error' },
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Warning' },
-        { id: 'free_allowance_pays', type: 'info', message: 'Info' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const errorMsg = screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'));
-      const warnMsg = screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'));
-      const infoMsg = screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('free_allowance_pays'));
-
-      expect(errorMsg).toHaveClass('bg-muted/50');
-      expect(warnMsg).toHaveClass('bg-muted/50');
-      expect(infoMsg).toHaveClass('bg-muted/50');
-
-      expect(errorMsg).toHaveClass('text-foreground');
-      expect(warnMsg).toHaveClass('text-foreground');
-      expect(infoMsg).toHaveClass('text-foreground');
+    it('accepts a custom className on the stack', () => {
+      render(<BudgetMessages errors={[CANNOT_START]} className="custom-class" />);
+      expect(screen.getByTestId(TEST_IDS.budgetMessages)).toHaveClass('custom-class');
     });
 
-    it('error type has red left border', () => {
-      const errors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'Error message' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const message = screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'));
-      expect(message).toHaveClass('border-l-3');
-      expect(message).toHaveClass('border-l-destructive');
-    });
-
-    it('warning type has a warning-token left border', () => {
-      const errors: BudgetError[] = [
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Warning message' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const message = screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'));
-      expect(message).toHaveClass('border-l-3');
-      expect(message).toHaveClass('border-l-warning');
-    });
-
-    it('info type has an info-token left border', () => {
-      const errors: BudgetError[] = [
-        { id: 'free_allowance_pays', type: 'info', message: 'Info message' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const message = screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('free_allowance_pays'));
-      expect(message).toHaveClass('border-l-3');
-      expect(message).toHaveClass('border-l-info');
-    });
-
-    it('error icon has red color', () => {
-      const errors: BudgetError[] = [{ id: 'send_cannot_start', type: 'error', message: 'Error' }];
-      render(<BudgetMessages errors={errors} />);
-
-      const icon = screen.getByTestId(TEST_ID_BUILDERS.budgetMessageIcon('send_cannot_start'));
-      expect(icon).toHaveClass('text-destructive');
-    });
-
-    it('warning icon carries the warning token', () => {
-      const errors: BudgetError[] = [
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Warning' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const icon = screen.getByTestId(
-        TEST_ID_BUILDERS.budgetMessageIcon('answer_may_be_shortened')
-      );
-      expect(icon).toHaveClass('text-warning');
-    });
-
-    it('info icon carries the info token', () => {
-      const errors: BudgetError[] = [{ id: 'free_allowance_pays', type: 'info', message: 'Info' }];
-      render(<BudgetMessages errors={errors} />);
-
-      const icon = screen.getByTestId(TEST_ID_BUILDERS.budgetMessageIcon('free_allowance_pays'));
-      expect(icon).toHaveClass('text-info');
+    it('keeps no icon test id on any notice', () => {
+      render(<BudgetMessages errors={[CANNOT_START, SHORTENED, ALLOWANCE]} />);
+      expect(document.querySelector('[data-testid^="budget-message-icon-"]')).toBeNull();
     });
   });
 
-  describe('icons', () => {
-    it('shows AlertTriangle icon for error type', () => {
-      const errors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'Error message' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const icon = screen.getByTestId(TEST_ID_BUILDERS.budgetMessageIcon('send_cannot_start'));
-      expect(icon).toBeInTheDocument();
+  describe('severity', () => {
+    it('marks a block that clears on its own with the hourglass', () => {
+      render(<BudgetMessages errors={[HELD]} />);
+      expect(severity('funds_held_by_run')).toBe('hourglass');
     });
 
-    it('shows AlertTriangle icon for warning type', () => {
-      const errors: BudgetError[] = [
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Warning message' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const icon = screen.getByTestId(
-        TEST_ID_BUILDERS.budgetMessageIcon('answer_may_be_shortened')
-      );
-      expect(icon).toBeInTheDocument();
+    it('marks a block the user must act on with the circle', () => {
+      render(<BudgetMessages errors={[TOO_LONG]} />);
+      expect(severity('prompt_too_long')).toBe('circle');
     });
 
-    it('shows Info icon for info type', () => {
-      const errors: BudgetError[] = [
-        { id: 'free_allowance_pays', type: 'info', message: 'Info message' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const icon = screen.getByTestId(TEST_ID_BUILDERS.budgetMessageIcon('free_allowance_pays'));
-      expect(icon).toBeInTheDocument();
-    });
-  });
-
-  describe('layout', () => {
-    it('stacks messages vertically with gap', () => {
-      const errors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'First' },
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Second' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const container = screen.getByTestId('budget-messages');
-      expect(container).toHaveClass('flex');
-      expect(container).toHaveClass('flex-col');
-      expect(container).toHaveClass('gap-2');
+    it('marks a block that declares no clearing with the circle', () => {
+      render(<BudgetMessages errors={[CANNOT_START]} />);
+      expect(severity('send_cannot_start')).toBe('circle');
     });
 
-    it('message has flex layout with icon and text', () => {
-      const errors: BudgetError[] = [{ id: 'send_cannot_start', type: 'error', message: 'Test' }];
-      render(<BudgetMessages errors={errors} />);
-
-      const message = screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'));
-      expect(message).toHaveClass('flex');
-      expect(message).toHaveClass('items-center');
-      expect(message).toHaveClass('gap-2');
+    it('marks a warning with the triangle', () => {
+      render(<BudgetMessages errors={[SHORTENED]} />);
+      expect(severity('answer_may_be_shortened')).toBe('triangle');
     });
 
-    it('message has rounded corners and padding', () => {
-      const errors: BudgetError[] = [{ id: 'send_cannot_start', type: 'error', message: 'Test' }];
-      render(<BudgetMessages errors={errors} />);
+    it('marks an info notice with the info circle', () => {
+      render(<BudgetMessages errors={[ALLOWANCE]} />);
+      expect(severity('free_allowance_pays')).toBe('info');
+    });
 
-      const message = screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'));
-      expect(message).toHaveClass('rounded');
-      expect(message).toHaveClass('px-3');
-      expect(message).toHaveClass('py-2');
+    it.each<[string, BudgetError, NoticeShape]>([
+      ['a block that clears on its own', HELD, 'hourglass'],
+      ['a block the user must act on', TOO_LONG, 'circle'],
+      ['a warning', SHORTENED, 'triangle'],
+      ['an info notice', ALLOWANCE, 'info'],
+    ])('draws %s with the icon of its shape', (_name, error, shape) => {
+      render(<BudgetMessages errors={[error]} />);
+      const drawn = notice(error.id).querySelector('svg');
+      const Expected = NOTICE_SHAPES[shape].icon;
+      const { container } = render(<Expected />);
+
+      expect(drawn?.innerHTML).toBe(container.querySelector('svg')?.innerHTML);
+    });
+
+    it('takes the error tone for a block', () => {
+      render(<BudgetMessages errors={[HELD]} />);
+      expect(notice('funds_held_by_run')).toHaveAttribute('data-tone', 'error');
+    });
+
+    it('takes the warning tone for a warning', () => {
+      render(<BudgetMessages errors={[SHORTENED]} />);
+      expect(notice('answer_may_be_shortened')).toHaveAttribute('data-tone', 'warning');
+    });
+
+    it('takes the info tone for an info notice', () => {
+      render(<BudgetMessages errors={[ALLOWANCE]} />);
+      expect(notice('free_allowance_pays')).toHaveAttribute('data-tone', 'info');
     });
   });
 
-  describe('accessibility', () => {
-    it('uses appropriate role for alerts', () => {
-      const errors: BudgetError[] = [{ id: 'send_cannot_start', type: 'error', message: 'Error' }];
-      render(<BudgetMessages errors={errors} />);
+  describe('announcements', () => {
+    it('announces an error as an alert', () => {
+      render(<BudgetMessages errors={[CANNOT_START]} />);
+      expect(notice('send_cannot_start')).toHaveAttribute('role', 'alert');
+    });
 
-      const message = screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'));
-      expect(message).toHaveAttribute('role', 'alert');
+    it('announces a warning as a status', () => {
+      render(<BudgetMessages errors={[SHORTENED]} />);
+      expect(notice('answer_may_be_shortened')).toHaveAttribute('role', 'status');
+    });
+
+    it('announces an info notice as a status', () => {
+      render(<BudgetMessages errors={[ALLOWANCE]} />);
+      expect(notice('free_allowance_pays')).toHaveAttribute('role', 'status');
+    });
+
+    it('keeps the stack a polite live region', () => {
+      render(<BudgetMessages errors={[SHORTENED]} />);
+      expect(screen.getByTestId(TEST_IDS.budgetMessages)).toHaveAttribute('aria-live', 'polite');
     });
   });
 
-  describe('custom className', () => {
-    it('accepts custom className on container', () => {
-      const errors: BudgetError[] = [{ id: 'send_cannot_start', type: 'error', message: 'Test' }];
-      render(<BudgetMessages errors={errors} className="custom-class" />);
+  describe('motion', () => {
+    it('animates the stack and each notice by default', () => {
+      render(<BudgetMessages errors={[SHORTENED, ALLOWANCE]} />);
 
-      const container = screen.getByTestId('budget-messages');
-      expect(container).toHaveClass('custom-class');
+      const stack = screen.getByTestId(TEST_IDS.budgetMessages);
+      expect(stack.querySelectorAll('[data-animated="true"]')).toHaveLength(3);
+      expect(stack.querySelector('[data-animated="false"]')).toBeNull();
     });
-  });
 
-  describe('animation', () => {
-    it('removes all messages when errors becomes empty', () => {
-      const errors: BudgetError[] = [{ id: 'send_cannot_start', type: 'error', message: 'Test' }];
-      const { rerender } = render(<BudgetMessages errors={errors} />);
+    it('animates nothing under reduced motion', () => {
+      act(() => {
+        useA11yStore.setState({ stopAnimations: true });
+      });
+      render(<BudgetMessages errors={[SHORTENED, ALLOWANCE]} />);
 
-      expect(
-        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'))
-      ).toBeInTheDocument();
+      const stack = screen.getByTestId(TEST_IDS.budgetMessages);
+      expect(stack.querySelector('[data-animated="true"]')).toBeNull();
+      expect(stack.querySelectorAll('[data-animated="false"]')).toHaveLength(3);
+    });
+
+    it('drops a notice that leaves the list while keeping the others', async () => {
+      const { rerender } = render(<BudgetMessages errors={[CANNOT_START, SHORTENED]} />);
+
+      rerender(<BudgetMessages errors={[CANNOT_START]} />);
+
+      expect(notice('send_cannot_start')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(queryNotice('answer_may_be_shortened')).not.toBeInTheDocument();
+      });
+    });
+
+    it('removes the stack when the list empties', () => {
+      const { rerender } = render(<BudgetMessages errors={[CANNOT_START]} />);
 
       rerender(<BudgetMessages errors={[]} />);
 
-      expect(
-        screen.queryByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'))
-      ).not.toBeInTheDocument();
-      expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
-    });
-
-    it('animates individual messages when list changes', () => {
-      const initialErrors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'First' },
-      ];
-      const { rerender } = render(<BudgetMessages errors={initialErrors} />);
-
-      expect(
-        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'))
-      ).toBeInTheDocument();
-
-      const updatedErrors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'First' },
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Second' },
-      ];
-      rerender(<BudgetMessages errors={updatedErrors} />);
-
-      expect(
-        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'))
-      ).toBeInTheDocument();
-      expect(
-        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'))
-      ).toBeInTheDocument();
-    });
-
-    it('wraps each individual message in overflow-hidden container for height animation', () => {
-      const errors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'First' },
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Second' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const firstMessage = screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'));
-      const secondMessage = screen.getByTestId(
-        TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened')
-      );
-
-      // Each message should have an overflow-hidden parent wrapper for height animation
-      expect(firstMessage.parentElement).toHaveClass('overflow-hidden');
-      expect(secondMessage.parentElement).toHaveClass('overflow-hidden');
-    });
-
-    it('animates individual message removal while keeping others visible', async () => {
-      const initialErrors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'First' },
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Second' },
-      ];
-      const { rerender } = render(<BudgetMessages errors={initialErrors} />);
-
-      expect(
-        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'))
-      ).toBeInTheDocument();
-      expect(
-        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'))
-      ).toBeInTheDocument();
-
-      const updatedErrors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'First' },
-      ];
-      rerender(<BudgetMessages errors={updatedErrors} />);
-
-      expect(
-        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'))
-      ).toBeInTheDocument();
-
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId(TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'))
-        ).not.toBeInTheDocument();
-      });
+      expect(screen.queryByTestId(TEST_IDS.budgetMessages)).not.toBeInTheDocument();
     });
   });
 
-  describe('link rendering', () => {
-    it('renders plain message when no segments provided', () => {
-      const errors: BudgetError[] = [
-        { id: 'free_allowance_pays', type: 'info', message: 'Plain message' },
-      ];
-      render(<BudgetMessages errors={errors} />);
+  describe('text', () => {
+    it('renders the plain message when it has no segments', () => {
+      render(<BudgetMessages errors={[{ ...ALLOWANCE, message: 'Plain message' }]} />);
 
       expect(screen.getByText('Plain message')).toBeInTheDocument();
       expect(screen.queryByTestId('budget-link')).not.toBeInTheDocument();
     });
 
-    it('renders plain message when segments is empty array', () => {
-      const errors: BudgetError[] = [
-        { id: 'free_allowance_pays', type: 'info', message: 'Plain message', segments: [] },
-      ];
-      render(<BudgetMessages errors={errors} />);
+    it('renders the plain message when its segments are empty', () => {
+      render(
+        <BudgetMessages errors={[{ ...ALLOWANCE, message: 'Plain message', segments: [] }]} />
+      );
 
       expect(screen.getByText('Plain message')).toBeInTheDocument();
       expect(screen.queryByTestId('budget-link')).not.toBeInTheDocument();
     });
 
-    it('renders clickable link when segment has link property', () => {
-      const errors: BudgetError[] = [
-        {
-          id: 'free_allowance_pays',
-          type: 'info',
-          message: 'Sample info. Sign up for details.',
-          segments: [
-            { text: 'Sample info. ' },
-            { text: 'Sign up', link: '/signup' },
-            { text: ' for details.' },
-          ],
-        },
-      ];
-      render(<BudgetMessages errors={errors} />);
+    it('reads its segments back as the message, word for word', () => {
+      render(
+        <BudgetMessages
+          errors={[
+            {
+              ...ALLOWANCE,
+              message: 'Sample info. Sign up for details.',
+              segments: [
+                { text: 'Sample info. ' },
+                { text: 'Sign up', link: '/signup' },
+                { text: ' for details.' },
+              ],
+            },
+          ]}
+        />
+      );
 
-      const link = screen.getByTestId('budget-link');
-      expect(link).toBeInTheDocument();
-      expect(link).toHaveAttribute('href', '/signup');
-      expect(link).toHaveTextContent('Sign up');
+      expect(notice('free_allowance_pays')).toHaveTextContent(
+        /^Sample info\. Sign up for details\.$/
+      );
     });
 
-    it('renders link with primary styling', () => {
-      const errors: BudgetError[] = [
-        {
-          id: 'free_allowance_pays',
-          type: 'info',
-          message: 'Sample warning. Top up for details.',
-          segments: [
-            { text: 'Sample warning. ' },
-            { text: 'Top up', link: '/billing' },
-            { text: ' for details.' },
-          ],
-        },
-      ];
-      render(<BudgetMessages errors={errors} />);
+    it('holds the last two words of a linked notice on one line', () => {
+      render(
+        <BudgetMessages
+          errors={[
+            {
+              ...SHORTENED,
+              message: 'Sample warning. Top up for longer replies.',
+              segments: [
+                { text: 'Sample warning. ' },
+                { text: 'Top up', link: '/billing' },
+                { text: ' for longer replies.' },
+              ],
+            },
+          ]}
+        />
+      );
 
-      const link = screen.getByTestId('budget-link');
-      expect(link).toHaveClass('text-primary');
-      expect(link).toHaveClass('hover:underline');
+      expect(within(notice('answer_may_be_shortened')).getByText('longer replies.')).toHaveClass(
+        'whitespace-nowrap'
+      );
     });
 
-    it('renders all text segments correctly', () => {
-      const errors: BudgetError[] = [
-        {
-          id: 'send_cannot_start',
-          type: 'error',
-          message: 'Sample error. Top up for details.',
-          segments: [
-            { text: 'Sample error. ' },
-            { text: 'Top up', link: '/billing' },
-            { text: ' for details.' },
-          ],
-        },
-      ];
-      render(<BudgetMessages errors={errors} />);
+    it('holds the last two words of a plain notice on one line', () => {
+      render(<BudgetMessages errors={[{ ...ALLOWANCE, message: 'A plain sample notice.' }]} />);
 
-      expect(screen.getByText(/Sample error\./)).toBeInTheDocument();
-      expect(screen.getByText('Top up')).toBeInTheDocument();
-      expect(screen.getByText(/for details\./)).toBeInTheDocument();
+      expect(within(notice('free_allowance_pays')).getByText('sample notice.')).toHaveClass(
+        'whitespace-nowrap'
+      );
     });
 
-    it('renders billing link correctly', () => {
-      const errors: BudgetError[] = [
-        {
-          id: 'free_allowance_pays',
-          type: 'info',
-          message: 'Sample warning. Top up for details.',
-          segments: [
-            { text: 'Sample warning. ' },
-            { text: 'Top up', link: '/billing' },
-            { text: ' for details.' },
-          ],
-        },
-      ];
-      render(<BudgetMessages errors={errors} />);
+    it('leaves a one-word notice as it is', () => {
+      render(<BudgetMessages errors={[{ ...CANNOT_START, message: 'Sample.' }]} />);
 
-      const link = screen.getByRole('link', { name: 'Top up' });
+      expect(notice('send_cannot_start').querySelector('.whitespace-nowrap')).toBeNull();
+      expect(notice('send_cannot_start')).toHaveTextContent(/^Sample\.$/);
+    });
+
+    it('renders a linked segment as a link to its route', () => {
+      render(
+        <BudgetMessages
+          errors={[
+            {
+              ...SHORTENED,
+              message: 'Sample warning. Top up for details.',
+              segments: [
+                { text: 'Sample warning. ' },
+                { text: 'Top up', link: '/billing' },
+                { text: ' for details.' },
+              ],
+            },
+          ]}
+        />
+      );
+
+      const link = within(notice('answer_may_be_shortened')).getByRole('link', { name: 'Top up' });
       expect(link).toHaveAttribute('href', '/billing');
-    });
-
-    it('renders signup link correctly', () => {
-      const errors: BudgetError[] = [
-        {
-          id: 'free_allowance_pays',
-          type: 'info',
-          message: 'Sample info. Sign up for details.',
-          segments: [
-            { text: 'Sample info. ' },
-            { text: 'Sign up', link: '/signup' },
-            { text: ' for details.' },
-          ],
-        },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const link = screen.getByRole('link', { name: 'Sign up' });
-      expect(link).toHaveAttribute('href', '/signup');
     });
   });
 
   describe('dismiss', () => {
-    it('does not show dismiss button for error type', () => {
-      const errors: BudgetError[] = [{ id: 'send_cannot_start', type: 'error', message: 'Error' }];
-      render(<BudgetMessages errors={errors} />);
-
+    it('offers no dismiss on an error', () => {
+      render(<BudgetMessages errors={[CANNOT_START]} />);
       expect(
         screen.queryByTestId(TEST_ID_BUILDERS.budgetDismiss('send_cannot_start'))
       ).not.toBeInTheDocument();
     });
 
-    it('shows dismiss button for warning type', () => {
-      const errors: BudgetError[] = [
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Warning' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
+    it('offers a dismiss on a warning', () => {
+      render(<BudgetMessages errors={[SHORTENED]} />);
       expect(
         screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('answer_may_be_shortened'))
       ).toBeInTheDocument();
     });
 
-    it('shows dismiss button for info type', () => {
-      const errors: BudgetError[] = [{ id: 'free_allowance_pays', type: 'info', message: 'Info' }];
-      render(<BudgetMessages errors={errors} />);
-
+    it('offers a dismiss on an info notice', () => {
+      render(<BudgetMessages errors={[ALLOWANCE]} />);
       expect(
         screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('free_allowance_pays'))
       ).toBeInTheDocument();
     });
 
-    it('hides warning message when dismiss is clicked', async () => {
+    it('names the dismiss for what it does', () => {
+      render(<BudgetMessages errors={[SHORTENED]} />);
+      expect(
+        screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('answer_may_be_shortened'))
+      ).toHaveAccessibleName('Dismiss notification');
+    });
+
+    it('hides a warning when its dismiss is pressed', async () => {
       const user = userEvent.setup();
-      const errors: BudgetError[] = [
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Warning' },
-      ];
-      render(<BudgetMessages errors={errors} />);
+      render(<BudgetMessages errors={[SHORTENED]} />);
 
       await user.click(
         screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('answer_may_be_shortened'))
       );
 
       await waitFor(() => {
-        expect(
-          screen.queryByTestId(TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'))
-        ).not.toBeInTheDocument();
+        expect(queryNotice('answer_may_be_shortened')).not.toBeInTheDocument();
       });
     });
 
-    it('hides info message when dismiss is clicked', async () => {
+    it('hides an info notice when its dismiss is pressed', async () => {
       const user = userEvent.setup();
-      const errors: BudgetError[] = [{ id: 'free_allowance_pays', type: 'info', message: 'Info' }];
-      render(<BudgetMessages errors={errors} />);
+      render(<BudgetMessages errors={[ALLOWANCE]} />);
 
       await user.click(screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('free_allowance_pays')));
 
       await waitFor(() => {
-        expect(
-          screen.queryByTestId(TEST_ID_BUILDERS.budgetMessage('free_allowance_pays'))
-        ).not.toBeInTheDocument();
+        expect(queryNotice('free_allowance_pays')).not.toBeInTheDocument();
       });
     });
 
-    it('reappears after condition cycles off then on', async () => {
+    it('keeps a dismissed notice hidden while it stays in the list', async () => {
       const user = userEvent.setup();
-      const errors: BudgetError[] = [
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Low' },
-      ];
-      const { rerender } = render(<BudgetMessages errors={errors} />);
+      const { rerender } = render(<BudgetMessages errors={[SHORTENED]} />);
 
       await user.click(
         screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('answer_may_be_shortened'))
       );
       await waitFor(() => {
-        expect(
-          screen.queryByTestId(TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'))
-        ).not.toBeInTheDocument();
+        expect(queryNotice('answer_may_be_shortened')).not.toBeInTheDocument();
       });
+      rerender(<BudgetMessages errors={[SHORTENED, ALLOWANCE]} />);
 
+      expect(notice('free_allowance_pays')).toBeInTheDocument();
+      expect(queryNotice('answer_may_be_shortened')).not.toBeInTheDocument();
+    });
+
+    it('returns a dismissed notice once it has left the list and come back', async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<BudgetMessages errors={[SHORTENED]} />);
+
+      await user.click(
+        screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('answer_may_be_shortened'))
+      );
+      await waitFor(() => {
+        expect(queryNotice('answer_may_be_shortened')).not.toBeInTheDocument();
+      });
       rerender(<BudgetMessages errors={[]} />);
+      rerender(<BudgetMessages errors={[SHORTENED]} />);
 
-      rerender(<BudgetMessages errors={errors} />);
-
-      expect(
-        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'))
-      ).toBeInTheDocument();
+      expect(notice('answer_may_be_shortened')).toBeInTheDocument();
     });
 
-    it('dismissing one message does not hide others', async () => {
+    it('leaves the other notices in place when one is dismissed', async () => {
       const user = userEvent.setup();
-      const errors: BudgetError[] = [
-        { id: 'context_near_capacity', type: 'warning', message: 'W1' },
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'W2' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      await user.click(screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('context_near_capacity')));
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId(TEST_ID_BUILDERS.budgetMessage('context_near_capacity'))
-        ).not.toBeInTheDocument();
-      });
-
-      expect(
-        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'))
-      ).toBeInTheDocument();
-    });
-
-    it('error stays visible when warning is dismissed', async () => {
-      const user = userEvent.setup();
-      const errors: BudgetError[] = [
-        { id: 'send_cannot_start', type: 'error', message: 'Error' },
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Warning' },
-      ];
-      render(<BudgetMessages errors={errors} />);
+      render(<BudgetMessages errors={[CANNOT_START, SHORTENED]} />);
 
       await user.click(
         screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('answer_may_be_shortened'))
       );
       await waitFor(() => {
-        expect(
-          screen.queryByTestId(TEST_ID_BUILDERS.budgetMessage('answer_may_be_shortened'))
-        ).not.toBeInTheDocument();
+        expect(queryNotice('answer_may_be_shortened')).not.toBeInTheDocument();
       });
 
-      expect(
-        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('send_cannot_start'))
-      ).toBeInTheDocument();
-    });
-
-    it('dismiss button has accessible aria-label', () => {
-      const errors: BudgetError[] = [
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Warning' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const button = screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('answer_may_be_shortened'));
-      expect(button).toHaveAttribute('aria-label', 'Dismiss notification');
-    });
-
-    it('dismiss button icon is aria-hidden', () => {
-      const errors: BudgetError[] = [
-        { id: 'answer_may_be_shortened', type: 'warning', message: 'Warning' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      const button = screen.getByTestId(TEST_ID_BUILDERS.budgetDismiss('answer_may_be_shortened'));
-      const icon = button.querySelector('svg');
-      expect(icon).toHaveAttribute('aria-hidden', 'true');
+      expect(notice('send_cannot_start')).toBeInTheDocument();
     });
   });
 });

@@ -11,7 +11,6 @@ import {
   MONEY_ASSERTION_HOLDS,
   allowedMinimumDeposit,
   assertServedChargeBasis,
-  catalogPerImageCharge,
   compareBalanceDelta,
   compareChargeAttribution,
   compareDelegatedBudget,
@@ -28,7 +27,6 @@ import {
   mockTextTurnCharge,
   nanoUsdFromDecimalString,
   nanoUsdFromWire,
-  pickModelPricing,
   seededUsageCharge,
   seededWalletBalance,
   spendOf,
@@ -42,7 +40,6 @@ import type {
   ServedAttributionRow,
   ObservedNanoUsd,
   ServedChargeBasis,
-  ServedModelPricing,
   ServedSeededBalance,
   ServedSeededUsage,
 } from './money.js';
@@ -69,8 +66,6 @@ const BASIS = asReading({
   echoPrefix: 'Echo:\n',
   echoSuffix: '\n\n```json\n{\n  "ok": true\n}\n```',
 } as ServedChargeBasis);
-
-const PER_IMAGE_PRICING = asReading({ perImage: '46000000' } as ServedModelPricing);
 
 /** What the seed route hands back after a spec establishes a balance. */
 const SEEDED_TEN = asReading({ newBalance: '10.000000000' } as ServedSeededBalance);
@@ -168,20 +163,6 @@ describe('derivation from the mock provider s declared basis', () => {
   });
 });
 
-describe('derivation from the served catalog row', () => {
-  it('prices images at the row s billable per-image rate', () => {
-    expect(catalogPerImageCharge(PER_IMAGE_PRICING, 2)).toBe(92_000_000n);
-  });
-
-  it('refuses a row that carries no per-image rate', () => {
-    expect(() => catalogPerImageCharge(asReading({} as ServedModelPricing), 1)).toThrow(/perImage/);
-  });
-
-  it('rejects an image count that is not a positive integer', () => {
-    expect(() => catalogPerImageCharge(PER_IMAGE_PRICING, 0)).toThrow(RangeError);
-  });
-});
-
 describe('reading the served sources', () => {
   it('takes the three declared fields off the charge-basis payload', () => {
     expect(
@@ -207,30 +188,6 @@ describe('reading the served sources', () => {
     expect(() =>
       assertServedChargeBasis({ generationChargeNanoUsd: '', echoPrefix: '', echoSuffix: '' })
     ).toThrow();
-  });
-
-  it('finds the named model s pricing in a served catalog', () => {
-    expect(
-      pickModelPricing(
-        {
-          models: [
-            { id: 'other', pricing: {} },
-            { id: 'wanted', pricing: { perImage: '7' } },
-          ],
-        },
-        'wanted'
-      )
-    ).toEqual({ perImage: '7' });
-  });
-
-  it('refuses a catalog that does not carry the named model', () => {
-    expect(() => pickModelPricing({ models: [{ id: 'other', pricing: {} }] }, 'wanted')).toThrow(
-      /wanted/
-    );
-  });
-
-  it('refuses a payload that is not a served catalog', () => {
-    expect(() => pickModelPricing({ nope: true }, 'wanted')).toThrow(/catalog/);
   });
 });
 
@@ -396,12 +353,6 @@ describe('the signatures admit no written-out expectation', () => {
     expect(() => mockTextTurnCharge(handWritten, { prompt: '', answers: 1 })).toThrow(NEVER_READ);
   });
 
-  it('refuses a hand-written pricing row where a served one is required', () => {
-    const handWritten = { perImage: '1' };
-    // @ts-expect-error a pricing row carries the money value, so only a read may mint one
-    expect(() => catalogPerImageCharge(handWritten, 1)).toThrow(NEVER_READ);
-  });
-
   it('refuses a spread that rewrites the served charge and keeps the brand', () => {
     // A spread carries a symbol-keyed brand on the OBJECT straight through, so
     // branding the object alone leaves the amount rewritable with no cast. The
@@ -438,12 +389,6 @@ describe('the signatures admit no written-out expectation', () => {
     const rewritten = { ...SEEDED_TEN, newBalance: '424242.000000000' };
     // @ts-expect-error a plain string is not the served field it would replace
     expect(() => seededWalletBalance(rewritten)).toThrow(NEVER_READ);
-  });
-
-  it('refuses a spread that rewrites the served per-image rate', () => {
-    const rewritten = { ...PER_IMAGE_PRICING, perImage: '1' };
-    // @ts-expect-error a plain string is not the served field it would replace
-    expect(() => catalogPerImageCharge(rewritten, 1)).toThrow(NEVER_READ);
   });
 
   it('refuses a hand-written money state, which would pass over numbers nothing read', () => {
@@ -600,11 +545,6 @@ describe('a value that never came from a read', () => {
       echoSuffix: '',
     } as ServedChargeBasis;
     expect(() => mockTextTurnCharge(written, { prompt: 'hi', answers: 1 })).toThrow(NEVER_READ);
-  });
-
-  it('refuses a pricing row that never came from a read', () => {
-    const written = { perImage: '1' } as ServedModelPricing;
-    expect(() => catalogPerImageCharge(written, 1)).toThrow(NEVER_READ);
   });
 
   it('refuses a seeded balance rewritten in place through a widened alias', () => {

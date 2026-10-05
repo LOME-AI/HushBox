@@ -63,8 +63,8 @@ export function memberAdmits(
 }
 
 /**
- * What the gated resolution reads: the membership and wallet stores the freeze
- * needs, plus the catalog reader's own two dependencies.
+ * What the gated resolution reads: the freeze's own dependencies
+ * ({@link ResolveTurnContextDeps}), plus the catalog reader's two.
  */
 export interface GatedTurnContextDeps extends ResolveTurnContextDeps {
   readonly db: Database;
@@ -279,16 +279,20 @@ export function gatedTurnContext(
   now: Date
 ): ResultAsync<GatedTurnOutcome, DomainError> {
   return listDescriptors({ db: deps.db, telemetry: deps.telemetry }).andThen((exposedCatalog) =>
-    resolveTurnContext({ conversations: deps.conversations, billing: deps.billing }, deps.db, {
-      conversationId: body.conversationId,
-      sender: caller.sender,
-      forkId: body.forkId,
-      now,
-      exposedCatalog,
-      selection: turnPricingSelection(body),
-      promptCharacterCount: caller.promptCharacterCount,
-      inputCharacterCount: caller.inputCharacterCount,
-    }).andThen((context) => {
+    resolveTurnContext(
+      { conversations: deps.conversations, billing: deps.billing, redis: deps.redis },
+      deps.db,
+      {
+        conversationId: body.conversationId,
+        sender: caller.sender,
+        forkId: body.forkId,
+        now,
+        exposedCatalog,
+        selection: turnPricingSelection(body),
+        promptCharacterCount: caller.promptCharacterCount,
+        inputCharacterCount: caller.inputCharacterCount,
+      }
+    ).andThen((context) => {
       // Authorization first: a read-only member may see the conversation but
       // never spend against it, so the refusal names the caller's privilege
       // rather than whatever the selection happens to carry. It sits above

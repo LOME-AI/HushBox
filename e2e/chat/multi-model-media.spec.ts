@@ -15,6 +15,10 @@ import type { APIRequestContext } from '../fixtures.js';
 
 const SPEC_MATRIX = matrix({ engine: 'engine-matrix', formFactor: 'either' });
 
+/** A two-model turn's replies: one compare row after the user's row, a column per model. */
+const FIRST_REPLY = { row: 1, column: 0 };
+const SECOND_REPLY = { row: 1, column: 1 };
+
 // Each pair is two genuinely distinct exposed strict-family models, so the
 // picker selects two and the media fan-out is non-vacuous (`buildMediaTurn`
 // builds N sibling media modelCalls; the mock send-provider renders a canned
@@ -36,21 +40,21 @@ const VIDEO_MODELS = E2E_SEEDED_VIDEO_MODEL_IDS;
  * (`model-item-<id>`) so the tests do not rely on the default-sort ordering.
  */
 /**
- * What a media turn settled, derived: every persisted artifact at its own
- * family's rate plus its stored bytes, and the user's prompt stored once for
- * the whole turn. `artifacts` is what the turn is expected to have PERSISTED —
+ * What a media turn settled, derived: every persisted artifact at the inline
+ * cost the mock declares, plus its stored bytes, and the user's prompt stored
+ * once for the whole turn. `artifacts` is what the turn is expected to have PERSISTED —
  * on a partial failure that is the survivor alone, which is what makes this
  * fail if the failed sibling is billed anyway.
  */
 async function expectMediaTurnCharge(
   request: APIRequestContext,
   conversationId: string,
-  turn: { readonly kind: 'image' | 'video'; readonly prompt: string; readonly artifacts: number }
+  turn: { readonly prompt: string; readonly artifacts: number }
 ): Promise<void> {
   const items = await readGeneratedMedia(request, conversationId, turn.artifacts);
   const charges: DerivedNanoUsd[] = [];
   for (const item of items) {
-    charges.push(await generatedArtifactCharge(request, turn.kind, item));
+    charges.push(await generatedArtifactCharge(request, item));
   }
   await expectExactCharge(
     request,
@@ -84,17 +88,23 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
     });
     await chatPage.waitForStreamCycle(streamBaseline, TIMEOUTS.MEDIA_DECODE);
 
-    // Conversation is [user, ai1, ai2]. Address by Virtuoso row index so the
-    // assertions don't depend on which messages are currently rendered.
-    await chatPage.expectMediaVisibleAt(1, 'img', TIMEOUTS.MEDIA_DECODE);
-    const tag1 = chatPage.getMessage(1).getByTestId(TEST_IDS.modelNametag);
-    const image1 = chatPage.imagesIn(chatPage.getMessage(1)).first();
+    // Rows are [user, the compare turn of ai1 and ai2]. Address each reply by its row and
+    // column so the assertions don't depend on which messages are currently rendered.
+    await chatPage.expectMediaVisibleAt(FIRST_REPLY, 'img', TIMEOUTS.MEDIA_DECODE);
+    const tag1 = chatPage.getMessageAt(FIRST_REPLY).getByTestId(TEST_IDS.modelNametag);
+    const image1 = chatPage.imagesIn(chatPage.getMessageAt(FIRST_REPLY)).first();
     const source1 = await image1.getAttribute('src');
 
-    await chatPage.expectMediaVisibleAt(2, 'img', TIMEOUTS.MEDIA_DECODE);
+    await chatPage.expectMediaVisibleAt(SECOND_REPLY, 'img', TIMEOUTS.MEDIA_DECODE);
     const tag2 =
-      (await chatPage.getMessage(2).getByTestId(TEST_IDS.modelNametag).textContent()) ?? '';
-    const source2 = await chatPage.imagesIn(chatPage.getMessage(2)).first().getAttribute('src');
+      (await chatPage
+        .getMessageAt(SECOND_REPLY)
+        .getByTestId(TEST_IDS.modelNametag)
+        .textContent()) ?? '';
+    const source2 = await chatPage
+      .imagesIn(chatPage.getMessageAt(SECOND_REPLY))
+      .first()
+      .getAttribute('src');
 
     await expect(tag1).not.toHaveText(tag2);
     // Distinct decrypted blob URLs — each <img> must have its own object URL,
@@ -109,9 +119,8 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
     });
 
     // Two tiles displaying a cost is not two charges: this is what the wallet
-    // was actually asked for, both models priced at their own catalog rate.
+    // was actually asked for, both generations at the inline cost each returned.
     await expectMediaTurnCharge(authenticatedPage.request, conversationId, {
-      kind: 'image',
       prompt,
       artifacts: 2,
     });
@@ -151,6 +160,11 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
       await expect(successImage.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
       const errorTile = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
+      await chatPage.showCompareReply(
+        chatPage.messageList
+          .getByRole('tabpanel', { includeHidden: true })
+          .filter({ has: errorTile })
+      );
       // Scroll into view before asserting. Virtuoso's overscan keeps the row
       // mounted (see message-list.tsx `increaseViewportBy`), but post-stream
       // layout shift (media bytes resolving) can land it just outside the
@@ -170,7 +184,6 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
       // land here and nowhere else: it writes no content, so it shows up in no
       // tile and in no displayed total.
       await expectMediaTurnCharge(authenticatedPage.request, conversationId, {
-        kind: 'image',
         prompt,
         artifacts: 1,
       });
@@ -204,8 +217,8 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
     });
     await chatPage.waitForStreamCycle(streamBaseline, TIMEOUTS.MEDIA_DECODE);
 
-    // Fork on the first assistant message (row index 1: [user, ai1, ai2]).
-    await chatPage.clickFork(1);
+    // Fork on the first assistant message (row 1 is the compare turn of ai1 and ai2).
+    await chatPage.clickFork(FIRST_REPLY);
     await chatPage.expectBranchCount(2);
     await chatPage.expectCurrentBranch('Fork 1');
 
@@ -213,8 +226,8 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
     await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
       timeout: TIMEOUTS.STREAM,
     });
-    await chatPage.expectMediaVisibleAt(1, 'img', TIMEOUTS.STREAM);
-    await chatPage.expectMediaVisibleAt(2, 'img', TIMEOUTS.STREAM);
+    await chatPage.expectMediaVisibleAt(FIRST_REPLY, 'img', TIMEOUTS.STREAM);
+    await chatPage.expectMediaVisibleAt(SECOND_REPLY, 'img', TIMEOUTS.STREAM);
   });
 
   /**
@@ -241,11 +254,14 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
     });
     await chatPage.waitForStreamCycle(streamBaseline, TIMEOUTS.MEDIA_DECODE);
 
-    await chatPage.expectMediaVisibleAt(1, 'video', TIMEOUTS.MEDIA_DECODE);
-    const tag1 = chatPage.getMessage(1).getByTestId(TEST_IDS.modelNametag);
-    await chatPage.expectMediaVisibleAt(2, 'video', TIMEOUTS.MEDIA_DECODE);
+    await chatPage.expectMediaVisibleAt(FIRST_REPLY, 'video', TIMEOUTS.MEDIA_DECODE);
+    const tag1 = chatPage.getMessageAt(FIRST_REPLY).getByTestId(TEST_IDS.modelNametag);
+    await chatPage.expectMediaVisibleAt(SECOND_REPLY, 'video', TIMEOUTS.MEDIA_DECODE);
     const tag2 =
-      (await chatPage.getMessage(2).getByTestId(TEST_IDS.modelNametag).textContent()) ?? '';
+      (await chatPage
+        .getMessageAt(SECOND_REPLY)
+        .getByTestId(TEST_IDS.modelNametag)
+        .textContent()) ?? '';
     await expect(tag1).not.toHaveText(tag2);
 
     // Cost row count must mirror the assistant count (one cost per response).
@@ -255,7 +271,6 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
 
     // Both generations, at the inline cost the provider returned for each.
     await expectMediaTurnCharge(authenticatedPage.request, conversationId, {
-      kind: 'video',
       prompt,
       artifacts: 2,
     });
@@ -295,6 +310,11 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
       await expect(successVideo.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
       const errorTile = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
+      await chatPage.showCompareReply(
+        chatPage.messageList
+          .getByRole('tabpanel', { includeHidden: true })
+          .filter({ has: errorTile })
+      );
       // Scroll into view before asserting. Virtuoso's overscan keeps the row
       // mounted (see message-list.tsx `increaseViewportBy`), but post-stream
       // layout shift (media bytes resolving) can land it just outside the
@@ -310,7 +330,6 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
 
       // And the same money statement: the surviving generation, nothing else.
       await expectMediaTurnCharge(authenticatedPage.request, conversationId, {
-        kind: 'video',
         prompt,
         artifacts: 1,
       });
@@ -346,8 +365,8 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
     });
     await chatPage.waitForStreamCycle(streamBaseline, TIMEOUTS.MEDIA_DECODE);
 
-    await chatPage.expectMediaVisibleAt(1, 'img', TIMEOUTS.MEDIA_DECODE);
-    await chatPage.expectMediaVisibleAt(2, 'img', TIMEOUTS.MEDIA_DECODE);
+    await chatPage.expectMediaVisibleAt(FIRST_REPLY, 'img', TIMEOUTS.MEDIA_DECODE);
+    await chatPage.expectMediaVisibleAt(SECOND_REPLY, 'img', TIMEOUTS.MEDIA_DECODE);
 
     // Reload the page and assert both images survive — each requires a fresh
     // download URL mint and decryption round-trip.
@@ -357,7 +376,7 @@ test.describe('Multi-Model Media', SPEC_MATRIX, () => {
     await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
       timeout: TIMEOUTS.STREAM,
     });
-    await chatPage.expectMediaVisibleAt(1, 'img', TIMEOUTS.MEDIA_DECODE);
-    await chatPage.expectMediaVisibleAt(2, 'img', TIMEOUTS.MEDIA_DECODE);
+    await chatPage.expectMediaVisibleAt(FIRST_REPLY, 'img', TIMEOUTS.MEDIA_DECODE);
+    await chatPage.expectMediaVisibleAt(SECOND_REPLY, 'img', TIMEOUTS.MEDIA_DECODE);
   });
 });

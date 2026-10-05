@@ -325,6 +325,7 @@ function selectionsOver(catalog: readonly PriceableModel[]): fc.Arbitrary<Select
             modality: 'text',
             pinned: pin === undefined ? {} : { effort: pin },
             webSearch,
+            effortAuto: pin === undefined,
           };
         }
       )

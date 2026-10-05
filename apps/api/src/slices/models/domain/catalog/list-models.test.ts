@@ -253,6 +253,22 @@ describe('buildModelsListResponse', () => {
     expect(response.premiumModelIds).not.toContain(SMART_MODEL_ID);
   });
 
+  it('bounds the served Smart Model maximum by a pool model’s long-context rate', () => {
+    const cheap = textModel({ id: 'test/cheap', pricing: tokenPricing(100n, 200n) });
+    const tiered = textModel({
+      id: 'test/tiered',
+      pricing: tokenPricingFixture({
+        input: 1000n,
+        output: 2000n,
+        tiers: [{ abovePromptTokens: 200_000, input: 4000n, output: 8000n }],
+      }),
+    });
+    const { response } = buildModelsListResponse([cheap, tiered], NOW_MS);
+    const smart = response.models.find((entry) => entry.id === SMART_MODEL_ID);
+
+    expect(smart?.maxPricing).toEqual({ inputPerToken: '4000', outputPerToken: '8000' });
+  });
+
   it('omits the Smart Model entry when no priceable text model exists', () => {
     const { response } = buildModelsListResponse([imageModel()], NOW_MS);
     expect(response.models.some((entry) => entry.id === SMART_MODEL_ID)).toBe(false);

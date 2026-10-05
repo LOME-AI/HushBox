@@ -3,6 +3,7 @@ import { callShapeFamilyFor, utcDayKey } from '@hushbox/shared';
 import { TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
 import { tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
 import { callShapeFor, createDispatchingProvider, createModelProvider } from './dispatch.js';
+import { callMaxPrice } from '../domain/pricing/call-routing.js';
 import type { ModelProvider } from '../ports/index.js';
 import type {
   FilePartMapper,
@@ -16,6 +17,11 @@ import type {
 /** An inert fixture stamp: nothing in this file reads it against a clock. */
 const FIXTURE_STAMP_SECONDS = secondsAt(TEST_DAY_START);
 const FIXTURE_UTC_DAY = utcDayKey(new Date(TEST_DAY_START));
+
+/** The cap a 1-nano anchor's language call routes under, from the call routing itself. */
+const TEST_ROUTING: NonNullable<InferenceRequest['routing']> = {
+  maxPrice: callMaxPrice(tokenPricingFixture({ input: 1n, output: 1n }), 0),
+};
 
 function descriptorWithOutputs(id: string, outputs: Modality[]): ModelDescriptor {
   return {
@@ -41,6 +47,7 @@ function requestFor(model: string, outputs: Modality[]): InferenceRequest {
     parameters: {},
     outputs,
     utcDay: FIXTURE_UTC_DAY,
+    ...(callShapeFamilyFor(outputs) === 'language' ? { routing: TEST_ROUTING } : {}),
   };
 }
 
@@ -177,12 +184,15 @@ describe('createModelProvider', () => {
     const events = await collect(
       provider.infer(
         requestFor('google/imagen-4.0-generate-001', ['image']),
-        descriptorWithOutputs('google/imagen-4.0-generate-001', ['image']),
+        {
+          ...descriptorWithOutputs('google/imagen-4.0-generate-001', ['image']),
+          zdrPin: ['google-vertex/global'],
+        },
         { mapFilePart }
       )
     );
 
-    // Image emits no generation id and no inline cost.
+    // This scripted response carries no generation id and no `usage.cost`, so the finish carries neither.
     expect(events.at(-1)).toEqual({
       kind: 'finish',
       metadata: {

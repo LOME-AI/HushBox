@@ -33,7 +33,8 @@ function getDocumentIcon(type: Document['type']): React.JSX.Element {
   }
 }
 
-function getTypeLabel(document: Document): string {
+/** The one label for what a document is written in, wherever the document is named. */
+export function getTypeLabel(document: Document): string {
   if (document.language) {
     return document.language;
   }

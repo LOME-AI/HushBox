@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render as renderInDocument, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TEST_IDS } from '@hushbox/shared';
 import { setLinkGuestAuth, clearLinkGuestAuth } from '@/lib/auth/link-guest-auth';
 import { PageShell } from '@/components/shared/page-shell';
 import { ChatHeader } from '@/components/chat/layout/chat-header';
+import { MEMBERS_PANE_ID } from '@/components/chat/member/member-sidebar';
+import { useRightPane } from '@/stores/ui/right-pane';
 import type { RenderResult } from '@testing-library/react';
 
 vi.mock('@/providers/theme-provider', () => ({
@@ -29,6 +31,22 @@ function slot(name: string): HTMLElement {
   const element = document.querySelector<HTMLElement>(`[data-page-slot="${name}"]`);
   if (element === null) throw new Error(`no ${name} slot`);
   return element;
+}
+
+const STRIP_FILLED_HIDES_FACEPILE =
+  'max-md:group-has-[[data-page-slot=strip]:not(:empty)]/page-column:hidden';
+
+// Reads the shell's below-768 facepile rule against the rendered slots, since the test
+// environment applies no Tailwind CSS: hidden outright, or hidden while the strip is filled.
+function facepileHiddenBelow768(): boolean {
+  const facepile = slot('facepile');
+  if (facepile.classList.contains('max-md:hidden')) return true;
+  if (!facepile.classList.contains(STRIP_FILLED_HIDES_FACEPILE)) return false;
+  return (
+    facepile
+      .closest('[class~="group/page-column"]')
+      ?.matches(':has([data-page-slot=strip]:not(:empty))') ?? false
+  );
 }
 
 describe('ChatHeader', () => {
@@ -115,16 +133,15 @@ describe('ChatHeader', () => {
       { id: 'user-1', userId: 'user-1', username: 'alice' },
       { id: 'user-2', userId: 'user-2', username: 'bob' },
     ];
+    const soloMembers = [{ id: 'user-1', userId: 'user-1', username: 'alice' }];
 
     describe('facepile', () => {
+      beforeEach(() => {
+        useRightPane.setState({ active: null });
+      });
+
       it('renders facepile when members are provided', () => {
-        render(
-          <ChatHeader
-            members={groupMembers}
-            onlineMemberIds={new Set()}
-            onFacepileClick={vi.fn()}
-          />
-        );
+        render(<ChatHeader members={groupMembers} onlineMemberIds={new Set()} />);
         expect(screen.getByTestId('member-facepile')).toBeInTheDocument();
       });
 
@@ -134,31 +151,131 @@ describe('ChatHeader', () => {
       });
 
       it('does not render facepile when members is empty', () => {
-        render(<ChatHeader members={[]} onlineMemberIds={new Set()} onFacepileClick={vi.fn()} />);
+        render(<ChatHeader members={[]} onlineMemberIds={new Set()} />);
         expect(screen.queryByTestId('member-facepile')).not.toBeInTheDocument();
       });
 
-      it('calls onFacepileClick when facepile is clicked', async () => {
+      it('opens the members pane when the facepile is pressed', async () => {
         const user = userEvent.setup();
-        const onFacepileClick = vi.fn();
-        render(
-          <ChatHeader
-            members={groupMembers}
-            onlineMemberIds={new Set()}
-            onFacepileClick={onFacepileClick}
-          />
-        );
+        render(<ChatHeader members={groupMembers} onlineMemberIds={new Set()} />);
+
         await user.click(screen.getByTestId('member-facepile'));
-        expect(onFacepileClick).toHaveBeenCalledOnce();
+
+        expect(useRightPane.getState().active).toBe(MEMBERS_PANE_ID);
       });
 
-      it('renders the facepile with fallbacks when presence and click handler are omitted', async () => {
+      it('rings the avatar of a member whose account is online', () => {
+        render(<ChatHeader members={groupMembers} onlineMemberIds={new Set(['user-2'])} />);
+
+        const online = screen
+          .getByTestId('member-facepile')
+          .querySelectorAll('[data-slot="avatar"][data-online]');
+        expect([...online].map((avatar) => avatar.textContent)).toEqual(['B']);
+      });
+
+      it('draws a member without a username as a guest', () => {
+        render(
+          <ChatHeader
+            members={[{ id: 'member-9', userId: null, username: null }]}
+            onlineMemberIds={new Set()}
+          />
+        );
+
+        expect(
+          screen.getByTestId('member-facepile').querySelector('[data-slot="avatar"]')
+        ).toHaveTextContent('G');
+      });
+    });
+
+    describe('member strip', () => {
+      beforeEach(() => {
+        useRightPane.setState({ active: null });
+      });
+
+      it('puts the member strip in the strip slot', () => {
+        render(<ChatHeader members={groupMembers} onlineMemberIds={new Set(['user-1'])} />);
+
+        expect(within(slot('strip')).getByTestId(TEST_IDS.memberStrip)).toHaveTextContent(
+          '2 members · 1 online'
+        );
+      });
+
+      it('reserves the strip row in a group before its members arrive', () => {
+        render(<ChatHeader memberCount={3} />);
+
+        expect(within(slot('strip')).getByTestId(TEST_IDS.memberStrip)).toHaveAccessibleName(
+          'Show members'
+        );
+      });
+
+      it('reserves the strip row for a link guest before any read arrives', () => {
+        render(<ChatHeader isAuthenticated={false} isLinkGuest />);
+
+        expect(within(slot('strip')).getByTestId(TEST_IDS.memberStrip)).toBeInTheDocument();
+      });
+
+      it('opens the members pane from the reserved row', async () => {
+        const user = userEvent.setup();
+        render(<ChatHeader memberCount={3} />);
+
+        await user.click(screen.getByTestId(TEST_IDS.memberStrip));
+
+        expect(useRightPane.getState().active).toBe(MEMBERS_PANE_ID);
+      });
+
+      it('draws no strip for a solo conversation', () => {
+        render(
+          <ChatHeader members={soloMembers} onlineMemberIds={new Set(['user-1'])} memberCount={1} />
+        );
+
+        expect(slot('strip')).toBeEmptyDOMElement();
+      });
+
+      it('keeps the facepile for a solo conversation', () => {
+        render(<ChatHeader members={soloMembers} memberCount={1} />);
+
+        expect(within(slot('facepile')).getByTestId('member-facepile')).toBeInTheDocument();
+      });
+
+      it('shows the facepile below 768 for a solo conversation, its only members opener', () => {
+        render(<ChatHeader members={soloMembers} memberCount={1} />);
+
+        expect(facepileHiddenBelow768()).toBe(false);
+      });
+
+      it('hides the facepile below 768 for a group, whose strip opens the members', () => {
+        render(<ChatHeader members={groupMembers} memberCount={2} />);
+
+        expect(facepileHiddenBelow768()).toBe(true);
+      });
+
+      it('hides the facepile below 768 while a group reserves its strip row', () => {
+        render(<ChatHeader memberCount={3} />);
+
+        expect(facepileHiddenBelow768()).toBe(true);
+      });
+
+      it('draws the strip for an owner beside a link guest', () => {
+        render(<ChatHeader members={soloMembers} memberCount={2} />);
+
+        expect(within(slot('strip')).getByTestId(TEST_IDS.memberStrip)).toHaveTextContent(
+          '1 member · 0 online'
+        );
+      });
+
+      it('draws no strip without members', () => {
+        render(<ChatHeader members={[]} onlineMemberIds={new Set()} />);
+
+        expect(slot('strip')).toBeEmptyDOMElement();
+      });
+
+      it('opens the members pane when the strip is pressed', async () => {
         const user = userEvent.setup();
         render(<ChatHeader members={groupMembers} />);
-        const facepile = screen.getByTestId('member-facepile');
-        expect(facepile).toBeInTheDocument();
-        // The noop fallback must be safe to invoke.
-        await expect(user.click(facepile)).resolves.toBeUndefined();
+
+        await user.click(screen.getByTestId(TEST_IDS.memberStrip));
+
+        expect(useRightPane.getState().active).toBe(MEMBERS_PANE_ID);
       });
     });
 
@@ -199,24 +316,12 @@ describe('ChatHeader', () => {
 
     describe('slot placement', () => {
       it('puts the facepile in the facepile slot', () => {
-        render(
-          <ChatHeader
-            members={groupMembers}
-            onlineMemberIds={new Set()}
-            onFacepileClick={vi.fn()}
-          />
-        );
+        render(<ChatHeader members={groupMembers} onlineMemberIds={new Set()} />);
         expect(within(slot('facepile')).getByTestId('member-facepile')).toBeInTheDocument();
       });
 
       it('does not render add dropdown', () => {
-        render(
-          <ChatHeader
-            members={groupMembers}
-            onlineMemberIds={new Set()}
-            onFacepileClick={vi.fn()}
-          />
-        );
+        render(<ChatHeader members={groupMembers} onlineMemberIds={new Set()} />);
         expect(screen.queryByTestId('header-add-dropdown-trigger')).not.toBeInTheDocument();
       });
     });

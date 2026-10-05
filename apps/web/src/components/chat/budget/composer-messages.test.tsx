@@ -154,7 +154,7 @@ describe('ComposerMessages', () => {
 
     const rendered = screen
       .getByTestId(TEST_IDS.budgetMessages)
-      .querySelectorAll<HTMLElement>('[role="alert"]');
+      .querySelectorAll<HTMLElement>('[data-slot="notice"]');
     expect([...rendered].map((element) => element.dataset['testid'])).toEqual([
       TEST_ID_BUILDERS.budgetMessage('trial_message_cap_exceeded'),
       TEST_ID_BUILDERS.budgetMessage(TRIAL_REMAINING_MESSAGE_ID),

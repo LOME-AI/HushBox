@@ -83,6 +83,7 @@ function selectionOf(models: readonly string[], pinnedEffort?: string): Selectio
     modality: 'text',
     pinned: pinnedEffort === undefined ? {} : { effort: pinnedEffort },
     webSearch: false,
+    effortAuto: pinnedEffort === undefined,
   };
 }
 
@@ -115,15 +116,20 @@ function trialInputOf(): CoreInput {
 }
 
 /**
- * A pin the trial's per-message cap refuses, in a pool whose price percentile
- * sits well above it — so the tier axis reaches the cap instead of stopping at
- * premium, and the cheap row beside it is neither premium nor over the cap.
+ * A pin the trial's per-message cap refuses on {@link LONG_BASIS}, in a pool whose
+ * price percentile sits well above it, and which clears the cap at the trial
+ * classification's 1,000-character exchange — so the tier axis reaches the cap
+ * instead of stopping at premium, and the cheap row beside it is neither premium
+ * nor over the cap.
  */
 const TRIAL_CAP_PIN = modelOf({
   modelId: 'vendor/trial-cap-pin',
-  inputRate: 10_000n,
-  outputRate: 10_000n,
+  inputRate: 2000n,
+  outputRate: 3500n,
 });
+
+/** 4,300 prompt characters: long enough that {@link TRIAL_CAP_PIN} breaks the cap. */
+const LONG_BASIS: PromptBasis = { ...BASIS, historyChars: 3700 };
 
 const DEAR = [1, 2, 3].map((n) =>
   modelOf({ modelId: `vendor/dear-${String(n)}`, inputRate: 100_000n, outputRate: 100_000n })
@@ -132,7 +138,7 @@ const DEAR = [1, 2, 3].map((n) =>
 function trialCapInputOf(): CoreInput {
   return {
     fundingNanoUsd: AMPLE_FUNDING,
-    basis: BASIS,
+    basis: LONG_BASIS,
     selection: selectionOf(['vendor/trial-cap-pin']),
     catalog: [TRIAL_CAP_PIN, CHEAP, ...DEAR],
     tier: 'trial',
@@ -279,8 +285,9 @@ describe('a candidate blocked by the selection rather than by itself', () => {
   });
 
   // The tier axis reaches the trial cap only past premium, so the pin has to be
-  // costly enough to break the cap and still cheap enough to sit below the
-  // pool's premium price percentile.
+  // costly enough to break the cap on the turn's prompt and still cheap enough to
+  // sit below the pool's premium price percentile and to clear the cap at the
+  // trial classification's exchange.
   it('attributes a trial cap the pinned sibling breaks to the selection', () => {
     const row = candidateOf(evaluateTurn(trialCapInputOf()), 'vendor/cheap');
 
@@ -345,6 +352,7 @@ describe('the classifier reserve a replacing click leaves', () => {
         modality: 'text',
         pinned: {},
         webSearch: false,
+        effortAuto: true,
       },
       catalog,
       tier: 'paid',

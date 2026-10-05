@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach } from 'vitest';
-import { DocumentCard } from '@/components/chat/media/document-card';
+import { DocumentCard, getTypeLabel } from '@/components/chat/media/document-card';
 import { useDocumentStore } from '@/stores/document';
 import type { Document } from '@/lib/chat/document-parser';
 
@@ -29,9 +29,18 @@ describe('DocumentCard', () => {
   beforeEach(() => {
     useDocumentStore.setState({
       isPanelOpen: false,
-      panelWidth: 400,
       activeDocumentId: null,
       activeDocument: null,
+    });
+  });
+
+  describe('getTypeLabel', () => {
+    it('names a document by its language', () => {
+      expect(getTypeLabel(createDocument({ language: 'python' }))).toBe('python');
+    });
+
+    it('names a document without a language by its kind', () => {
+      expect(getTypeLabel(createDocumentWithoutLanguage('react'))).toBe('React');
     });
   });
 

@@ -317,4 +317,22 @@ describe('groupConsecutiveMessages', () => {
     expect(groups[1]!.role).toBe('assistant');
     expect(groups[2]!.senderId).toBe('user-1');
   });
+
+  it('never adds an unsaved question to the same sender run before it', () => {
+    const stored = createMessage({ id: 'stored', senderId: 'user-1' });
+    const unsaved = createMessage({ id: 'unsaved', senderId: 'user-1', unsavedQuestion: true });
+
+    const groups = groupConsecutiveMessages([stored, unsaved]);
+
+    expect(groups.map((g) => g.messages.map((m) => m.id))).toEqual([['stored'], ['unsaved']]);
+  });
+
+  it('never adds a same-sender message to the run of an unsaved question', () => {
+    const unsaved = createMessage({ id: 'unsaved', senderId: 'user-1', unsavedQuestion: true });
+    const stored = createMessage({ id: 'stored', senderId: 'user-1' });
+
+    const groups = groupConsecutiveMessages([unsaved, stored]);
+
+    expect(groups.map((g) => g.messages.map((m) => m.id))).toEqual([['unsaved'], ['stored']]);
+  });
 });

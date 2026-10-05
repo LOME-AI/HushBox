@@ -77,6 +77,36 @@ describe('PageShell', () => {
     expect(slot('region')).toHaveClass('flex', 'min-h-0', 'flex-1', 'flex-col');
   });
 
+  describe('the pane host', () => {
+    it('measures the whole shell, header row included, for a pane that docks beside it', () => {
+      renderWithProviders(<PageShell>page</PageShell>);
+
+      const pane = slot('pane');
+      expect(pane.parentElement).toHaveClass('@container/panehost', 'relative', 'flex');
+      expect(pane.previousElementSibling).toContainElement(header());
+    });
+
+    it('lets a published pane lay itself out as a child of the host', () => {
+      renderWithProviders(<PageShell>page</PageShell>);
+
+      expect(slot('pane')).toHaveClass('contents');
+    });
+
+    it('keeps a page that publishes no pane in one column filling the shell', () => {
+      renderWithProviders(
+        <PageShell>
+          <p>page content</p>
+        </PageShell>
+      );
+
+      const column = header().parentElement;
+      expect(column).toHaveClass('flex', 'min-h-0', 'min-w-0', 'flex-1', 'flex-col');
+      expect(column).toContainElement(slot('strip'));
+      expect(column).toContainElement(screen.getByText('page content'));
+      expect(slot('pane')).toBeEmptyDOMElement();
+    });
+  });
+
   describe('menu button', () => {
     it('draws the menu button in the header', () => {
       renderWithProviders(<PageShell>page</PageShell>);
@@ -190,15 +220,25 @@ describe('PageShell', () => {
       );
     });
 
-    // Until the strip carries the members below 768, the facepile is the phone's
-    // way to the member list.
-    it('shows the facepile slot at every width', () => {
+    it('hides the facepile slot below 768 while the strip carries the members', () => {
       renderWithProviders(<PageShell>page</PageShell>);
 
-      const hidingClasses = slot('facepile')
-        .className.split(/\s+/)
-        .filter((name) => name.endsWith('hidden') && name !== 'empty:hidden');
-      expect(hidingClasses).toEqual([]);
+      expect(slot('facepile')).toHaveClass(
+        'max-md:group-has-[[data-page-slot=strip]:not(:empty)]/page-column:hidden'
+      );
+    });
+
+    it('shows the facepile slot below 768 while no strip is drawn', () => {
+      renderWithProviders(<PageShell>page</PageShell>);
+
+      expect(slot('facepile')).not.toHaveClass('max-md:hidden');
+    });
+
+    it('holds the header and the strip slot in the column the facepile rule reads', () => {
+      renderWithProviders(<PageShell>page</PageShell>);
+
+      const column = slot('facepile').closest('[class~="group/page-column"]');
+      expect(column).toContainElement(slot('strip'));
     });
 
     it('shows the New chat slot only below 768', () => {

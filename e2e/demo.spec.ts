@@ -59,17 +59,24 @@ async function selectDemoConversation(page: Page, demo: DemoFrame, index: number
 }
 
 /**
- * Opens the member pane via the facepile. Mirrors
- * MemberSidebarPage.openViaFacepile, retargeted at the frame. On a phone the
- * pane fills the screen as a modal overlay; Playwright's actionability check
- * waits out its entrance before any subsequent interaction.
+ * Opens the member pane through whichever opener the frame drew: the facepile from
+ * 768, the member strip below it. Mirrors MemberSidebarPage.openViaFacepile,
+ * retargeted at the frame. On a phone the pane fills the screen as a modal overlay;
+ * Playwright's actionability check waits out its entrance before any subsequent
+ * interaction.
  */
 async function openMemberSidebarViaFacepile(page: Page, demo: DemoFrame): Promise<void> {
   const isExpanded = await demo
     .getByTestId(TEST_IDS.memberSearchInput)
     .isVisible()
     .catch(() => false);
-  if (!isExpanded) await demo.getByTestId(TEST_IDS.memberFacepile).click();
+  if (!isExpanded) {
+    await demo
+      .getByTestId(TEST_IDS.memberFacepile)
+      .or(demo.getByTestId(TEST_IDS.memberStrip))
+      .filter({ visible: true })
+      .click();
+  }
   await demo
     .getByTestId(TEST_IDS.memberSidebarContent)
     .waitFor({ state: 'visible', timeout: TIMEOUTS.ASSERT });

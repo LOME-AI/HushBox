@@ -7,6 +7,8 @@ import { PromptInput } from '@/components/chat/input/prompt-input';
 import { ComposerBar } from '@/components/chat/input/composer-bar';
 import { Chip } from '@/components/shared/chip';
 import { ModelChip } from '@/components/shared/model-chip';
+import { useModelStore } from '@/stores/model';
+import { FIXTURE_IMAGE_MODEL, FIXTURE_VIDEO_MODEL, FIXTURE_VIDEO_TURN } from './models-stub';
 import { showEffort } from './reasoning-effort-stub';
 import './composer-bar.css';
 import type { ChatModality } from '@hushbox/shared';
@@ -248,6 +250,19 @@ function ChipComposer({ widthRem }: Readonly<{ widthRem: number }>): React.JSX.E
   );
 }
 
+/** Selects the stub catalog's media models, so a media turn's cost line has a price to show. */
+function selectFixtureMediaModels(): void {
+  const { selections, videoConfig } = useModelStore.getState();
+  useModelStore.setState({
+    selections: {
+      ...selections,
+      image: [{ id: FIXTURE_IMAGE_MODEL.id, name: FIXTURE_IMAGE_MODEL.name }],
+      video: [{ id: FIXTURE_VIDEO_MODEL.id, name: FIXTURE_VIDEO_MODEL.name }],
+    },
+    videoConfig: { ...videoConfig, ...FIXTURE_VIDEO_TURN },
+  });
+}
+
 let root: Root | undefined;
 
 function render(node: React.ReactNode): void {
@@ -262,6 +277,7 @@ function render(node: React.ReactNode): void {
 globalThis.__composerBar = {
   mountComposer({ effort, modality }) {
     showEffort(effort);
+    selectFixtureMediaModels();
     render(<RealComposer modality={modality} />);
   },
   mountChips(widthRem) {

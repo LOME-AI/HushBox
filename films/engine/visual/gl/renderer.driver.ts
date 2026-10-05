@@ -18,7 +18,7 @@ import type { GlContext, GlFrame, GlLayer, GlProgram } from './layer.js';
 import type { PostSettings } from './post.js';
 
 /** What the renderer asks of its host: frame holds, redraws and failures. */
-export interface GlHooks {
+interface GlHooks {
   /** Holds the frame until the handle is released. */
   hold: (label: string) => number;
   release: (handle: number) => void;

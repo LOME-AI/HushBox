@@ -305,40 +305,81 @@ describe('ThinkingDisclosure settled', () => {
   it('says no answer followed when the run stopped after reasoning', () => {
     renderTree(STOPPED);
     expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(
-      'Reasoning · stopped before an answer'
+      /^Reasoned · stopped before an answer$/
     );
   });
 
-  it('labels the disclosure "Reasoning" alone when no effort rung is known', () => {
-    renderTree(SETTLED);
-    expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(/^Reasoning$/);
-  });
-
-  it('carries the effort rung in the label when the turn resolved to one', () => {
-    renderTree(SETTLED, { reasoningEffort: 'high' });
+  it('keeps how long a stopped run reasoned and its tokens ahead of the stop', () => {
+    renderTree(STOPPED, { reasoningDurationMs: 4000, reasoningTokens: 300 });
     expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(
-      'Reasoning · High effort'
+      /^Reasoned for 4s · 300 tokens · stopped before an answer$/
     );
   });
 
-  it('names the rung as an effort with a word boundary at the separator', () => {
-    renderTree(SETTLED, { reasoningEffort: 'high' });
+  it('reads "Reasoned" alone when neither a duration nor a count was recorded', () => {
+    renderTree(SETTLED);
+    expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(/^Reasoned$/);
+  });
+
+  it('reads how long the model reasoned and the tokens it spent', () => {
+    renderTree(SETTLED, { reasoningDurationMs: 14_000, reasoningTokens: 1240 });
+    expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(
+      /^Reasoned for 14s · 1,240 tokens$/
+    );
+  });
+
+  it('reads the count alone for a reply stored before durations were recorded', () => {
+    renderTree(SETTLED, { reasoningTokens: 1240 });
+    expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(
+      /^Reasoned · 1,240 tokens$/
+    );
+  });
+
+  it('reads the duration alone when no count was recorded', () => {
+    renderTree(SETTLED, { reasoningDurationMs: 9000 });
+    expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(
+      /^Reasoned for 9s$/
+    );
+  });
+
+  it.each([
+    [0, '1s'],
+    [400, '1s'],
+    [1499, '1s'],
+    [59_400, '59s'],
+    [59_600, '1m'],
+    [72_000, '1m 12s'],
+    [120_000, '2m'],
+  ])('reads a %ims span as %s', (ms, spoken) => {
+    renderTree(SETTLED, { reasoningDurationMs: ms });
+    expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(
+      new RegExp(`^Reasoned for ${spoken}$`)
+    );
+  });
+
+  it('puts a word boundary at each separator', () => {
+    renderTree(SETTLED, { reasoningDurationMs: 14_000, reasoningTokens: 1240 });
     expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveAccessibleName(
-      'Reasoning, High effort'
+      'Reasoned for 14s, 1,240 tokens'
     );
   });
 
-  it('appends the search fragment after the effort', () => {
+  it('never names the effort rung, which the reply head carries', () => {
+    renderTree(SETTLED, { reasoningEffort: 'high', reasoningTokens: 1240 });
+    expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).not.toHaveTextContent(/effort/i);
+  });
+
+  it('appends the search fragment after the count', () => {
     renderTree(
       [span(text(TRACE), search({ query: 'a', status: 'done', sources: EXAMPLE })), text(ANSWER)],
-      { reasoningEffort: 'high' }
+      { reasoningDurationMs: 14_000, reasoningTokens: 1240 }
     );
     const toggle = screen.getByTestId(TEST_IDS.thinkingDisclosureToggle);
-    expect(toggle).toHaveTextContent('Reasoning · High effort · Searched 3 sources');
-    expect(toggle).toHaveAccessibleName('Reasoning, High effort, Searched 3 sources');
+    expect(toggle).toHaveTextContent(/^Reasoned for 14s · 1,240 tokens · Searched 3 sources$/);
+    expect(toggle).toHaveAccessibleName('Reasoned for 14s, 1,240 tokens, Searched 3 sources');
   });
 
-  it('names the effort on the first reasoning row of a message only', () => {
+  it('names the duration and count on the first reasoning row of a message only', () => {
     renderTree(
       [
         span(text('first')),
@@ -346,11 +387,11 @@ describe('ThinkingDisclosure settled', () => {
         span(text('second'), search({ query: 'a', status: 'done', sources: EXAMPLE })),
         text('Part two.'),
       ],
-      { reasoningEffort: 'high' }
+      { reasoningDurationMs: 14_000, reasoningTokens: 1240 }
     );
     const [first, second] = screen.getAllByTestId(TEST_IDS.thinkingDisclosureToggle);
-    expect(first).toHaveTextContent(/^Reasoning · High effort$/);
-    expect(second).toHaveTextContent(/^Reasoning · Searched 3 sources$/);
+    expect(first).toHaveTextContent(/^Reasoned for 14s · 1,240 tokens$/);
+    expect(second).toHaveTextContent(/^Reasoned · Searched 3 sources$/);
   });
 });
 
@@ -398,13 +439,12 @@ describe('ThinkingDisclosure trace', () => {
     }
   });
 
-  it('shows the reasoning token count inside the opened trace, never in the label', async () => {
+  it('keeps the token count on the line, with nothing under the opened trace', async () => {
     renderTree(SETTLED, { reasoningTokens: 1204 });
-    const toggle = screen.getByTestId(TEST_IDS.thinkingDisclosureToggle);
-    const panel = toggle.nextElementSibling;
-    expect(toggle).not.toHaveTextContent('1,204');
-    await openTrace();
-    expect(panel).toHaveTextContent('1,204 reasoning tokens');
+    const panel = screen.getByTestId(TEST_IDS.thinkingDisclosureToggle).nextElementSibling;
+    const content = await openTrace();
+    expect(panel).not.toHaveTextContent('1,204');
+    expect(panel?.lastElementChild).toBe(content);
   });
 
   it('shows the partial trace of a run that stopped before answering', async () => {

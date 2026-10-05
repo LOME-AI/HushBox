@@ -2,9 +2,17 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi, afterEach } from 'vitest';
 import { TEST_IDS } from '@hushbox/shared';
+import { PageShellContext } from '@/components/shared/page-shell';
 import { DocumentPanel } from './document-panel';
 import { useDocumentStore } from '../../stores/document';
 import type { Document } from '../../lib/chat/document-parser';
+import type * as DownloadTextFileModule from '@/lib/download-text-file';
+
+const { downloadTextFile } = vi.hoisted(() => ({
+  downloadTextFile: vi.fn<typeof DownloadTextFileModule.downloadTextFile>(),
+}));
+
+vi.mock('@/lib/download-text-file', () => ({ downloadTextFile }));
 
 // Mock Streamdown: Shiki lazy-loads via React.lazy() in JSDOM, so code content
 // isn't visible in sync tests. The mock renders children (fenced code block string)
@@ -16,24 +24,6 @@ vi.mock('streamdown', () => ({
 vi.mock('@/providers/theme-provider', () => ({
   useTheme: () => ({ mode: 'light', triggerTransition: vi.fn() }),
 }));
-
-// isMobile: true = mobile (<768px), false = desktop (>=768px)
-const mockMatchMedia = (isMobile: boolean): void => {
-  Object.defineProperty(globalThis, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      // useIsMobile uses max-width: 767px query
-      matches: query.includes('max-width') ? isMobile : !isMobile,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  });
-};
 
 describe('DocumentPanel', () => {
   const createDocument = (overrides: Partial<Document> = {}): Document => ({
@@ -50,17 +40,16 @@ describe('DocumentPanel', () => {
   const defaultDocument = createDocument();
 
   beforeEach(() => {
-    mockMatchMedia(false);
     vi.stubEnv('VITE_SANDBOX_ORIGIN_URL', 'http://localhost:7400');
     useDocumentStore.setState({
       isPanelOpen: false,
-      panelWidth: 400,
       activeDocumentId: null,
       activeDocument: null,
     });
   });
 
   afterEach(() => {
+    downloadTextFile.mockReset();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
@@ -106,6 +95,112 @@ describe('DocumentPanel', () => {
       render(<DocumentPanel />);
 
       expect(screen.getByText('UserService')).toBeInTheDocument();
+    });
+
+    it('names the language and the length under the title', () => {
+      const document_ = createDocument({ language: 'python', lineCount: 58 });
+      useDocumentStore.setState({
+        isPanelOpen: true,
+        activeDocumentId: document_.id,
+        activeDocument: document_,
+      });
+      render(<DocumentPanel />);
+
+      expect(screen.getByText('python · 58 lines')).toBeInTheDocument();
+    });
+
+    it('labels a document without a language the way its card does', () => {
+      const document_ = createDocument({ type: 'code', language: '', lineCount: 3 });
+      useDocumentStore.setState({
+        isPanelOpen: true,
+        activeDocumentId: document_.id,
+        activeDocument: document_,
+      });
+      render(<DocumentPanel />);
+
+      expect(screen.getByText('Code · 3 lines')).toBeInTheDocument();
+    });
+
+    it('keeps its header clear of a phone status bar while it fills the screen', () => {
+      useDocumentStore.setState({
+        isPanelOpen: true,
+        activeDocumentId: 'doc-123',
+        activeDocument: defaultDocument,
+      });
+      render(<DocumentPanel />);
+
+      // The stylesheet is absent here, so the class stands in for the inset a phone applies.
+      expect(screen.getByTestId(TEST_IDS.documentPanel)).toHaveClass(
+        'max-md:pt-[env(safe-area-inset-top,0px)]'
+      );
+    });
+
+    it('stands in the page shell pane slot, beside the header as well as the thread', () => {
+      useDocumentStore.setState({
+        isPanelOpen: true,
+        activeDocumentId: 'doc-123',
+        activeDocument: defaultDocument,
+      });
+      const pane = document.createElement('div');
+      document.body.append(pane);
+      const slots = {
+        title: null,
+        center: null,
+        shield: null,
+        facepile: null,
+        newChat: null,
+        strip: null,
+        pane,
+      };
+
+      const { container } = render(
+        <PageShellContext value={{ slots, setHeaderTestId: vi.fn() }}>
+          <DocumentPanel />
+        </PageShellContext>
+      );
+
+      expect(pane).toContainElement(screen.getByTestId(TEST_IDS.documentPanel));
+      expect(container).toBeEmptyDOMElement();
+      pane.remove();
+    });
+
+    it('draws nothing inside a page shell until its pane slot exists', () => {
+      useDocumentStore.setState({
+        isPanelOpen: true,
+        activeDocumentId: 'doc-123',
+        activeDocument: defaultDocument,
+      });
+      const slots = {
+        title: null,
+        center: null,
+        shield: null,
+        facepile: null,
+        newChat: null,
+        strip: null,
+        pane: null,
+      };
+
+      render(
+        <PageShellContext value={{ slots, setHeaderTestId: vi.fn() }}>
+          <DocumentPanel />
+        </PageShellContext>
+      );
+
+      expect(screen.queryByTestId(TEST_IDS.documentPanel)).not.toBeInTheDocument();
+    });
+
+    it('is a landmark named for what it holds', () => {
+      useDocumentStore.setState({
+        isPanelOpen: true,
+        activeDocumentId: 'doc-123',
+        activeDocument: defaultDocument,
+      });
+      render(<DocumentPanel />);
+
+      expect(screen.getByRole('complementary', { name: 'Document' })).toHaveAttribute(
+        'id',
+        'document-panel'
+      );
     });
 
     it('has close button', () => {
@@ -205,7 +300,7 @@ describe('DocumentPanel', () => {
       expect(screen.getByRole('button', { name: /download/i })).toBeInTheDocument();
     });
 
-    it('triggers download when download button is clicked', async () => {
+    it('saves the document under its title through the shared download', async () => {
       const user = userEvent.setup();
       const document_ = createDocument({
         title: 'MyComponent',
@@ -219,78 +314,9 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const mockUrl = 'blob:mock-url';
-      const createObjectURL = vi.fn(() => mockUrl);
-      const revokeObjectURL = vi.fn();
-      globalThis.URL.createObjectURL = createObjectURL;
-      globalThis.URL.revokeObjectURL = revokeObjectURL;
-
-      const clickSpy = vi.fn();
-      vi.spyOn(document, 'createElement').mockReturnValueOnce({
-        href: '',
-        download: '',
-        click: clickSpy,
-        style: {},
-      } as unknown as HTMLAnchorElement);
-
       await user.click(screen.getByRole('button', { name: /download/i }));
 
-      expect(createObjectURL).toHaveBeenCalled();
-      expect(clickSpy).toHaveBeenCalled();
-      expect(revokeObjectURL).toHaveBeenCalledWith(mockUrl);
-    });
-
-    it('releases the download URL only after the click has been handled', async () => {
-      const document_ = createDocument({
-        title: 'MyComponent',
-        language: 'typescript',
-        content: 'const x = 1;',
-      });
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: document_.id,
-        activeDocument: document_,
-      });
-      render(<DocumentPanel />);
-
-      const mockUrl = 'blob:mock-url';
-      globalThis.URL.createObjectURL = vi.fn(() => mockUrl);
-      const revokeObjectURL = vi.fn();
-      globalThis.URL.revokeObjectURL = revokeObjectURL;
-
-      const clickSpy = vi.fn();
-      vi.spyOn(document, 'createElement').mockReturnValueOnce({
-        href: '',
-        download: '',
-        click: clickSpy,
-        style: {},
-      } as unknown as HTMLAnchorElement);
-
-      fireEvent.click(screen.getByRole('button', { name: /download/i }));
-
-      // The browser takes the blob while it is still handling the click, so
-      // releasing the URL in that same task races whatever the engine does with
-      // it. `fireEvent` is synchronous, which is what makes "same task"
-      // observable here.
-      expect(clickSpy).toHaveBeenCalled();
-      expect(revokeObjectURL).not.toHaveBeenCalled();
-
-      await waitFor(() => {
-        expect(revokeObjectURL).toHaveBeenCalledWith(mockUrl);
-      });
-    });
-
-    it('displays title with primary color', () => {
-      const document_ = createDocument({ title: 'TestTitle' });
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: document_.id,
-        activeDocument: document_,
-      });
-      render(<DocumentPanel />);
-
-      const title = screen.getByText('TestTitle');
-      expect(title).toHaveClass('text-primary');
+      expect(downloadTextFile).toHaveBeenCalledWith('MyComponent.ts', 'const x = 1;');
     });
   });
 
@@ -320,7 +346,7 @@ describe('DocumentPanel', () => {
       expect(screen.getByTestId(TEST_IDS.mermaidLoading)).toBeInTheDocument();
     });
 
-    it('shows raw toggle button for mermaid documents', () => {
+    it('offers the Output and Code views for mermaid documents', () => {
       const document_ = createDocument({ type: 'mermaid', content: 'flowchart TD\n    A --> B' });
       useDocumentStore.setState({
         isPanelOpen: true,
@@ -329,10 +355,11 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      expect(screen.getByRole('button', { name: /show raw/i })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'Output' })).toBeChecked();
+      expect(screen.getByRole('radio', { name: 'Code' })).toBeInTheDocument();
     });
 
-    it('toggles between rendered and raw view for mermaid', async () => {
+    it('toggles between the output and the code view for mermaid', async () => {
       const user = userEvent.setup();
       const document_ = createDocument({ type: 'mermaid', content: 'flowchart TD\n    A --> B' });
       useDocumentStore.setState({
@@ -347,12 +374,12 @@ describe('DocumentPanel', () => {
           screen.queryByTestId(TEST_IDS.mermaidDiagram)
       ).toBeInTheDocument();
 
-      await user.click(screen.getByRole('button', { name: /show raw/i }));
+      await user.click(screen.getByRole('radio', { name: 'Code' }));
 
       expect(screen.getByTestId(TEST_IDS.highlightedCode)).toBeInTheDocument();
       expect(screen.getByText(/flowchart TD/)).toBeInTheDocument();
 
-      await user.click(screen.getByRole('button', { name: /show rendered/i }));
+      await user.click(screen.getByRole('radio', { name: 'Output' }));
 
       // Back to mermaid diagram (either loading or rendered)
       expect(
@@ -362,7 +389,7 @@ describe('DocumentPanel', () => {
       expect(screen.queryByTestId(TEST_IDS.highlightedCode)).not.toBeInTheDocument();
     });
 
-    it('does not show raw toggle for code documents', () => {
+    it('offers no views for code documents, which have only their source', () => {
       const document_ = createDocument({ type: 'code', content: 'const x = 1;' });
       useDocumentStore.setState({
         isPanelOpen: true,
@@ -371,8 +398,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      expect(screen.queryByRole('button', { name: /show raw/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /show rendered/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     });
 
     it('renders the sandbox preview for html documents by default', () => {
@@ -395,7 +421,7 @@ describe('DocumentPanel', () => {
       expect(screen.queryByTestId(TEST_IDS.highlightedCode)).not.toBeInTheDocument();
     });
 
-    it('shows a raw toggle for runnable documents and reveals source when toggled', async () => {
+    it('shows the source of a runnable document in its code view', async () => {
       const user = userEvent.setup();
       const document_ = createDocument({
         type: 'html',
@@ -410,10 +436,11 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      await user.click(screen.getByRole('button', { name: /show raw/i }));
+      await user.click(screen.getByRole('radio', { name: 'Code' }));
 
-      expect(screen.getByTestId(TEST_IDS.highlightedCode)).toBeInTheDocument();
-      expect(screen.queryByTitle('Landing')).not.toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.highlightedCode).textContent).toContain(
+        '<div>Hello</div>'
+      );
     });
 
     it('renders the sandbox preview for js documents', () => {
@@ -447,7 +474,8 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      expect(screen.getByRole('button', { name: /run/i })).toBeInTheDocument();
+      // Until its frame answers the action reads Stop, which replaces a frame that never does.
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
     });
 
     it('wraps code content in document-panel-code class', () => {
@@ -554,11 +582,11 @@ describe('DocumentPanel', () => {
       expect(statusOf(container)).toBeNull();
     });
 
-    it('offers the raw toggle while the message is still streaming', () => {
+    it('offers the views while the message is still streaming', () => {
       openDocument(reactDocument({ isStreaming: true }));
       render(<DocumentPanel />);
 
-      expect(screen.getByRole('button', { name: /show raw/i })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'Code' })).toBeInTheDocument();
     });
 
     it('still requires an explicit run for python while its message streams', () => {
@@ -571,24 +599,25 @@ describe('DocumentPanel', () => {
           isStreaming: true,
         })
       );
-      render(<DocumentPanel />);
+      const { container } = render(<DocumentPanel />);
 
-      expect(screen.getByRole('button', { name: /run/i })).toBeInTheDocument();
+      expect(statusOf(container)).toBe('booting');
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
     });
 
-    it('keeps an explicit raw choice when the message settles', async () => {
+    it('keeps an explicit code view when the message settles', async () => {
       const user = userEvent.setup();
       const streaming = reactDocument({ isStreaming: true });
       openDocument(streaming);
       render(<DocumentPanel />);
 
-      await user.click(screen.getByRole('button', { name: /show raw/i }));
+      await user.click(screen.getByRole('radio', { name: 'Code' }));
       act(() => {
         useDocumentStore.getState().refreshActiveDocument({ ...streaming, isStreaming: false });
       });
 
+      expect(screen.getByRole('radio', { name: 'Code' })).toBeChecked();
       expect(screen.getByTestId(TEST_IDS.highlightedCode)).toBeInTheDocument();
-      expect(screen.queryByTitle('Widget')).not.toBeInTheDocument();
     });
 
     it('keeps the same sandbox frame as a streaming document grows', () => {
@@ -608,19 +637,19 @@ describe('DocumentPanel', () => {
       expect(screen.getByTitle('Widget')).toBe(frame);
     });
 
-    it('drops the raw choice when the user opens another document', async () => {
+    it('returns to the output view when the user opens another document', async () => {
       const user = userEvent.setup();
       openDocument(reactDocument());
       render(<DocumentPanel />);
 
-      await user.click(screen.getByRole('button', { name: /show raw/i }));
+      await user.click(screen.getByRole('radio', { name: 'Code' }));
       act(() => {
         useDocumentStore
           .getState()
           .setActiveDocument(reactDocument({ id: 'doc-other', title: 'Other' }));
       });
 
-      expect(screen.getByTitle('Other')).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'Output' })).toBeChecked();
     });
 
     it('remounts the sandbox frame when the user opens another document', () => {
@@ -633,21 +662,6 @@ describe('DocumentPanel', () => {
       });
 
       expect(screen.getByTitle('Widget')).not.toBe(frame);
-    });
-  });
-
-  describe('panel width', () => {
-    it('uses panel width from store', () => {
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-        panelWidth: 500,
-      });
-      render(<DocumentPanel />);
-
-      const panel = screen.getByTestId(TEST_IDS.documentPanel);
-      expect(panel).toHaveStyle({ width: '500px' });
     });
   });
 
@@ -664,77 +678,8 @@ describe('DocumentPanel', () => {
     });
   });
 
-  describe('responsive behavior', () => {
-    it('renders panel with fixed width on desktop', () => {
-      mockMatchMedia(false);
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-        panelWidth: 500,
-      });
-      render(<DocumentPanel />);
-
-      const panel = screen.getByTestId(TEST_IDS.documentPanel);
-      expect(panel).toBeInTheDocument();
-      expect(panel).toHaveStyle({ width: '500px' });
-    });
-
-    it('renders panel with full width on mobile', () => {
-      mockMatchMedia(true);
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-      });
-      render(<DocumentPanel />);
-
-      const panel = screen.getByTestId(TEST_IDS.documentPanel);
-      expect(panel).toBeInTheDocument();
-      expect(panel).toHaveStyle({ width: '100%' });
-    });
-
-    it('hides resize handle on mobile', () => {
-      mockMatchMedia(true);
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-      });
-      render(<DocumentPanel />);
-
-      expect(screen.queryByTestId(TEST_IDS.resizeHandle)).not.toBeInTheDocument();
-    });
-
-    it('shows resize handle on desktop', () => {
-      mockMatchMedia(false);
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-      });
-      render(<DocumentPanel />);
-
-      expect(screen.getByTestId(TEST_IDS.resizeHandle)).toBeInTheDocument();
-    });
-
-    it('shows document title on mobile', () => {
-      mockMatchMedia(true);
-      const document_ = createDocument({ title: 'MobileTitle' });
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: document_.id,
-        activeDocument: document_,
-      });
-      render(<DocumentPanel />);
-
-      expect(screen.getByText('MobileTitle')).toBeInTheDocument();
-    });
-  });
-
   describe('fullscreen toggle', () => {
-    it('renders fullscreen button on desktop', () => {
-      mockMatchMedia(false);
+    it('renders a fullscreen button', () => {
       useDocumentStore.setState({
         isPanelOpen: true,
         activeDocumentId: 'doc-123',
@@ -747,7 +692,6 @@ describe('DocumentPanel', () => {
 
     it('toggles fullscreen state when clicked', async () => {
       const user = userEvent.setup();
-      mockMatchMedia(false);
       useDocumentStore.setState({
         isPanelOpen: true,
         activeDocumentId: 'doc-123',
@@ -761,7 +705,6 @@ describe('DocumentPanel', () => {
     });
 
     it('shows exit fullscreen label when fullscreen is active', () => {
-      mockMatchMedia(false);
       useDocumentStore.setState({
         isPanelOpen: true,
         activeDocumentId: 'doc-123',
@@ -771,136 +714,6 @@ describe('DocumentPanel', () => {
       render(<DocumentPanel />);
 
       expect(screen.getByRole('button', { name: /exit fullscreen/i })).toBeInTheDocument();
-    });
-
-    it('does not render fullscreen button on mobile', () => {
-      mockMatchMedia(true);
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-      });
-      render(<DocumentPanel />);
-
-      expect(screen.queryByRole('button', { name: /fullscreen/i })).not.toBeInTheDocument();
-    });
-
-    it('has width transition class when not resizing', () => {
-      mockMatchMedia(false);
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-      });
-      render(<DocumentPanel />);
-
-      const panel = screen.getByTestId(TEST_IDS.documentPanel);
-      expect(panel.className).toContain('transition-');
-    });
-
-    it('uses 100% width when fullscreen is active on desktop', () => {
-      mockMatchMedia(false);
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-        panelWidth: 500,
-        isFullscreen: true,
-      });
-      render(<DocumentPanel />);
-
-      const panel = screen.getByTestId(TEST_IDS.documentPanel);
-      expect(panel).toHaveStyle({ width: '100%' });
-    });
-
-    it('exits fullscreen when user starts resizing', async () => {
-      const user = userEvent.setup();
-      mockMatchMedia(false);
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-        isFullscreen: true,
-      });
-      render(<DocumentPanel />);
-
-      expect(useDocumentStore.getState().isFullscreen).toBe(true);
-
-      const handle = screen.getByTestId(TEST_IDS.resizeHandle);
-      await user.pointer({ keys: '[MouseLeft>]', target: handle });
-
-      expect(useDocumentStore.getState().isFullscreen).toBe(false);
-    });
-  });
-
-  describe('resize handle', () => {
-    it('renders resize handle with visible indicator', () => {
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-      });
-      render(<DocumentPanel />);
-
-      const handle = screen.getByTestId(TEST_IDS.resizeHandle);
-      expect(handle).toBeInTheDocument();
-      expect(screen.getByTestId(TEST_IDS.resizeIndicator)).toBeInTheDocument();
-    });
-
-    it('starts resizing on mouse down', async () => {
-      const user = userEvent.setup();
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-      });
-      render(<DocumentPanel />);
-
-      const handle = screen.getByTestId(TEST_IDS.resizeHandle);
-      await user.pointer({ keys: '[MouseLeft>]', target: handle });
-
-      const panel = screen.getByTestId(TEST_IDS.documentPanel);
-      expect(panel).toHaveClass('select-none');
-    });
-
-    it('stops resizing on mouse up', async () => {
-      const user = userEvent.setup();
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-      });
-      render(<DocumentPanel />);
-
-      const handle = screen.getByTestId(TEST_IDS.resizeHandle);
-
-      await user.pointer({ keys: '[MouseLeft>]', target: handle });
-
-      await user.pointer({ keys: '[/MouseLeft]' });
-
-      const panel = screen.getByTestId(TEST_IDS.documentPanel);
-      expect(panel).not.toHaveClass('select-none');
-    });
-
-    it('updates width on mouse move while resizing', async () => {
-      const user = userEvent.setup();
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: 'doc-123',
-        activeDocument: defaultDocument,
-        panelWidth: 400,
-      });
-      render(<DocumentPanel />);
-
-      const handle = screen.getByTestId(TEST_IDS.resizeHandle);
-
-      await user.pointer({ keys: '[MouseLeft>]', target: handle });
-
-      await user.pointer({ coords: { x: 100, y: 100 } });
-
-      expect(screen.getByTestId(TEST_IDS.documentPanel)).toBeInTheDocument();
-
-      await user.pointer({ keys: '[/MouseLeft]' });
     });
   });
 
@@ -966,53 +779,9 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
-      globalThis.URL.revokeObjectURL = vi.fn();
-      const anchor = { href: '', download: '', click: vi.fn(), style: {} };
-      vi.spyOn(document, 'createElement').mockReturnValueOnce(
-        anchor as unknown as HTMLAnchorElement
-      );
-
       await user.click(screen.getByRole('button', { name: /download/i }));
 
-      expect(anchor.download).toBe('PlainNotes.txt');
-    });
-  });
-
-  describe('resize dragging', () => {
-    it('updates the panel width while dragging the resize handle', () => {
-      const document_ = createDocument();
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: document_.id,
-        activeDocument: document_,
-      });
-      render(<DocumentPanel />);
-
-      fireEvent.mouseDown(screen.getByTestId(TEST_IDS.resizeHandle));
-      fireEvent.mouseMove(document, { clientX: 120 });
-      fireEvent.mouseUp(document);
-
-      expect(screen.getByTestId(TEST_IDS.documentPanel)).toBeInTheDocument();
-    });
-
-    it('exits fullscreen when a resize begins', () => {
-      const document_ = createDocument();
-      const toggleFullscreen = vi.fn();
-      const setPanelWidth = vi.fn();
-      useDocumentStore.setState({
-        isPanelOpen: true,
-        activeDocumentId: document_.id,
-        activeDocument: document_,
-        isFullscreen: true,
-        toggleFullscreen,
-        setPanelWidth,
-      });
-      render(<DocumentPanel />);
-
-      fireEvent.mouseDown(screen.getByTestId(TEST_IDS.resizeHandle));
-
-      expect(toggleFullscreen).toHaveBeenCalled();
+      expect(downloadTextFile).toHaveBeenCalledWith('PlainNotes.txt', 'x');
     });
   });
 });

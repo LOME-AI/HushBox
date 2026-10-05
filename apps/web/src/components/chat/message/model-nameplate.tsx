@@ -31,8 +31,8 @@ export type EffortTagFacts = Pick<
 >;
 
 /**
- * "<Rung> effort", exactly when the reply's settled reasoning row names a rung:
- * a trace exists, its first span is no longer live, the turn did not stop
+ * "<Rung> effort", the reply head's only statement of the level: shown when a
+ * trace exists, its first span is no longer live, the turn did not stop
  * before an answer, and a level was recorded.
  */
 export function effortTagOf(facts: EffortTagFacts): string | undefined {
@@ -43,8 +43,20 @@ export function effortTagOf(facts: EffortTagFacts): string | undefined {
   return `${REASONING_EFFORT_LABELS[reasoningEffort]} effort`;
 }
 
+/** The fields of a reply its nameplate reads. */
+type NameplateMessage = Pick<
+  Message,
+  | 'id'
+  | 'content'
+  | 'modelName'
+  | 'resolvedModelName'
+  | 'isSmartModel'
+  | 'reasoningTokens'
+  | 'reasoningEffort'
+>;
+
 /** The effort tag of a stored reply, read as settled. */
-function storedEffortTag(message: Message): string | undefined {
+function storedEffortTag(message: NameplateMessage): string | undefined {
   // No recorded level means no tag, so the parse is skipped.
   if (message.reasoningEffort === undefined) return undefined;
   return effortTagOf(
@@ -63,13 +75,16 @@ function storedEffortTag(message: Message): string | undefined {
  * it streams, before the catalog lookup of the resolved id can run, and keeps
  * the name stable across it.
  */
-function displayNameOf(message: Message, model: Model | undefined): string {
+function displayNameOf(message: NameplateMessage, model: Model | undefined): string {
   const display = message.resolvedModelName ?? model?.name ?? message.modelName;
   return display ? shortenModelName(display) : 'AI';
 }
 
 /** What a reply's nameplate says, from the reply and the model catalog. */
-export function nameplateFor(message: Message, models: readonly Model[]): ModelNameplateProps {
+export function nameplateFor(
+  message: NameplateMessage,
+  models: readonly Model[]
+): ModelNameplateProps {
   const modelId = message.modelName ?? 'AI';
   const model = models.find((m) => m.id === message.modelName);
   const effortTag = storedEffortTag(message);

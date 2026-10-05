@@ -192,7 +192,11 @@ describe('refreshCatalog', () => {
     const rows = await descriptorsFor(modelId);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      pricing: { kind: 'tokens', anchor: { base: { input: '5750', output: '11500' } } },
+      pricing: {
+        kind: 'tokens',
+        anchorContextTokens: 128_000,
+        anchor: { base: { input: '5750', output: '11500' } },
+      },
     });
   });
 
@@ -763,7 +767,7 @@ describe('refreshCatalog', () => {
   });
 
   it('excludes a non-conversational specialty model quietly and counts it', async () => {
-    // Banned code-tooling provider (`morph`), ZDR-reachable — excluded anyway.
+    // Banned code-tooling provider (`morph`), listed for ZDR — excluded anyway.
     const modelId = `morph/${RUN_PREFIX}-tool`;
     createdModelIds.push(modelId);
     const recorder = recordingTelemetry();
@@ -850,7 +854,7 @@ describe('refreshCatalog', () => {
     expect(second.written).toBe(1);
     expect(second.unchanged).toBe(0);
     const rows = await descriptorsFor(modelId);
-    expect(rows[0]).toMatchObject({ version: '3' });
+    expect(rows[0]).toMatchObject({ version: '4' });
   });
 
   it('rewrites a stored v2 flat-rate row into the price schedule on the next refresh', async () => {
@@ -871,9 +875,150 @@ describe('refreshCatalog', () => {
     expect(second.written).toBe(1);
     const rows = await descriptorsFor(modelId);
     expect(rows[0]).toMatchObject({
-      version: '3',
-      pricing: { kind: 'tokens', anchor: { base: { input: '2875', output: '11500' }, tiers: [] } },
+      version: '4',
+      pricing: {
+        kind: 'tokens',
+        anchorContextTokens: 128_000,
+        anchor: { base: { input: '2875', output: '11500' }, tiers: [] },
+      },
     });
+  });
+
+  it('rewrites a row whose derived content changed, over the same gateway fixtures', async () => {
+    // The stored row carries the `/models` top-provider price, as a refresh
+    // before the anchor derivation wrote it; the same fixtures now derive the
+    // cheaper ZDR endpoint's rates, so the content differs and is rewritten.
+    const modelId = freshModelId('anchor-rewrite');
+    const fixture = {
+      models: [
+        modelEntryFixture({ id: modelId, pricing: { prompt: '0.000003', completion: '0.000015' } }),
+      ],
+      zdrRows: [
+        {
+          model_id: modelId,
+          tag: 'cheap',
+          pricing: { prompt: '0.000001', completion: '0.000002' },
+          supported_parameters: ['max_tokens'],
+        },
+        {
+          model_id: modelId,
+          tag: 'dear',
+          pricing: { prompt: '0.000003', completion: '0.000015' },
+          supported_parameters: ['max_tokens'],
+        },
+      ],
+    };
+    expect(await isOk(refreshCatalog(depsFor(catalogFetch(fixture))))).toBe(true);
+    const [stored] = (await descriptorsFor(modelId)) as [Record<string, unknown>];
+    await db
+      .update(modelCatalog)
+      .set({
+        descriptor: {
+          ...stored,
+          pricing: {
+            kind: 'tokens',
+            anchorContextTokens: 128_000,
+            anchor: { base: { input: '3450', output: '17250' }, tiers: [] },
+          },
+        },
+      })
+      .where(inArray(modelCatalog.modelId, [modelId]));
+    const second = await unwrap(refreshCatalog(depsFor(catalogFetch(fixture))));
+    expect(second.written).toBe(1);
+    const [rewritten] = await descriptorsFor(modelId);
+    expect(rewritten).toMatchObject({
+      version: '4',
+      pricing: {
+        kind: 'tokens',
+        anchorContextTokens: 128_000,
+        anchor: { base: { input: '1150', output: '2300' }, tiers: [] },
+      },
+    });
+  });
+
+  it('reports an unrepresentable standard-tier endpoint price under its reason, with an alert', async () => {
+    // A reasoning rate above the completion rate on the model's one ZDR row.
+    const modelId = freshModelId('deep-research');
+    const recorder = recordingTelemetry();
+    const fetch = catalogFetch({
+      models: [modelEntryFixture({ id: modelId })],
+      zdrRows: [
+        {
+          model_id: modelId,
+          tag: 'perplexity',
+          pricing: { prompt: '0.000002', completion: '0.000003', internal_reasoning: '0.000008' },
+          supported_parameters: ['max_tokens'],
+        },
+      ],
+    });
+    const summary = await unwrap(refreshCatalog(depsFor(fetch, { telemetry: recorder.telemetry })));
+    expect(summary.excludedByReason['unrepresentable-endpoint-price']).toBe(1);
+    expect(
+      recorder.warns.find((line) => line.fields?.modelName === modelId)?.fields?.errorCode
+    ).toBe('model_endpoint_price_unrepresentable');
+  });
+
+  it("counts each listed text model's ZDR endpoints by bucket in the summary", async () => {
+    const modelId = freshModelId('buckets');
+    const fetch = catalogFetch({
+      models: [modelEntryFixture({ id: modelId, supported_parameters: ['max_tokens', 'tools'] })],
+      zdrRows: [
+        {
+          model_id: modelId,
+          tag: 'standard',
+          pricing: { prompt: '0.000001', completion: '0.000002' },
+          supported_parameters: ['max_tokens', 'tools'],
+        },
+        {
+          model_id: modelId,
+          tag: 'standard/flex',
+          pricing: { prompt: '0.0000005', completion: '0.000001' },
+          supported_parameters: ['max_tokens'],
+        },
+        {
+          model_id: modelId,
+          tag: 'tool-less',
+          pricing: { prompt: '0.000001', completion: '0.000002' },
+          supported_parameters: ['max_tokens'],
+        },
+      ],
+    });
+    const summary = await unwrap(refreshCatalog(depsFor(fetch)));
+    expect(summary.endpointsByBucket).toEqual({
+      'service-tier': 1,
+      'unsupported-parameter': 1,
+      unreadable: 0,
+      unrepresentable: 0,
+      reachable: 1,
+    });
+  });
+
+  it('raises one max_price band capture when a standard-tier endpoint sits above the base ceiling within max_price', async () => {
+    const modelId = freshModelId('band-open');
+    const recorder = recordingTelemetry();
+    const fetch = catalogFetch({
+      models: [modelEntryFixture({ id: modelId })],
+      zdrRows: [
+        {
+          model_id: modelId,
+          tag: 'anchor',
+          pricing: {
+            prompt: '0.000001',
+            completion: '0.00001',
+            overrides: [{ min_prompt_tokens: 100_000, prompt: '0.000002', completion: '0.00002' }],
+          },
+          supported_parameters: ['max_tokens'],
+        },
+        {
+          model_id: modelId,
+          tag: 'mid',
+          pricing: { prompt: '0.0000015', completion: '0.000012' },
+          supported_parameters: ['max_tokens'],
+        },
+      ],
+    });
+    await unwrap(refreshCatalog(depsFor(fetch, { telemetry: recorder.telemetry })));
+    expect(recorder.capturedCodes.filter((code) => code === 'max_price_band_open')).toHaveLength(1);
   });
 
   it('converges concurrent refreshes onto one row per model', async () => {
@@ -935,7 +1080,7 @@ describe('refreshCatalog', () => {
     expect(summary.written).toBe(1);
     const rows = await descriptorsFor(modelId);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: modelId, version: '3' });
+    expect(rows[0]).toMatchObject({ id: modelId, version: '4' });
   });
 
   it('fails unavailable when the database is unreachable', async () => {

@@ -7,7 +7,7 @@ import { applyPipeline } from './pipeline.js';
 import { routeClass } from './pipeline-markers.js';
 import { BYPASS_REPORT_WINDOW_MS, pipelineRateLimit } from './pipeline-rate-limit.js';
 import { hashRateLimitId } from './rate-limit.js';
-import { DEPENDENCY_REPORT_WINDOW_MS } from '../lib/context/domain-error-status.js';
+import { REPORT_WINDOW_MS as DEPENDENCY_REPORT_WINDOW_MS } from '../lib/telemetry/report-latch.js';
 import { FINGERPRINT_CODES } from '../lib/telemetry/index.js';
 import { createSentryTelemetry } from '../lib/telemetry/adapters/sentry-adapter.js';
 import { idempotencyExempt } from '../lib/idempotency/index.js';

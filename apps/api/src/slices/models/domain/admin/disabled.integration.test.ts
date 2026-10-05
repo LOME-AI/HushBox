@@ -45,13 +45,17 @@ function exposedContentFor(modelId: string): DescriptorContent {
   return {
     id: modelId,
     provider: RUN_PREFIX,
-    version: '3',
+    version: '4',
     inputs: ['text'],
     outputs: ['text'],
     parameters: {},
     behaviors: ['streaming'],
     limits: {},
-    pricing: { kind: 'tokens', anchor: { base: { input: '2500', output: '2500' }, tiers: [] } },
+    pricing: {
+      kind: 'tokens',
+      anchorContextTokens: 1_000_000,
+      anchor: { base: { input: '2500', output: '2500' }, tiers: [] },
+    },
     zdrReachable: true,
     releasedAt: OLD_RELEASE_SECONDS,
   };

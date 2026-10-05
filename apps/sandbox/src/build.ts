@@ -2,7 +2,13 @@ import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildSandboxConfigScript } from './config.js';
-import { appBundleOptions, verifyBundle } from '../../../scripts/verify-bundle.js';
+import {
+  shippingBundleOptions,
+  verifyBundle,
+  type VerifyBundleOptions,
+} from '../../../scripts/verify-bundle.js';
+import { buildEnvMode } from '../../../scripts/lib/bundling/build-mode.js';
+import type { EnvMode } from '@hushbox/shared';
 
 /**
  * Assemble the sandbox origin's deploy directory (`./dist`), which the
@@ -30,6 +36,15 @@ export function buildSandbox(options: BuildSandboxOptions): void {
   writeFileSync(path.join(options.distDir, 'config.js'), options.configScript);
 }
 
+/**
+ * What the assembled dist is verified with. A shipping build is held to an
+ * empty frontend supply: the origin reads no generated env file, so any
+ * prefixed value baked into it is a leak.
+ */
+export function sandboxBundleOptions(repoRoot: string, mode: EnvMode): VerifyBundleOptions {
+  return shippingBundleOptions(repoRoot, 'apps/sandbox', mode);
+}
+
 /* v8 ignore start -- CLI entry, exercised via the `build` package script */
 async function main(): Promise<void> {
   const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,7 +58,9 @@ async function main(): Promise<void> {
   // Pyodide payload this copies, and the origin is served straight from these
   // bytes. Same seam the admin bundle uses, so the TTS expectation stays a
   // single declaration.
-  await verifyBundle(appBundleOptions(path.resolve(packageRoot, '../..'), 'apps/sandbox'));
+  await verifyBundle(
+    sandboxBundleOptions(path.resolve(packageRoot, '../..'), buildEnvMode(process.env))
+  );
   console.log('✓ sandbox dist assembled');
 }
 

@@ -1,5 +1,5 @@
 import { type Locator } from '@playwright/test';
-import { TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
+import { TEST_ID_BUILDERS, TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
 import { expect } from '../helpers/expect.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 import { requireEnv } from '../helpers/env.js';
@@ -7,7 +7,8 @@ import { expectOkResponse } from '../helpers/ok-response.js';
 import { withRequestRetry } from '../helpers/resilient-request.js';
 import { getBrowserName, lacksMediaDecode } from '../helpers/webkit-media-decode.js';
 import { ChatComposerPage } from './chat-composer.page.js';
-import { escapeAttributeValue } from './chat-shell.page.js';
+import { escapeAttributeValue, rowOf } from './chat-shell.page.js';
+import type { CompareReplyAddress, MessageAddress } from './chat-shell.page.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
 
@@ -552,17 +553,19 @@ export class ChatTranscriptPage extends ChatComposerPage {
    * visibility check; re-anchoring each iteration recovers from that.
    */
   async expectMediaVisibleAt(
-    index: number,
+    address: MessageAddress,
     kind: 'img' | 'video',
     timeout: number = TIMEOUTS.MEDIA_DECODE
   ): Promise<void> {
-    const media = this.getMessage(index).locator(kind).first();
+    const media = this.getMessageAt(address).locator(kind).first();
     try {
       await expect
         .poll(
           async () => {
             try {
-              await this.scrollMessageIntoView(index);
+              await this.scrollMessageIntoView(rowOf(address));
+              // A remounted row draws its compare turn on the first tab again.
+              await this.showMessageAt(address);
             } catch {
               return false;
             }
@@ -665,8 +668,8 @@ export class ChatTranscriptPage extends ChatComposerPage {
    * controls group: a reply's body carries buttons of its own (a code block's
    * Copy, a document card's Open) that a message-wide role query would also match.
    */
-  private getActionButton(messageIndex: number, label: string): Locator {
-    return this.getMessage(messageIndex)
+  private getActionButton(address: MessageAddress, label: string): Locator {
+    return this.getMessageAt(address)
       .getByTestId(TEST_IDS.messageActions)
       .getByRole('button', { name: label });
   }
@@ -686,12 +689,28 @@ export class ChatTranscriptPage extends ChatComposerPage {
     return this.getActionButton(index, 'Edit');
   }
 
-  getRegenerateButton(index: number): Locator {
-    return this.getActionButton(index, 'Regenerate');
+  getRegenerateButton(address: MessageAddress): Locator {
+    return this.getActionButton(address, 'Regenerate');
   }
 
-  getForkButton(index: number): Locator {
-    return this.getActionButton(index, 'Fork');
+  /** The notice tile a failed or refused turn shows in its reply's place. */
+  turnNoticeTile(): Locator {
+    return this.messageList.getByTestId(TEST_IDS.turnNoticeTile);
+  }
+
+  /**
+   * Regenerate on a failed model's reply, found from its error text. The reply's slot
+   * stands in for its control row, so the slot holds the reply's only Regenerate.
+   */
+  failedReplyRegenerateButton(errorMessage: Locator): Locator {
+    return this.messageList
+      .getByTestId(TEST_IDS.messageItem)
+      .filter({ has: errorMessage })
+      .getByRole('button', { name: 'Regenerate' });
+  }
+
+  getForkButton(address: MessageAddress): Locator {
+    return this.getActionButton(address, 'Fork');
   }
 
   /**
@@ -716,15 +735,17 @@ export class ChatTranscriptPage extends ChatComposerPage {
     await this.getEditButton(index).click();
   }
 
-  async clickRegenerate(index: number): Promise<void> {
+  async clickRegenerate(address: MessageAddress): Promise<void> {
     await this.waitForMessagesReady();
-    await this.prepareMessage(index);
-    await this.getRegenerateButton(index).click();
+    await this.prepareMessage(rowOf(address));
+    await this.showMessageAt(address);
+    await this.getRegenerateButton(address).click();
   }
 
-  async clickFork(index: number): Promise<void> {
-    await this.prepareMessage(index);
-    await this.getForkButton(index).click();
+  async clickFork(address: MessageAddress): Promise<void> {
+    await this.prepareMessage(rowOf(address));
+    await this.showMessageAt(address);
+    await this.getForkButton(address).click();
   }
 
   async clickForkOnLastMessage(): Promise<void> {
@@ -755,8 +776,8 @@ export class ChatTranscriptPage extends ChatComposerPage {
   }
 
   /** Assert the nametag text on the nth message item (0-indexed). */
-  async expectModelNametag(messageIndex: number, expectedName: string): Promise<void> {
-    const message = this.getMessage(messageIndex);
+  async expectModelNametag(address: MessageAddress, expectedName: string): Promise<void> {
+    const message = this.getMessageAt(address);
     await expect(message.getByTestId(TEST_IDS.modelNametag)).toContainText(expectedName);
   }
 
@@ -785,7 +806,9 @@ export class ChatTranscriptPage extends ChatComposerPage {
 
   /**
    * Wait for N AI response messages to appear after sending.
-   * Waits for all N to have visible content (not just thinking indicators).
+   * Waits for all N to have visible content (not just thinking indicators). The replies form
+   * the conversation's newest compare group; where it shows them as tabs, each reply's tab is
+   * selected before its content is read.
    */
   async waitForMultiModelResponses(
     count: number,
@@ -793,15 +816,11 @@ export class ChatTranscriptPage extends ChatComposerPage {
   ): Promise<void> {
     const assistantMessages = this.messageList.locator(`[${ROLE_ATTR}="assistant"]`);
     await expect(assistantMessages).toHaveCount(count, { timeout });
+    const group = this.messageList.getByTestId(TEST_IDS.compareGroup).last();
     for (let index = 0; index < count; index++) {
-      await expect(
-        assistantMessages
-          .nth(index)
-          .getByText(/^Echo:/)
-          .first()
-      ).toBeVisible({
-        timeout,
-      });
+      const column = group.getByTestId(TEST_ID_BUILDERS.compareColumn(index));
+      await this.showCompareReply(column);
+      await expect(column.getByText(/^Echo:/).first()).toBeVisible({ timeout });
     }
     // Token visibility (DOM) runs ahead of the server-side settle: the streamed
     // text appears before `saveChatTurn` commits. Callers that then read the
@@ -810,6 +829,38 @@ export class ChatTranscriptPage extends ChatComposerPage {
     // stream ran only while `count` is every assistant row the conversation
     // holds, as on a fresh conversation's first send.
     await this.settleRenderedCycle(timeout);
+  }
+
+  /**
+   * Bring one reply of a compare group into view. A group laid out as tabs shows one reply at
+   * a time, so the tab controlling the reply's column is selected; a group laid out as columns
+   * already shows every reply. Which layout the group drew is read off the page once it shows
+   * either the reply or its tab: a reply still hidden then sits behind its tab.
+   */
+  async showCompareReply(reply: Locator | CompareReplyAddress): Promise<void> {
+    const panel = 'row' in reply ? this.compareColumnAt(reply) : reply;
+    const tab = await this.compareTabFor(reply);
+    // `.or()` matches the tab and the panel at once where both show; the hidden tab of a
+    // column layout precedes the panel in the DOM, so the visible filter comes before `first`.
+    await expect(panel.or(tab).filter({ visible: true }).first()).toBeVisible({
+      timeout: TIMEOUTS.ASSERT,
+    });
+    if (await panel.isHidden()) await tab.click();
+  }
+
+  /** The tab controlling a compare reply: by its address, or by the column a locator found. */
+  private async compareTabFor(reply: Locator | CompareReplyAddress): Promise<Locator> {
+    if ('row' in reply) return this.compareTabAt(reply);
+    const panelId = await reply.getAttribute('id');
+    if (panelId === null) throw new Error('showCompareReply: the reply column carries no id');
+    return this.messageList.locator(
+      `[role="tab"][aria-controls="${escapeAttributeValue(panelId)}"]`
+    );
+  }
+
+  /** Bring the message at `address` into view: a compare reply's tab is selected first. */
+  private async showMessageAt(address: MessageAddress): Promise<void> {
+    if (typeof address !== 'number') await this.showCompareReply(address);
   }
 
   /** Get the message content text for an AI response identified by its nametag model name. */

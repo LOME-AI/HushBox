@@ -339,20 +339,16 @@ const DOCUMENTED_PRODUCERS = [
  * rather than by symbol — so unlike the producers above, these are resolved
  * against the module's declarations here.
  *
- * The two storage rates, the two functions that turn a count into storage
- * money, and the byte estimate those functions price are one seam, so they are
- * pinned together — the section names them in one breath ("the storage-fee
- * functions and the byte estimate they price"). A caller that can reach the
- * rate but not the function re-derives the product, and one that can price
- * bytes it cannot count re-derives the count. The display twin belongs to the
- * same seam, for the same reason.
+ * The two storage rates and the two functions that turn a count into storage
+ * money are one seam, so they are pinned together. A caller that can reach the
+ * rate but not the function re-derives the product. The display twin belongs to
+ * the same seam, for the same reason.
  */
 const DOCUMENTED_SEAMS = [
   'STORAGE_COST_PER_CHARACTER_NANO',
   'MEDIA_STORAGE_COST_PER_BYTE_NANO',
   'charStorageNanoUsd',
   'mediaStorageNanoUsd',
-  'mediaOutputBytes',
   'charStorageDollars',
   'getUserTier',
   'tierCanAccessPremium',
@@ -610,6 +606,7 @@ const MODULE_BARREL_SURFACE = [
   'AnswerSources',
   'AnyDimensionId',
   'Availability',
+  'billedNanoUsd',
   'bindingGroupLimit',
   'BudgetError',
   'buildClassifierSystemPrompt',
@@ -673,9 +670,6 @@ const MODULE_BARREL_SURFACE = [
   'effortFitsAnswerRoom',
   'effortSelectionForTurn',
   'EMPTY_PROMPT_BASIS',
-  'ESTIMATED_AUDIO_BYTES_PER_SECOND',
-  'ESTIMATED_IMAGE_BYTES',
-  'ESTIMATED_VIDEO_BYTES_PER_SECOND',
   'estimateErr',
   'EstimateError',
   'EstimateErrorCode',
@@ -707,6 +701,7 @@ const MODULE_BARREL_SURFACE = [
   'groupHeadroom',
   'HoldAwareGroupDimensions',
   'holdAwareGroupHeadroom',
+  'holdOverrunLegs',
   'HUSHBOX_FEE_RATE',
   'inputTokensOf',
   'isExpensiveModelNano',
@@ -715,6 +710,7 @@ const MODULE_BARREL_SURFACE = [
   'isRunnableModelShape',
   'isToolName',
   'isTransientBlock',
+  'isTrialPremiumModel',
   'KILOBYTES_PER_GIGABYTE',
   'levenshtein',
   'LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD',
@@ -728,6 +724,7 @@ const MODULE_BARREL_SURFACE = [
   'MEDIA_MONTHLY_COST_PER_GB',
   'MEDIA_PARAMETER_NAMES',
   'MEDIA_REFERENCE_UNITS',
+  'MEDIA_RUN_STORAGE_BOUND_BYTES',
   'MEDIA_STORAGE_COST_PER_BYTE',
   'MEDIA_STORAGE_COST_PER_BYTE_NANO',
   'MediaCallQuantity',
@@ -739,9 +736,9 @@ const MODULE_BARREL_SURFACE = [
   'mediaModelFrom',
   'mediaModelFromWire',
   'MediaOptionSet',
-  'mediaOutputBytes',
   'MediaParameterName',
   'mediaParameterSpecs',
+  'mediaRunStorageNanoUsd',
   'MediaSelection',
   'mediaStorageNanoUsd',
   'MediaTurnCostInput',
@@ -800,6 +797,7 @@ const MODULE_BARREL_SURFACE = [
   'ParamSpec',
   'ParamType',
   'ParamWire',
+  'parseChargeKey',
   'parseNanoUSD',
   'PayerSwitchReason',
   'pickClassifiedEffortPlan',
@@ -901,13 +899,14 @@ const MODULE_BARREL_SURFACE = [
 ] as const;
 
 const ESTIMATE_SUBBARREL_SURFACE = [
-  // storage rates and the byte estimate they price
+  // storage rates and the run's media storage bound they price
   'STORAGE_COST_PER_CHARACTER_NANO',
   'MEDIA_STORAGE_COST_PER_BYTE_NANO',
   'charStorageNanoUsd',
   'mediaStorageNanoUsd',
   'StoredMediaModality',
-  'mediaOutputBytes',
+  'MEDIA_RUN_STORAGE_BOUND_BYTES',
+  'mediaRunStorageNanoUsd',
   // display formatters
   'nanoPricePer1k',
   'nanoPriceRangePer1k',

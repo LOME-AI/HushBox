@@ -11,5 +11,6 @@
 @source '../../budget/*.tsx';
 @source '../../media/*.tsx';
 @source '../../layout/chat-column.tsx';
+@source '../../layout/input-dock.tsx';
 @source '../../../shared/*.tsx';
 @source './typing-indicator.entry.tsx';

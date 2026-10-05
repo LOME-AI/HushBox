@@ -562,7 +562,8 @@ describe('executeAccountDeletion', () => {
     const other = await seedUser();
     await seedKeyRow(other.id, 'request', 'succeeded');
 
-    await executeAccountDeletion(executorArgs(account.id));
+    const outcome = await executeAccountDeletion(executorArgs(account.id));
+    expect(outcome._unsafeUnwrap()).toEqual({ kind: 'deleted' });
 
     expect(await keyRowCount(other.id)).toBe(1);
   });

@@ -95,7 +95,6 @@ import {
   compareNoWalletMovement,
   nanoUsdFromDecimalString,
   nanoUsdFromWire,
-  pickModelPricing,
 } from '../../scripts/lib/money/money.js';
 import { noteMoneyRead } from '../../scripts/lib/money/money-gate.js';
 import { TIMEOUTS } from '../config/timeouts.js';
@@ -115,7 +114,6 @@ import type {
   ObservedNanoUsd,
   ServedAttributionRow,
   ServedChargeBasis,
-  ServedModelPricing,
   ServedSeededBalance,
   ServedSeededUsage,
 } from '../../scripts/lib/money/money.js';
@@ -124,7 +122,6 @@ import type { APIRequestContext } from '@playwright/test';
 
 export {
   allowedMinimumDeposit,
-  catalogPerImageCharge,
   grantedDailyFreeAllowance,
   grantedWelcomeCredit,
   mockGenerationCharge,
@@ -170,20 +167,6 @@ export async function readMockChargeBasis(request: APIRequestContext): Promise<S
   const raw = await readJson<unknown>(request, '/dev/mock-charge-basis', 'readMockChargeBasis');
   // The one place entitled to brand a basis: it has just come off the wire.
   return asReading(assertServedChargeBasis(raw) as ServedChargeBasis);
-}
-
-/**
- * A model's billable pricing as the catalog serves it — the derivation source
- * for a media charge, where the deterministic per-image estimate IS what
- * settlement bills. Read rather than written for the same reason the mock's
- * basis is: a hand-written rate is the literal the vocabulary exists to refuse.
- */
-export async function readServedModelPricing(
-  request: APIRequestContext,
-  modelId: string
-): Promise<ServedModelPricing> {
-  const raw = await readJson<unknown>(request, '/models', 'readServedModelPricing');
-  return asReading(pickModelPricing(raw, modelId) as ServedModelPricing);
 }
 
 /**

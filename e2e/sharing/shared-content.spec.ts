@@ -26,7 +26,7 @@ const apiUrl = requireEnv('VITE_API_URL');
  */
 const REASONING_MODEL_ID = E2E_MODELS.text[1];
 
-const SETTLED_REASONING_LABEL = settledReasoningLabel('high');
+const SETTLED_REASONING_LABEL = settledReasoningLabel();
 
 test.describe('Shared Content', SPEC_MATRIX, () => {
   test('invite link: shared conversation view and revoked link error', async ({
@@ -162,9 +162,9 @@ test.describe('Shared Content', SPEC_MATRIX, () => {
   });
 
   /**
-   * A share publishes the model's thoughts, not just its answer: the rung the
-   * author's turn ran at and the trace itself both reach an unauthenticated
-   * visitor, so the row a guest reads is the row its author reads.
+   * A share publishes the model's thoughts, not just its answer: the reasoning
+   * figures and the trace itself both reach an unauthenticated visitor, so the
+   * row a guest reads is the row its author reads.
    */
   test('shared message carries the reasoning row its author sees', async ({
     authenticatedPage,
@@ -189,7 +189,7 @@ test.describe('Shared Content', SPEC_MATRIX, () => {
       shareUrl = await createMessageShareUrl(chatPage);
     });
 
-    await test.step('guest sees the closed row wearing the rung, and opens the trace', async () => {
+    await test.step('guest sees the closed row with its reasoning figures, and opens the trace', async () => {
       const recipient = await createPage();
       await recipient.setExtraHTTPHeaders({ 'cf-connecting-ip': guestIp() });
       await recipient.goto(shareUrl, { waitUntil: 'domcontentloaded' });

@@ -68,6 +68,12 @@ const SECTION_GAP_PX = 16;
 const FOCUS_RETURN_SETTLE_MS = 500;
 /** Less than the settings content, so the page scrolls. */
 const DESKTOP = { width: 1440, height: 700 } as const;
+/** A tablet at the widget's largest text, tall enough that the link row stays pinned. */
+const PINNED_TABLET = { width: 768, height: 900 } as const;
+/** The band's share of the scroller once the window is shortened: past the 70% that unpins it. */
+const UNPINNED_SHARE = 0.85;
+/** Scroll positions the pill is read at, spread evenly from the page's top to its end. */
+const PILL_STOPS = 12;
 
 const PAGE_HTML = `<!doctype html>
 <html lang="en">
@@ -331,6 +337,106 @@ async function settleDependencies(browser: Browser): Promise<void> {
     if (documents === 1) return;
   }
   throw new Error('the fixture server kept re-optimising its dependencies');
+}
+
+interface BandGeometry {
+  /** The band's height, which a height-only resize leaves unchanged. */
+  band: number;
+  /** The window height the scroller does not get: the header above it. */
+  chrome: number;
+}
+
+/** The band's height and the header above the scroller, on the page as it is now. */
+async function readBandGeometry(page: Page): Promise<BandGeometry> {
+  return page.evaluate(() => {
+    const scroller = document.querySelector<HTMLElement>('[data-page-scroller]');
+    const band = scroller?.querySelector<HTMLElement>('[data-page-pinned]');
+    if (!scroller || !band) throw new Error('the page has no pinned band');
+    return { band: band.offsetHeight, chrome: globalThis.innerHeight - scroller.clientHeight };
+  });
+}
+
+/** The window height that makes the band `UNPINNED_SHARE` of the scroller, at the same width. */
+function unpinnedViewport({ band, chrome }: BandGeometry): { width: number; height: number } {
+  return { width: PINNED_TABLET.width, height: Math.round(chrome + band / UNPINNED_SHARE) };
+}
+
+async function bandPosition(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const band = document.querySelector('[data-page-pinned]');
+    if (!band) throw new Error('the page has no pinned band');
+    return getComputedStyle(band).position;
+  });
+}
+
+/**
+ * Scrolls the page through `PILL_STOPS` positions and, at each, waits for the link row's
+ * current section to be the topmost section shown: the first whose box reaches below the
+ * pinned band's bottom while the band sticks, or below the scroller's top while it scrolls.
+ * A stop that shows no section is skipped: the row keeps its last section there. Returns the
+ * stops where the row never got there.
+ */
+async function pillMisses(page: Page): Promise<string[]> {
+  const misses: string[] = [];
+  const range = await page.evaluate(() => {
+    const scroller = document.querySelector<HTMLElement>('[data-page-scroller]');
+    if (!scroller) throw new Error('the page has no scroller');
+    return scroller.scrollHeight - scroller.clientHeight;
+  });
+  for (let stop = 0; stop < PILL_STOPS; stop += 1) {
+    const top = Math.round((range * stop) / (PILL_STOPS - 1));
+    await page.evaluate((scrollTop) => {
+      const scroller = document.querySelector<HTMLElement>('[data-page-scroller]');
+      if (scroller) scroller.scrollTop = scrollTop;
+    }, top);
+    const reading = (): Promise<{ expected: string | null; current: string | null }> =>
+      page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>('[data-page-scroller]');
+        const band = scroller?.querySelector<HTMLElement>('[data-page-pinned]');
+        if (!scroller || !band) throw new Error('the page has no pinned band');
+        const box = scroller.getBoundingClientRect();
+        const shownFrom =
+          getComputedStyle(band).position === 'sticky'
+            ? band.getBoundingClientRect().bottom
+            : box.top;
+        // The sections the row tracks are the ones its in-page links name, in the row's order.
+        const links = document.querySelectorAll('nav[aria-label="Settings"] a[href^="#"]');
+        const shown = [...links]
+          .map((link) => document.querySelector<HTMLElement>(link.getAttribute('href') ?? ''))
+          .find((section) => {
+            if (section === null) return false;
+            const rect = section.getBoundingClientRect();
+            return rect.bottom > shownFrom && rect.top < box.bottom;
+          });
+        return {
+          expected: shown === undefined || shown === null ? null : `#${shown.id}`,
+          current:
+            document
+              .querySelector('nav[aria-label="Settings"] [aria-current="location"]')
+              ?.getAttribute('href') ?? null,
+        };
+      });
+    const atStop = await reading();
+    if (atStop.expected === null) continue;
+    const reached = await expect
+      .poll(
+        async () => {
+          const { expected, current } = await reading();
+          return expected === null || expected === current;
+        },
+        { timeout: SETTLE_MS }
+      )
+      .toBe(true)
+      .then(
+        () => true,
+        () => false
+      );
+    if (!reached) {
+      const { expected, current } = await reading();
+      misses.push(`at ${String(top)}px the row named ${String(current)}, not ${String(expected)}`);
+    }
+  }
+  return misses;
 }
 
 /** The fixture server's origin, set once it has started. */
@@ -626,5 +732,53 @@ describe('/settings in a real browser', () => {
       });
     },
     TEST_MS
+  );
+
+  /** The band's geometry at `PINNED_TABLET` with the largest text, from a page of its own. */
+  async function measureBand(engine: EngineName): Promise<BandGeometry> {
+    let geometry: BandGeometry | undefined;
+    await withPage(engine, PINNED_TABLET, async (page) => {
+      await openPage(page, '?scale=141');
+      await loadRows(page);
+      geometry = await readBandGeometry(page);
+    });
+    if (geometry === undefined) throw new Error('the band was never measured');
+    return geometry;
+  }
+
+  it.each(ENGINES)(
+    'names the topmost shown section after a height-only resize unpins the band, on %s',
+    async (engine) => {
+      const unpinned = unpinnedViewport(await measureBand(engine));
+      await withPage(engine, PINNED_TABLET, async (page) => {
+        await openPage(page, '?scale=141');
+        await loadRows(page);
+        expect(await bandPosition(page)).toBe('sticky');
+
+        await page.setViewportSize(unpinned);
+        await expect.poll(() => bandPosition(page), { timeout: SETTLE_MS }).toBe('static');
+
+        expect(await pillMisses(page)).toEqual([]);
+      });
+    },
+    TEST_MS * 2
+  );
+
+  it.each(ENGINES)(
+    'names the topmost shown section after a height-only resize pins the band, on %s',
+    async (engine) => {
+      const unpinned = unpinnedViewport(await measureBand(engine));
+      await withPage(engine, unpinned, async (page) => {
+        await openPage(page, '?scale=141');
+        await loadRows(page);
+        expect(await bandPosition(page)).toBe('static');
+
+        await page.setViewportSize(PINNED_TABLET);
+        await expect.poll(() => bandPosition(page), { timeout: SETTLE_MS }).toBe('sticky');
+
+        expect(await pillMisses(page)).toEqual([]);
+      });
+    },
+    TEST_MS * 2
   );
 });

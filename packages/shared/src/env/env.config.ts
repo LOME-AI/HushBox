@@ -52,6 +52,9 @@ export type { EnvMode, VariableConfig } from './env-types.ts';
  * - `Destination.Ops`      → ops runner env blocks only (ci.yml ops-env +
  *                            run-ops-script.yml ops-dispatch-env); never
  *                            the API deploy's secrets file / runtime Worker
+ * - `Destination.Native`   → the native build's decode step only
+ *                            (build-android.yml decode-google-services); the
+ *                            value ships inside every installed app
  */
 /**
  * What a registry value writes where a local stack's own Postgres database
@@ -1002,7 +1005,10 @@ export const envConfig = {
     [Mode.CiVitest]: ref(Mode.Development),
     [Mode.E2E]: ref(Mode.Development),
     [Mode.CiE2E]: ref(Mode.E2E),
-    [Mode.Production]: secret('GOOGLE_SERVICES_JSON_BASE64'),
+    [Mode.Production]: {
+      value: secret('GOOGLE_SERVICES_JSON_BASE64'),
+      to: [Destination.Native],
+    },
   },
 
   // Web Push (RFC 8292 VAPID) application-server keypair for the in-house
@@ -1384,7 +1390,7 @@ export const envConfig = {
     to: [Destination.Backend],
     credential: {
       description:
-        'The Backblaze B2 application key id the Worker cron auditor lists the backup repository with; pairs with the key.',
+        'The Backblaze B2 application key id the Worker cron auditor reads the backup repository with (listBuckets, listFiles, readBucketLifecycleRules); pairs with the key.',
       store: 'github:production',
       replace: 'transparent',
       onLoss: 'reissueAtVendor',
@@ -1405,7 +1411,7 @@ export const envConfig = {
     to: [Destination.Backend],
     credential: {
       description:
-        'Lists the encrypted backup repository and does nothing else: listBuckets and listFiles, so it can neither write, delete, nor fetch an object body. The Worker cron auditor issues two bucket-level GETs and never downloads a snapshot, so a read capability would grant it nothing while turning a stolen key into a download of the whole encrypted corpus at our egress expense. A thief learns how many objects the repository holds and how large they are, which is what the backup schedule already implies.',
+        'Lists the encrypted backup repository and reads its lifecycle rule, nothing else: listBuckets, listFiles and readBucketLifecycleRules, so it can neither write, delete, nor fetch an object body. The Worker cron auditor issues bucket-level GETs and never downloads a snapshot, so a file-read capability would grant it nothing while turning a stolen key into a download of the whole encrypted corpus at our egress expense. A thief learns object counts and sizes, and a retention term already published.',
       store: 'github:production',
       replace: 'transparent',
       onLoss: 'reissueAtVendor',
@@ -1541,7 +1547,7 @@ export const envConfig = {
 
   // The pair the repository itself is written with, distinct from
   // `BACKUP_B2_AUDITOR_KEY_ID` and `BACKUP_B2_AUDITOR_KEY`: this pair writes, that
-  // one only lists.
+  // one holds no read of object bodies.
   BACKUP_B2_KEY_ID: {
     to: [Destination.Scripts],
     credential: {
@@ -1567,7 +1573,7 @@ export const envConfig = {
     to: [Destination.Scripts],
     credential: {
       description:
-        'Writes the encrypted backup repository. Minted without deleteFiles, so prune only hides a version and the bucket lifecycle rule is the one thing that erases anything: a stolen key cannot destroy a version outright, but it can hide every version in the bucket and overwrite every one, and the lifecycle rule then erases what it hid. Recovery is that lifecycle window, and the staleness auditor is what detects the hiding. Distinct from the auditor pair, which only lists.',
+        'Writes the encrypted backup repository. Minted without deleteFiles, so prune only hides a version and the bucket lifecycle rule is the one thing that erases anything: a stolen key cannot destroy a version outright, but it can hide every version in the bucket and overwrite every one, and the lifecycle rule then erases what it hid. Recovery is that lifecycle window, and the staleness auditor is what detects the hiding. Distinct from the auditor pair, which holds no read of object bodies.',
       store: 'github:backup',
       replace: 'transparent',
       onLoss: 'reissueAtVendor',

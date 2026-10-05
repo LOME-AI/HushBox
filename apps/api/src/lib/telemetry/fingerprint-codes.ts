@@ -39,9 +39,12 @@ export const FINGERPRINT_CODES = {
   workflowCostCircuitTripped: 'workflow_cost_circuit_tripped',
   // An unreachable dependency killed a run. The wire code tells the user the
   // system is down; nothing in it tells an operator WHICH dependency, and the
-  // warn beside it goes to an adapter nothing retains — so this is the only
-  // channel that signal survives on. One code for the whole class, so an outage
-  // groups into a single issue instead of one per run it killed.
+  // warn beside it goes to an adapter nothing retains — so this channel is
+  // where that signal survives for an infrastructure failure. A model call's
+  // provider failure, which ends a run under the same wire code, is reported
+  // where the call fails, under `inferenceProviderFailed`. One code for the
+  // whole class, so an outage groups into a single issue instead of one per run
+  // it killed.
   workflowInfraUnavailable: 'workflow_infra_unavailable',
   // Provider spend the platform absorbs rather than bills: a node's value was
   // rejected after its call was paid for. Kept apart from the cost circuit's
@@ -56,6 +59,21 @@ export const FINGERPRINT_CODES = {
   // figure is what account deletion mid-run costs, and a pattern of it is the
   // abuse signal.
   workflowRefusalAbsorbed: 'workflow_refusal_absorbed',
+  // The loss class `workflowRejectedOutputAbsorbed` belongs to, reached when a
+  // hard abort cuts a model step in flight: the step bills nothing, because no
+  // figure for it exists that cannot over-bill. Kept apart because its repair
+  // depends on which abort cut it. Under the run's hard stop, the step was
+  // still streaming when the drain grace ended: either the model is slower
+  // than the grace allows, or the provider's stream stalled, since no
+  // inactivity timeout bounds a drained step. A retry superseding the run
+  // means the run's heartbeat lost its claim while it streamed, which is the
+  // lease's to repair.
+  workflowHardStopAbsorbed: 'workflow_hard_stop_absorbed',
+  // A settled bill above the hold its run was admitted under. The bill is
+  // charged in full; the event names which reserved bound broke. Dense input
+  // near a ceiling raises it in ordinary traffic, because input stays an
+  // estimate, so its legs, not its count, say whether a fix is ours.
+  settlementAboveHold: 'settlement_above_hold',
   // A validated-DAG invariant breaking inline, which the exception-escape codes
   // (`workflowNodeDefect`, `workflowSettlementDefect`, `workflowRunDefect`)
   // cannot carry because nothing throws. Kept apart by who repairs each: a
@@ -66,6 +84,17 @@ export const FINGERPRINT_CODES = {
   workflowPredicateContractBroken: 'workflow_predicate_contract_broken',
   workflowUnregisteredImplementation: 'workflow_unregistered_implementation',
   inferenceProviderCostUnavailable: 'inference_provider_cost_unavailable',
+  // A model call failed on its provider for a reason the user did not cause,
+  // so the run or its sibling ends without an answer, and unless the code has
+  // its own wire code the user is told the service is unavailable. The operator acts on the `inferenceCode` and
+  // `providerStatus` tags: a refused key or exhausted credit (401, 402, 403) is
+  // a credential or account repair, a 5xx, a rate limit or a broken stream is
+  // the provider's to wait out, and a rejected request is a defect in what we
+  // sent. A content-policy refusal, a context overflow and an abort are the
+  // user's and raise nothing. Each isolate reports a (code, status) pair at most
+  // once per report window, so an event is a lower bound on the failures, never
+  // a count of them.
+  inferenceProviderFailed: 'inference_provider_failed',
   // A users row whose sealed OPAQUE material names a KEK this deployment does
   // not hold: the key and the rows disagree. The user sees only INTERNAL, so
   // this is the one channel that says what to repair (a re-seal, or the
@@ -87,6 +116,12 @@ export const FINGERPRINT_CODES = {
   // read back is a defect in our own data rather than upstream drift.
   modelCatalogRetentionListEmpty: 'model_catalog_retention_list_empty',
   modelCatalogMassExclusion: 'model_catalog_mass_exclusion',
+  // A refresh found a standard-tier ZDR endpoint whose base rate is above a text
+  // model's base ceiling yet within the `max_price` its short calls send. A
+  // fallback can then serve a call at a rate its hold does not cover, so the
+  // bill lands above the hold. One code for the whole refresh, model ids in the
+  // warn lines beside it, because the repair is one decision about the band.
+  maxPriceBandOpen: 'max_price_band_open',
   modelProjectionInvalid: 'model_projection_invalid',
   modelDescriptorInvalid: 'model_descriptor_invalid',
   modelFamilyUnclassifiable: 'model_family_unclassifiable',
@@ -151,8 +186,12 @@ export const FINGERPRINT_CODES = {
   rateLimitBypassed: 'rate_limit_bypassed',
   // A request was refused because a dependency did not produce a usable answer:
   // an availability refusal (503 or 504) from any route or pipeline stage, the
-  // rate-limit counter's fail-closed refusal among them. The wire code names no
-  // dependency, so this is the only channel the name survives on. Which
+  // rate-limit counter's fail-closed refusal among them. A cron entry is filed
+  // here too when its failure names the dependency and its failure kind is one
+  // `isReachabilityFailure` (`apps/api/src/lib/context/dependency-failure.ts`)
+  // accepts; every other failed entry stays `cronEntryFailed`. The
+  // wire code names no dependency, so this is the only channel the name
+  // survives on. Which
   // dependency, which failure arm, whether the isolate's own event loop was
   // late, and the route are the `dependency`, `dependencyFailure`,
   // `dependencyLate` and `dependencyRoute` tags — read the arm and the lateness

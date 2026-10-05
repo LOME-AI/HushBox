@@ -107,9 +107,9 @@ export const IDENTITY_ROUTE_POSTURES = {
   // converges on itself.
   '$get /auth/account/acquisition-source': { kind: 'default', failure: 'open' },
   '$patch /auth/account/acquisition-source': { kind: 'default', failure: 'open' },
-  // Three layers on one identity: the deletion gate always, then the shared
-  // TOTP ceiling and window when the account has 2FA. `keyedBy` is positional,
-  // so each repeated 'user' is its own layer rather than a duplicate to fold away.
+  // The deletion gate always, then the shared TOTP ceiling and window when the
+  // account has 2FA, all on one identity. `keyedBy` is positional, so each
+  // repeated 'user' is its own layer rather than a duplicate to fold away.
   '$post /auth/account/delete/finish': bindRoutePosture({
     failure: 'closed',
     layers: [

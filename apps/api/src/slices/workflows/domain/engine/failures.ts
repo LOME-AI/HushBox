@@ -1,7 +1,15 @@
 import { match } from 'ts-pattern';
 import { ERROR_CODES } from '@hushbox/shared';
-import type { ErrorCode } from '@hushbox/shared';
+import { billedNanoUsd, holdOverrunLegs } from '@hushbox/shared/affordability';
+import { FINGERPRINT_CODES } from '../../../../lib/telemetry/index.js';
+import type {
+  ErrorCode,
+  FlowStartRequest,
+  SettlementCharge,
+  SettlementRequest,
+} from '@hushbox/shared';
 import type { DomainError } from '../../../../lib/errors/index.js';
+import type { Telemetry } from '../../../../lib/telemetry/index.js';
 
 /**
  * The closed set of terminal run failures, bookkeeping for telemetry and the
@@ -19,6 +27,8 @@ export type RunFailure =
   | { readonly kind: 'admission-refused'; readonly code: ErrorCode }
   // `code` carries a specific provider-failure reason (content policy, context
   // length, network) to the client; absent, it stays the generic UNAVAILABLE.
+  // The engine captures no node failure: a model call reports a provider
+  // failure the user did not cause, by code and status, where the call fails.
   | { readonly kind: 'node-failed'; readonly nodeId: string; readonly code?: ErrorCode }
   // Every branch of a multi-model turn failed, so settlement had no persistable
   // content to commit — a real "the providers were unavailable" outcome, not an
@@ -97,7 +107,9 @@ export class InfrastructureUnavailableError extends Error {
 export class SettlementConflictError extends Error {
   constructor(
     readonly domainError: DomainError,
-    message: string
+    message: string,
+    /** The charges the refusal commit posted before this was rethrown; none unless it billed. */
+    readonly billed: readonly SettlementCharge[] = []
   ) {
     super(message);
     this.name = 'SettlementConflictError';
@@ -117,6 +129,22 @@ export class AbsorbedSettlementRefusal extends SettlementConflictError {
     this.name = 'AbsorbedSettlementRefusal';
   }
 }
+
+/**
+ * A settlement refusal whose refusal commit billed the run: the answer already
+ * reached the client, so its charges were posted although nothing was saved.
+ * It carries those posted charges past the commit, so the engine can compare
+ * what was billed with the hold, as it does for a settled run.
+ */
+export class BilledSettlementRefusal extends SettlementConflictError {
+  constructor(refusal: SettlementConflictError, billed: readonly SettlementCharge[]) {
+    super(refusal.domainError, refusal.message, billed);
+    this.name = 'BilledSettlementRefusal';
+  }
+}
+
+/** What a run's admission reserved, as the leg detector reads it. */
+type RunReservation = Parameters<typeof holdOverrunLegs>[0];
 
 /** One absorbed platform loss: what absorbed it, for which run, and how much. */
 interface AbsorbedLoss {
@@ -166,6 +194,97 @@ export function costCircuitTripEvent(trip: CostCircuitTrip): Error {
   );
   error.name = 'CostCircuitTripped';
   return Object.assign(error, { runId: trip.runId, accruedNanoUsd: accrued, limitNanoUsd: limit });
+}
+
+/** A settled bill above the hold its run was admitted under, and the legs that name why. */
+interface SettlementAboveHold {
+  readonly runId: string | undefined;
+  readonly holdNanoUsd: bigint;
+  readonly billedNanoUsd: bigint;
+  readonly legs: readonly string[];
+  readonly billing: 'inline' | 'estimated';
+}
+
+/**
+ * The event the engine raises once per settlement whose bill exceeds its hold.
+ * It carries the DO-minted run id, never the client-supplied `runKey`; both
+ * amounts as nano-USD strings, never Number()-coerced; the legs sorted and
+ * comma-joined; and whether any charge was billed at its estimate. It carries
+ * no model id: the run's usage records name each charge's model.
+ */
+export function settlementAboveHoldEvent(overrun: SettlementAboveHold): Error {
+  const hold = overrun.holdNanoUsd.toString();
+  const billed = overrun.billedNanoUsd.toString();
+  const legs = overrun.legs.toSorted((a, b) => a.localeCompare(b)).join(',');
+  const error = new Error(
+    `settlement billed above its hold: run ${String(overrun.runId)} billed ${billed} nano-USD against a ${hold} nano-USD hold (${legs})`
+  );
+  error.name = 'SettlementAboveHold';
+  return Object.assign(error, {
+    runId: overrun.runId,
+    holdNanoUsd: hold,
+    billedNanoUsd: billed,
+    legs,
+    billing: overrun.billing,
+  });
+}
+
+/**
+ * Raises one `settlement_above_hold` capture when what a committed settlement
+ * posted exceeds the hold its run was admitted under, naming the legs whose
+ * bounds broke. The bill stands either way. Telemetry is best-effort and the
+ * settlement already committed, so any throw here — naming the legs, building
+ * the event, or the sink — is recorded as a warning and never reaches the run's
+ * outcome.
+ */
+function captureSettlementAboveHold(
+  deps: { readonly telemetry: Telemetry },
+  run: Pick<FlowStartRequest, 'runId'>,
+  reservation: RunReservation,
+  billed: readonly SettlementCharge[]
+): void {
+  const { telemetry } = deps;
+  const { runId } = run;
+  try {
+    const billedTotal = billedNanoUsd(billed);
+    if (billedTotal <= reservation.totalNanoUsd) return;
+    const event = settlementAboveHoldEvent({
+      runId,
+      holdNanoUsd: reservation.totalNanoUsd,
+      billedNanoUsd: billedTotal,
+      legs: holdOverrunLegs(reservation, billed),
+      billing: billed.some((charge) => charge.isEstimated) ? 'estimated' : 'inline',
+    });
+    telemetry.captureError(event, FINGERPRINT_CODES.settlementAboveHold);
+    // eslint-disable-next-line catch-swallow/no-silent-catch -- telemetry is a best-effort surface; the settlement it reports already committed, so a failed capture is recorded and the run's outcome stands.
+  } catch {
+    telemetry.warn('settlement above hold capture failed', runId === undefined ? {} : { runId });
+  }
+}
+
+/**
+ * Runs a run's settlement hook, then compares what it posted with the hold the
+ * run was admitted under ({@link captureSettlementAboveHold}). A refusal reaches
+ * here only after its settlement committed, carrying what its refusal commit
+ * posted, so it is compared too before it is rethrown; any other throw
+ * committed nothing and is rethrown untouched.
+ */
+export async function settleAgainstHold(
+  deps: { readonly telemetry: Telemetry },
+  run: Pick<FlowStartRequest, 'runId' | 'hooks'>,
+  reservation: RunReservation,
+  settling: SettlementRequest
+): Promise<void> {
+  let billed: readonly SettlementCharge[];
+  try {
+    ({ billed } = await run.hooks.settlement(settling));
+  } catch (error) {
+    if (error instanceof SettlementConflictError) {
+      captureSettlementAboveHold(deps, run, reservation, error.billed);
+    }
+    throw error;
+  }
+  captureSettlementAboveHold(deps, run, reservation, billed);
 }
 
 /**

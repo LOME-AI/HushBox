@@ -1,12 +1,12 @@
 /**
  * What a pending media turn will cost: the customer-facing total for one
  * generation across every selected model — the billable provider cost, carrying
- * the fee once because catalog rates already do, plus pass-through output
- * storage.
+ * the fee once because catalog rates already do, plus the run's pass-through
+ * media storage, once.
  *
- * It is the whole reservation, not a component: admission holds a media call at
- * its generation on the price core's media curve plus its stored output, so
- * this is the same number admission holds for the same inputs. A surface names
+ * It is the whole reservation, not a component: admission holds each media call
+ * at its generation on the price core's media curve and the run's media storage
+ * once, so this is the same number admission holds for the same inputs. A surface names
  * the turn — this modality, these models, this duration — and never the curve
  * or the rates behind it (`docs/BILLING.md` §Where the Code Lives).
  *
@@ -21,8 +21,7 @@
 import { mediaUnitsCostNanoUsd } from '../dimensions/media.ts';
 import { nanoUSD } from '../money/nano-usd.ts';
 import { mediaModelFromWire } from '../model/wire-media-row.ts';
-import { mediaOutputBytes } from './output-bytes.ts';
-import { mediaStorageNanoUsd } from './storage-rate.ts';
+import { mediaRunStorageNanoUsd } from './output-bytes.ts';
 import { estimateErr, estimateOk } from './types.ts';
 import type { EstimateResult } from './types.ts';
 import type { NanoUSD } from '../money/nano-usd.ts';
@@ -78,7 +77,5 @@ export function mediaTurnCostNanoUsd(input: MediaTurnCostInput): EstimateResult<
     }
     generation += cost;
   }
-  const storage =
-    mediaStorageNanoUsd(mediaOutputBytes(input.modality, units)) * BigInt(input.models.length);
-  return estimateOk(nanoUSD(generation + storage));
+  return estimateOk(nanoUSD(generation + mediaRunStorageNanoUsd()));
 }

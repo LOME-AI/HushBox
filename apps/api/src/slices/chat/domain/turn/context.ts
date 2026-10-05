@@ -1,5 +1,5 @@
-import { ERROR_CODES, resolveFunding, spendableFundsNanoUsd } from '@hushbox/shared';
-import { readBalance } from '../../../billing/index.js';
+import { ERROR_CODES, resolveFunding } from '@hushbox/shared';
+import { readPayerSpendable } from '../../../billing/index.js';
 import { assertNoPendingDeparture, resolveCallerMember } from '../../../conversations/index.js';
 import { forbiddenError, notFoundError } from '../../../../lib/errors/index.js';
 import { errAsync, okAsync } from '../../../../lib/result/index.js';
@@ -14,7 +14,7 @@ import type {
 import type { TurnPricingSelection } from './pricing.js';
 import type { createConversationsStores } from '../../../conversations/index.js';
 import type { MemberRecord, RealtimeBroadcast } from '../../../conversations/index.js';
-import type { BillingStores } from '../../../billing/index.js';
+import type { AdmissionDeps, BillingStores, RedisClient } from '../../../billing/index.js';
 import type { LinkResolutionPort } from '../../../identity/index.js';
 import type { Database } from '@hushbox/db';
 import type { AppEnv } from '../../../../lib/context/index.js';
@@ -105,10 +105,12 @@ export type NotifyNewMessage = (args: {
 /**
  * The payer's spendable funds for ONE turn, feeding the output-token ceiling.
  * ALREADY SPENDABLE: the cushion (where one applies) is resolved here, at the
- * seam that picks the wallet, by the one function that answers what a wallet can
- * spend. Nothing downstream re-derives it — a second derivation is how the
- * freeze and the ceiling solve came to disagree by $0.50, and a group turn's
- * figure is a MIN of independent caps that no later cushion may lift.
+ * seam that picks the wallet, and the holds the served funding snapshot
+ * subtracts come off it through the same producer, so the send path and the
+ * composer size a reply against one figure. Nothing downstream re-derives it —
+ * a second derivation is how the freeze and the ceiling solve came to disagree
+ * by $0.50, and a group turn's figure is a MIN of independent caps that no
+ * later cushion may lift.
  *
  * `kind` remains the payer's tier for grading which models the turn may use
  * (premium access). It is deliberately no longer an input to any money term.
@@ -168,6 +170,11 @@ export interface TurnContext {
 export interface ResolveTurnContextDeps {
   readonly conversations: ConversationsStoresFactory;
   readonly billing: BillingStores;
+  /**
+   * Where the payer's holds and balance snapshot are read. Down, the send is
+   * refused as unavailable, as admission refuses a run.
+   */
+  readonly redis: RedisClient;
 }
 
 type Stores = ReturnType<ConversationsStoresFactory>;
@@ -283,42 +290,41 @@ interface ResolvedPayer {
  * fund a turn (forbidden); the free wallet is provisioned alongside it at
  * registration. The purchased arm's funding is the wallet's SPENDABLE figure
  * (balance plus its cushion); the free arm's is the remaining daily allowance,
- * which is a budget scope rather than a balance and is never cushioned.
+ * which is a budget scope rather than a balance and is never cushioned. Both
+ * are net of other runs' active holds; the choice between them is not.
  */
 function senderPayerWallet(
-  billing: BillingStores,
-  db: Database,
+  funds: AdmissionDeps,
   userId: string,
   now: Date
 ): ResultAsync<SelfFunding, DomainError> {
-  return billing.readWallets(db, userId).andThen((wallets) => {
+  return funds.stores.readWallets(funds.db, userId).andThen((wallets) => {
     const purchased = wallets.find((wallet) => wallet.type === 'purchased');
     if (purchased === undefined) {
       return errAsync<SelfFunding, DomainError>(forbiddenError('chat turn: no purchased wallet'));
     }
     if (purchased.balanceNanoUsd > 0n) {
-      return okAsync<SelfFunding, DomainError>({
-        wallet: {
-          walletId: purchased.id,
-          payerUserId: userId,
-          funding: {
-            spendableNanoUsd: spendableFundsNanoUsd(purchased.balanceNanoUsd),
-            kind: 'purchased',
+      return readPayerSpendable(funds, { kind: 'purchased', walletId: purchased.id }, now).map(
+        (figures) => ({
+          wallet: {
+            walletId: purchased.id,
+            payerUserId: userId,
+            funding: { spendableNanoUsd: figures.spendableNanoUsd, kind: 'purchased' as const },
           },
-        },
-        callerPurchasedBalanceNanoUsd: purchased.balanceNanoUsd,
-      });
+          callerPurchasedBalanceNanoUsd: purchased.balanceNanoUsd,
+        })
+      );
     }
     const free = wallets.find((wallet) => wallet.type === 'free');
     /* v8 ignore next 3 -- the free wallet is provisioned with the purchased wallet at registration; its absence is a defect, not a reachable state */
     if (free === undefined) {
       return errAsync<SelfFunding, DomainError>(forbiddenError('chat turn: no free wallet'));
     }
-    return readBalance(billing, db, userId, now).map((balance) => ({
+    return readPayerSpendable(funds, { kind: 'allowance', userId }, now).map((figures) => ({
       wallet: {
         walletId: free.id,
         payerUserId: userId,
-        funding: { spendableNanoUsd: balance.allowance.remainingNanoUsd, kind: 'free' as const },
+        funding: { spendableNanoUsd: figures.spendableNanoUsd, kind: 'free' as const },
       },
       callerPurchasedBalanceNanoUsd: purchased.balanceNanoUsd,
     }));
@@ -361,16 +367,16 @@ interface GroupFundingArgs {
  * send would be refused on every retry.
  */
 function resolvePayerWallet(
-  billing: BillingStores,
-  db: Database,
+  funds: AdmissionDeps,
   args: GroupFundingArgs,
   now: Date
 ): ResultAsync<ResolvedPayer, DomainError> {
+  const { stores: billing, db } = funds;
   if (senderUserId(args.sender) === args.ownerUserId) {
     // Solo: the sender IS the owner and always self-funds. No group rows are
     // read (the caller wallet is enough), and the caller's purchased balance
     // stands in for the owner dimension in the frozen inputs.
-    return senderPayerWallet(billing, db, args.ownerUserId, now).map((self) => ({
+    return senderPayerWallet(funds, args.ownerUserId, now).map((self) => ({
       wallet: self.wallet,
       inputs: {
         isSolo: true,
@@ -427,24 +433,33 @@ function resolvePayerWallet(
     };
     const decision = resolveFunding({ ...groupInputs, isPremiumModel: false });
     if (decision.payer === 'owner') {
-      // Owner-funded: the spendable funds are the headroom the core reached its
-      // verdict on — the tightest of the member cap, the conversation cap and the
-      // owner wallet's spendable funds. Read off the decision rather than
-      // recomputed here: the freeze and the ceiling solve must consult ONE value,
-      // and a second min over the same dimensions is a copy that has to agree.
+      // Owner-funded: the core chose the owner on the hold-blind headroom, as
+      // the served snapshot names the payer. The figure the reply is sized
+      // against is that headroom net of every hold admission checks, derived by the
+      // function the served snapshot derives its figure with, so the freeze and
+      // the composer read one derivation rather than two that have to agree.
       /* v8 ignore next 5 -- payer 'owner' requires positive headroom, which requires a positive owner balance and thus a purchased owner wallet; the undefined arm is unreachable */
-      return ownerPurchased === undefined
-        ? errAsync<ResolvedPayer, DomainError>(
-            forbiddenError('chat turn: owner has no purchased wallet')
-          )
-        : okAsync<ResolvedPayer, DomainError>({
-            wallet: {
-              walletId: ownerPurchased.id,
-              payerUserId: args.ownerUserId,
-              funding: { spendableNanoUsd: decision.spendableNanoUsd, kind: 'purchased' },
-            },
-            inputs: groupInputs,
-          });
+      if (ownerPurchased === undefined) {
+        return errAsync<ResolvedPayer, DomainError>(
+          forbiddenError('chat turn: owner has no purchased wallet')
+        );
+      }
+      const conversation = {
+        conversationId: args.conversationId,
+        memberId: args.memberId,
+        ownerUserId: args.ownerUserId,
+        conversationBudgetNanoUsd: args.conversationBudgetNanoUsd,
+      };
+      return readPayerSpendable(funds, { kind: 'owner', conversation }, now).map(
+        (figures): ResolvedPayer => ({
+          wallet: {
+            walletId: ownerPurchased.id,
+            payerUserId: args.ownerUserId,
+            funding: { spendableNanoUsd: figures.spendableNanoUsd, kind: 'purchased' },
+          },
+          inputs: groupInputs,
+        })
+      );
     }
     // Not owner-funded (the core's refuse/self verdict). A link guest holds no
     // wallet to fall through to, so its send is denied (the core's
@@ -465,7 +480,7 @@ function resolvePayerWallet(
     }
     // Fall-through: freeze the real caller balance so the tier gate's core call
     // sees it.
-    return senderPayerWallet(billing, db, args.sender.userId, now).map((self) => ({
+    return senderPayerWallet(funds, args.sender.userId, now).map((self) => ({
       wallet: self.wallet,
       inputs: {
         ...groupInputs,
@@ -543,8 +558,7 @@ export function resolveTurnContext(
       )
       .andThen((facts) =>
         resolvePayerWallet(
-          deps.billing,
-          db,
+          { redis: deps.redis, db, stores: deps.billing },
           {
             sender: args.sender,
             ownerUserId: facts.ownerUserId,

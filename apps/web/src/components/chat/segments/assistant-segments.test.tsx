@@ -51,6 +51,19 @@ describe('AssistantSegments', () => {
     expect(screen.queryByTestId(TEST_IDS.reasoningNotShared)).not.toBeInTheDocument();
   });
 
+  it('carries how long the model reasoned through to the reasoning row', () => {
+    drawSegments(
+      serializeSegments([
+        { kind: 'reasoning', children: [{ kind: 'text', text: 'hm' }] },
+        { kind: 'text', text: 'An answer.' },
+      ]),
+      { reasoningDurationMs: 14_000 }
+    );
+    expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(
+      /^Reasoned for 14s$/
+    );
+  });
+
   it('names an unnamed model as AI in the still-working cue', () => {
     drawSegments(SETTLED_ROW_LAST, { isStreaming: true });
     expect(screen.getByTestId(TEST_IDS.thinkingIndicator)).toHaveTextContent('AI is thinking');

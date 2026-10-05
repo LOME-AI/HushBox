@@ -11,6 +11,7 @@ export const Destination = {
   Frontend: 'frontend',
   Scripts: 'scripts',
   Ops: 'ops', // → ops runner env blocks only (ci.yml ops-env + run-ops-script.yml ops-dispatch-env); never the API deploy's secrets file / runtime Worker
+  Native: 'native', // → compiled into the native app by the job that builds it (the generated decode-google-services step); ships to every device that installs the app
 } as const;
 
 export type Destination = (typeof Destination)[keyof typeof Destination];
@@ -212,4 +213,13 @@ export function isProductionSecret(config: VariableConfig): boolean {
  */
 export function isAnyModeSecret(config: VariableConfig): boolean {
   return Object.values(Mode).some((mode) => isSecret(resolveRaw(config, mode)));
+}
+
+/**
+ * The GitHub environment holding a secret in `store`: `repository` for one held
+ * outside any environment, and nothing for a store no GitHub secret backs. A job
+ * reads its own environment's secrets and the repository's.
+ */
+export function githubEnvironmentOf(store: SecretStore): string | undefined {
+  return store.startsWith('github:') ? store.slice('github:'.length) : undefined;
 }

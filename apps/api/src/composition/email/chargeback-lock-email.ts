@@ -1,9 +1,7 @@
 import { chargebackLockEmail } from '../../slices/notifications/index.js';
-import { resolveEmailSendDeps, sendComposedEmail } from './send-email.js';
+import { renderAndSendEmail, resolveEmailSendDeps } from './send-email.js';
 import type { EmailSendDeps } from './send-email.js';
 import type { ChargebackLockEmailPort } from '../../slices/billing/index.js';
-
-export const CHARGEBACK_LOCK_EMAIL_SUBJECT = 'Your account was locked';
 
 /**
  * The composition-root adapter behind billing's ChargebackLockEmailPort:
@@ -17,13 +15,10 @@ export function createChargebackLockEmailAdapter(
 ): ChargebackLockEmailPort {
   return {
     sendChargebackLockEmail(args) {
-      const content = chargebackLockEmail(
-        args.userName === undefined ? {} : { userName: args.userName }
-      );
-      return sendComposedEmail(resolve(), {
+      return renderAndSendEmail(resolve(), {
+        definition: chargebackLockEmail,
+        params: { userName: args.userName },
         to: args.to,
-        subject: CHARGEBACK_LOCK_EMAIL_SUBJECT,
-        content,
         logFailure: (logger, errorCode) => {
           logger.warn('chargeback-lock email send failed', { errorCode });
         },

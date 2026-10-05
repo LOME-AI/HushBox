@@ -372,7 +372,7 @@ describe('resolveFunding — priority 1 compares `minTurnCost`', () => {
 });
 
 describe('holdAwareGroupHeadroom', () => {
-  /** All five dimensions generous, so a case's overrides are what binds. */
+  /** Every dimension generous and unheld, so a case's overrides are what binds. */
   function dimensions(
     overrides: Partial<Parameters<typeof holdAwareGroupHeadroom>[0]>
   ): Parameters<typeof holdAwareGroupHeadroom>[0] {
@@ -382,6 +382,7 @@ describe('holdAwareGroupHeadroom', () => {
       conversationRemainingNanoUsd: 1_000_000_000n,
       conversationHeldNanoUsd: 0n,
       ownerPurchasedBalanceNanoUsd: 1_000_000_000n,
+      ownerHeldNanoUsd: 0n,
       ...overrides,
     };
   }
@@ -408,15 +409,36 @@ describe('holdAwareGroupHeadroom', () => {
     ).toBe(0n);
   });
 
-  it("carries the owner's cushion, and no hold comes off the owner dimension", () => {
-    // The owner dimension enters raw so the cushion is applied exactly once,
-    // downstream; the owner wallet's own holds are not this readout's scope, so
-    // nothing here may subtract from it.
+  it("carries the owner's cushion on the owner dimension", () => {
+    // The owner dimension enters raw so the cushion is applied exactly once, here.
+    expect(holdAwareGroupHeadroom(dimensions({ ownerPurchasedBalanceNanoUsd: 5n }))).toBe(
+      5n + PAID_CUSHION_NANO_USD
+    );
+  });
+
+  it("takes the owner wallet's holds off the owner dimension when the owner's balance binds", () => {
+    // Admission refuses a run once the paying wallet's spendable funds less its
+    // holds fall below the estimate, whichever conversation placed those holds.
+    expect(
+      holdAwareGroupHeadroom(dimensions({ ownerPurchasedBalanceNanoUsd: 5n, ownerHeldNanoUsd: 3n }))
+    ).toBe(5n + PAID_CUSHION_NANO_USD - 3n);
+  });
+
+  it("leaves the figure unmoved by the owner's holds when another dimension binds", () => {
+    expect(
+      holdAwareGroupHeadroom(dimensions({ memberRemainingNanoUsd: 100n, ownerHeldNanoUsd: 1000n }))
+    ).toBe(100n);
+  });
+
+  it('clamps an owner dimension its holds exceed to zero', () => {
     expect(
       holdAwareGroupHeadroom(
-        dimensions({ ownerPurchasedBalanceNanoUsd: 5n, memberHeldNanoUsd: 0n })
+        dimensions({
+          ownerPurchasedBalanceNanoUsd: 5n,
+          ownerHeldNanoUsd: 5n + PAID_CUSHION_NANO_USD + 7n,
+        })
       )
-    ).toBe(5n + PAID_CUSHION_NANO_USD);
+    ).toBe(0n);
   });
 
   it('returns the smallest hold-subtracted dimension when the conversation binds', () => {
@@ -446,6 +468,7 @@ describe('bindingGroupLimit', () => {
       conversationRemainingNanoUsd,
       conversationHeldNanoUsd: 0n,
       ownerPurchasedBalanceNanoUsd,
+      ownerHeldNanoUsd: 0n,
     };
   }
 
@@ -473,8 +496,23 @@ describe('bindingGroupLimit', () => {
         conversationRemainingNanoUsd: 80n,
         conversationHeldNanoUsd: 0n,
         ownerPurchasedBalanceNanoUsd: 1000n,
+        ownerHeldNanoUsd: 0n,
       })
     ).toBe('member_allocation');
+  });
+
+  it("names the owner's balance when the owner wallet's holds bring it below the member allocation", () => {
+    const ownerBalance = 1000n;
+    expect(
+      bindingGroupLimit({
+        memberRemainingNanoUsd: ownerBalance + PAID_CUSHION_NANO_USD - 1n,
+        memberHeldNanoUsd: 0n,
+        conversationRemainingNanoUsd: 10_000_000_000n,
+        conversationHeldNanoUsd: 0n,
+        ownerPurchasedBalanceNanoUsd: ownerBalance,
+        ownerHeldNanoUsd: 2n,
+      })
+    ).toBe('owner_balance');
   });
 });
 

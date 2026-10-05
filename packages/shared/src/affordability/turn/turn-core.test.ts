@@ -110,14 +110,16 @@ const LOCKED_TWIN: PriceableModel = {
 };
 
 /**
- * Dear enough that its worst-case trial turn runs past the trial per-message cap,
- * while {@link PLAIN} stays under it. Within an order of magnitude of PLAIN, so
+ * Dear enough that its worst-case trial turn runs past the trial per-message cap
+ * on a 4,300-character prompt, while {@link PLAIN} stays under it; cheap enough
+ * to clear the cap at the 1,000-character trial classification exchange, so it
+ * is not premium to a trial payer. Within an order of magnitude of PLAIN, so
  * neither is an excluded outlier and both reach the pool.
  */
 const TRIAL_CAPPED = modelOf({
   modelId: 'vendor/trial-capped',
-  inputRate: 5000n,
-  outputRate: 10_000n,
+  inputRate: 2000n,
+  outputRate: 3500n,
   contextLength: 100_000,
   providerCap: 8000,
 });
@@ -139,6 +141,7 @@ function selectionOf(models: readonly string[], overrides: Partial<Selection> = 
     modality: 'text',
     pinned: {},
     webSearch: false,
+    effortAuto: overrides.pinned?.effort === undefined,
     ...overrides,
   };
 }
@@ -161,6 +164,7 @@ const SLOT_ONLY: Selection = {
   modality: 'text',
   pinned: {},
   webSearch: false,
+  effortAuto: true,
 };
 
 function refusalOf(result: CoreResult): RefusalCode | undefined {
@@ -601,6 +605,7 @@ describe('the smart slot`s MAX enters the shared token solve', () => {
           modality: 'text',
           pinned: {},
           webSearch: false,
+          effortAuto: true,
         },
       })
     );
@@ -688,6 +693,7 @@ describe('reasons, in the precedence the specification fixes', () => {
           modality: 'text',
           pinned: {},
           webSearch: false,
+          effortAuto: true,
         },
         catalog: [],
       })
@@ -728,6 +734,7 @@ describe('reasons, in the precedence the specification fixes', () => {
     const result = evaluateTurn(
       inputOf({
         fundingNanoUsd: 600_000n,
+        basis: { ...BASIS, historyChars: 3700 },
         selection: SLOT_ONLY,
         catalog: [PLAIN, TRIAL_CAPPED],
         tier: 'trial',
@@ -748,6 +755,7 @@ describe('reasons, in the precedence the specification fixes', () => {
           modality: 'text',
           pinned: {},
           webSearch: false,
+          effortAuto: true,
         },
         catalog: [LOCKED_REASONER, LOCKED_TWIN],
         tier: 'free',
@@ -831,6 +839,7 @@ describe('the two kinds of row', () => {
       modelId: modelId('vendor/cheap'),
       availability: { available: true },
       ceilingTokens: expect.any(Number),
+      answerRoomTokens: expect.any(Number),
       rungCeilings: expect.any(Array),
     });
   });
@@ -1025,6 +1034,7 @@ describe('the turn-level menu is the send gate, one rung at a time', () => {
           modality: 'text',
           pinned: {},
           webSearch: false,
+          effortAuto: true,
         },
       })
     );
@@ -1129,6 +1139,7 @@ describe('the smart slot', () => {
           modality: 'text',
           pinned: {},
           webSearch: false,
+          effortAuto: true,
         },
       })
     );
@@ -1154,6 +1165,7 @@ describe('the smart slot', () => {
           modality: 'text',
           pinned: {},
           webSearch: false,
+          effortAuto: true,
         },
       })
     );
@@ -1217,6 +1229,7 @@ describe('the hold covers every presented candidate`s arrangement', () => {
       modality: 'text',
       pinned: pin === undefined ? {} : { effort: pin },
       webSearch: false,
+      effortAuto: pin === undefined,
     };
   }
 
@@ -1260,6 +1273,7 @@ describe('the hold covers every presented candidate`s arrangement', () => {
       modality: 'text',
       pinned: pin === undefined ? {} : { effort: pin },
       webSearch: false,
+      effortAuto: pin === undefined,
     };
     const priceAt = (at: bigint): CoreResult =>
       evaluateTurn(
@@ -1532,6 +1546,7 @@ describe('an explicit effort pin on a model with no rung to run', () => {
     modality: 'text',
     pinned: {},
     webSearch: false,
+    effortAuto: true,
   };
 
   it('sends a pin the smart slot can answer, running the ladderless sibling wire-silent', () => {

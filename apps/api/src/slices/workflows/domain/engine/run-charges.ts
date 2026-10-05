@@ -65,5 +65,6 @@ function pushCharge(
       ? {}
       : { reasoningDurationMs: billing.reasoningDurationMs }),
     ...(facts.smartModelRan === true ? { smartModelRan: true } : {}),
+    ...(billing.observed === undefined ? {} : { observed: billing.observed }),
   });
 }

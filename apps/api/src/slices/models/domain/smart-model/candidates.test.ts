@@ -354,6 +354,7 @@ function clientMenu(
       modality: 'text',
       pinned: {},
       webSearch: false,
+      effortAuto: true,
     },
     { models: clientPool(descriptors), nowMs: NOW_MS }
   ).admissible;
@@ -949,7 +950,8 @@ describe('the per-rung menu an auto slot turn hands its classifier', () => {
   /** The admissible set the browser's picker reads for the same turn. */
   function producerSet(
     smartSlot: boolean,
-    pin?: ResolvedReasoningEffort
+    pin?: ResolvedReasoningEffort,
+    effortAuto: boolean = pin === undefined
   ): ReturnType<typeof getTurnOptions>['admissible'] {
     return getTurnOptions(
       {
@@ -964,6 +966,7 @@ describe('the per-rung menu an auto slot turn hands its classifier', () => {
         modality: 'text',
         pinned: pin === undefined ? {} : { effort: pin },
         webSearch: true,
+        effortAuto,
       },
       { models: smartModelPool(CATALOG), nowMs: NOW_MS }
     ).admissible;
@@ -1057,6 +1060,34 @@ describe('the per-rung menu an auto slot turn hands its classifier', () => {
     expect(unselected?.candidates.map((candidate) => candidate.rungCeilings)).toEqual(
       unselected?.candidates.map(() => undefined)
     );
+  });
+
+  it('caps each candidate of a send that leaves effort unselected at its graded ceiling', () => {
+    const openSet = producerSet(true, undefined, false);
+    const unselected = buildSmartModelCandidates({
+      descriptors: CATALOG,
+      balanceNanoUsd: BALANCE,
+      tier: 'paid',
+      pinnedModelIds: [SIBLING.id],
+      promptChars: PROMPT_CHARS,
+      inputChars: PROMPT_CHARS,
+      nowMs: NOW_MS,
+      webSearch: true,
+    });
+    expect(availableRungs(openSet).length).toBeGreaterThan(1);
+    expect(unselected?.candidates.length).toBeGreaterThan(0);
+    for (const candidate of unselected?.candidates ?? []) {
+      const row = openSet.all.find((entry) => entry.modelId === candidate.id);
+      expect(candidate.rungCeilings).toBeUndefined();
+      expect(candidate.maxOutputTokens).toBe(row?.ceilingTokens);
+    }
+    // The same turn sent as `auto` caps lower at its dearest rung, so the two
+    // sends are told apart rather than agreeing by coincidence.
+    const autoCaps = built(true).candidates.map((candidate) => candidate.maxOutputTokens ?? 0);
+    const unselectedCaps = (unselected?.candidates ?? []).map(
+      (candidate) => candidate.maxOutputTokens ?? 0
+    );
+    expect(autoCaps.some((cap, index) => cap < (unselectedCaps[index] ?? 0))).toBe(true);
   });
 
   it('caps each candidate of a Min send at the browser’s pin-off ceiling, with no per-rung cap', () => {

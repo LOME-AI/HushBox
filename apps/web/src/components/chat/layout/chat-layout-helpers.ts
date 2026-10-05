@@ -1,9 +1,10 @@
+import { publishedReplyOf } from '@/components/chat/message/share-message-modal';
 import type * as React from 'react';
-import type { ResolvedReasoningEffort } from '@hushbox/shared';
 import type { BranchSwitcherProps } from '@/components/chat/layout/branch-switcher';
 import type { ChatLayoutProps, GroupChatProps } from '@/components/chat/layout/chat-layout';
 import type { MemberSidebar } from '@/components/chat/member/member-sidebar';
-import type { Message, MessageMediaItem } from '@/lib/api/api';
+import type { ShareMessageReply } from '@/components/chat/message/share-message-modal';
+import type { Message } from '@/lib/api/api';
 
 interface MobileInputStyleInput {
   readonly isMobile: boolean;
@@ -52,23 +53,10 @@ interface ChatLayoutDerivedInput {
   readonly messages: Message[];
 }
 
-interface SharedMessageFields {
-  sharedMessageContent: string | null;
-  sharedMessageEpochNumber: number | null;
-  sharedMessageWrappedContentKey: string | null;
-  sharedMessageMediaItems: MessageMediaItem[] | null;
-  // '' stands in for a null/scrubbed sender so the share-dialog media preview
-  // can reconstruct the envelope; a write always binds a real sender (a user id
-  // or the assistant constant), so that stand-in deliberately matches nothing.
-  sharedMessageSenderId: string;
-  // A share link publishes the rung the turn ran at and the reasoning volume it
-  // was billed for, so the consent preview has to be able to show both.
-  sharedMessageReasoningTokens: number | null;
-  sharedMessageReasoningEffort: ResolvedReasoningEffort | null;
-}
-
-interface ChatLayoutDerivedState extends SharedMessageFields {
+interface ChatLayoutDerivedState {
   premiumIds: Set<string>;
+  /** The reply the share dialog previews, or null while none is selected or found. */
+  sharedMessage: ShareMessageReply | null;
 }
 
 function findSharedMessage(messages: Message[], shareMessageId: string | null): Message | null {
@@ -76,40 +64,17 @@ function findSharedMessage(messages: Message[], shareMessageId: string | null): 
   return messages.find((m) => m.id === shareMessageId) ?? null;
 }
 
-function deriveSharedMessageFields(sharedMessage: Message | null): SharedMessageFields {
-  if (sharedMessage === null) {
-    return {
-      sharedMessageContent: null,
-      sharedMessageEpochNumber: null,
-      sharedMessageWrappedContentKey: null,
-      sharedMessageMediaItems: null,
-      sharedMessageSenderId: '',
-      sharedMessageReasoningTokens: null,
-      sharedMessageReasoningEffort: null,
-    };
-  }
-  return {
-    // The raw text travels, delimiter included. A share link publishes the
-    // reasoning half, so stripping it here would hide from the author the one
-    // thing the consent screen exists to show; the preview parses it at the
-    // display surface, the same field the public share page parses.
-    sharedMessageContent: sharedMessage.content,
-    sharedMessageEpochNumber: sharedMessage.epochNumber ?? null,
-    sharedMessageWrappedContentKey: sharedMessage.wrappedContentKey ?? null,
-    sharedMessageMediaItems: sharedMessage.mediaItems ?? null,
-    sharedMessageSenderId: sharedMessage.senderId ?? '',
-    sharedMessageReasoningTokens: sharedMessage.reasoningTokens ?? null,
-    sharedMessageReasoningEffort: sharedMessage.reasoningEffort ?? null,
-  };
+/** The published projection of the selected message: the share dialog never holds the rest. */
+function sharedReplyOf(message: Message | null): ShareMessageReply | null {
+  return message === null ? null : publishedReplyOf(message);
 }
 
 export function resolveChatLayoutDerivedState(
   input: ChatLayoutDerivedInput
 ): ChatLayoutDerivedState {
-  const sharedMessage = findSharedMessage(input.messages, input.shareMessageId);
   return {
     premiumIds: input.premiumIds,
-    ...deriveSharedMessageFields(sharedMessage),
+    sharedMessage: sharedReplyOf(findSharedMessage(input.messages, input.shareMessageId)),
   };
 }
 

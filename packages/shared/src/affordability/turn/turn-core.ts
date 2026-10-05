@@ -65,12 +65,14 @@ import { inputTokensOf } from '../price/quantities.ts';
 import { lineItemsAt } from '../price/reservation.ts';
 import { toolCallCapFor, toolLoopBound } from '../tool-loop.ts';
 import { WEB_SEARCH_TOOL_NAME } from '../../web-search/web-search-contract.ts';
+import { answerRoomTokens } from './answer-room.ts';
 import { offeredEffortRungs } from './effort-rungs.ts';
 import { pricedSelection } from './priced-selection.ts';
 import { reasoningPlanModelOf } from '../model/priceable-model.ts';
 import {
   exceedsTrialBudget,
   isPremiumModel,
+  isTrialPremiumModel,
   premiumPriceThresholdNanoUsd,
 } from '../money/premium.ts';
 import { tierCanAccessPremium } from '../money/tiers.ts';
@@ -301,7 +303,7 @@ function ceilingIn(
   context: PricingContext
 ): number {
   return ceilingTokens(model, {
-    contextHeadroomTokens: contextHeadroomTokens(model, context.inputTokens),
+    inputTokens: context.inputTokens,
     sharedTokens: arrangement.sharedTokens,
   });
 }
@@ -481,14 +483,15 @@ function priceArrangement(
  * a payer with no account signs up, a payer with an account adds credit.
  */
 function tierAxisBlock(model: PriceableModel, context: PricingContext): RefusalCode | undefined {
-  if (
-    !tierCanAccessPremium(context.tier) &&
-    isPremiumModel({
-      model,
-      priceThresholdNanoUsd: context.premiumThresholdNanoUsd,
-      nowMs: context.nowMs,
-    })
-  ) {
+  const input = {
+    model,
+    priceThresholdNanoUsd: context.premiumThresholdNanoUsd,
+    nowMs: context.nowMs,
+  };
+  // A trial payer's premium is the catalog's premium list, trial budget included,
+  // so a model the list calls premium never reaches the per-message cap check.
+  const premium = context.tier === 'trial' ? isTrialPremiumModel(input) : isPremiumModel(input);
+  if (!tierCanAccessPremium(context.tier) && premium) {
     return context.tier === 'free' ? 'premium_requires_credit' : 'premium_requires_account';
   }
   if (context.tier === 'trial' && exceedsTrialBudget(model, context.promptChars)) {
@@ -729,6 +732,7 @@ function pinnedEntryFor(
       siblingBlock(model, arrangement, context, atEffort(context.effortPin))
     ),
     ceilingTokens: ceilingIn(arrangement, model, context),
+    answerRoomTokens: answerRoomTokens(model, context.inputTokens),
     rungCeilings,
   };
 }
@@ -931,13 +935,7 @@ function candidateEntryFor(
     return arrangementBlock(candidateArrangementIn(at, model), at.context, atEffort(effort));
   };
   const dimensions = dimensionsFor(model, grade);
-  // The row publishes a ceiling for every rung the turn can run and every rung
-  // the row itself offers, so a picker row's own rungs carry the ceiling each
-  // runs at even where the turn's menu lists no such rung.
-  const ownRungs = new Set(availableRungsOf(dimensions));
-  const ceilingRungs = EFFORT_OPTION_IDS.filter(
-    (effort) => ownRungs.has(effort) || reading.ceilingRungs.includes(effort)
-  );
+  const ceilingRungs = EFFORT_OPTION_IDS.filter((effort) => reading.ceilingRungs.includes(effort));
   return {
     kind: 'candidate',
     modelId: model.modelId,
@@ -946,6 +944,7 @@ function candidateEntryFor(
     ),
     activation: activationFor(model, pricings),
     ceilingTokens: ceilingIn(arrangement, model, verdict.context),
+    answerRoomTokens: answerRoomTokens(model, verdict.context.inputTokens),
     dimensions,
     rungCeilings: ceilingRungs.flatMap((effort): readonly RungCeiling[] => {
       const at = pricings.at(effort);
@@ -1351,6 +1350,7 @@ function entriesFor(reading: LoopReading, pricings: Pricings): readonly ModelEnt
       modelId,
       availability: { available: false, reason: 'model_not_priceable' },
       ceilingTokens: 0,
+      answerRoomTokens: 0,
       rungCeilings: [],
     })
   );
@@ -1368,13 +1368,35 @@ function entriesFor(reading: LoopReading, pricings: Pricings): readonly ModelEnt
 interface LoopReading extends ToolLoopReading {
   /** Grades the rows, their ceilings, the candidate set and the send gate. */
   readonly verdictLoop: LoopEffort;
-  /** The rungs each row publishes its own ceiling for: the menu's available rungs. */
+  /**
+   * The rungs each row publishes its own ceiling for: the rungs a reply's cap
+   * can be set at, which {@link perRungCapRungs} decides.
+   */
   readonly ceilingRungs: readonly ResolvedReasoningEffort[];
   /**
    * The rungs whose own holds the set's hold is the largest of. Empty when the
    * hold is priced at the verdict loop alone.
    */
   readonly holdRungs: readonly ResolvedReasoningEffort[];
+}
+
+/**
+ * The rungs a reply on this turn is capped at one by one: the menu's available
+ * rungs on an `auto` send that searches beside a pinned sibling and leaves two or
+ * more rungs to decide between, and none on any other turn, whose replies are
+ * capped at their graded ceiling. A searching sibling's loop grows with the rung,
+ * which is what makes the caps differ; one available rung settles the effort.
+ */
+function perRungCapRungs(
+  selection: Selection,
+  available: readonly ResolvedReasoningEffort[]
+): readonly ResolvedReasoningEffort[] {
+  const perRung =
+    selection.effortAuto &&
+    selection.webSearch &&
+    selection.answerSources.models.length > 0 &&
+    available.length >= 2;
+  return perRung ? available : [];
 }
 
 /** An effort option id as a rung of the domain, or `undefined` for none or an unknown id. */
@@ -1416,12 +1438,13 @@ function loopReadingFor(
   offered: readonly DimensionOption[]
 ): LoopReading {
   const available = availableRungsOf(turnDimensions);
+  const ceilingRungs = perRungCapRungs(input.selection, available);
   const pin = pricings.base.effortPin;
   if (pin !== undefined) {
     const loop = effortIdOf(pin);
     return {
       verdictLoop: loop,
-      ceilingRungs: available,
+      ceilingRungs,
       holdRungs: [],
       toolLoopEffort: loop,
       holdEffort: loop,
@@ -1436,7 +1459,7 @@ function loopReadingFor(
   const lowest = admissible && offered.length === 0 ? undefined : floor;
   return {
     verdictLoop: lowest,
-    ceilingRungs: available,
+    ceilingRungs,
     holdRungs: admissible ? available : [],
     toolLoopEffort: offered.length === 0 ? undefined : (available.at(-1) ?? floor),
     holdEffort: lowest,

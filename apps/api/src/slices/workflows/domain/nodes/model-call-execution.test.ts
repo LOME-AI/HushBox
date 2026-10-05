@@ -3,9 +3,11 @@ import { z } from 'zod';
 import {
   ERROR_CODES,
   Node as NodeSchema,
+  buildTurnSystemPrompt,
   mediaTag,
   optionalTag,
   parseAssistantMessage,
+  promptUtf8Bytes,
   serializeSegments,
   textTag,
   webSearchRowsInOrder,
@@ -16,16 +18,39 @@ import {
   toolCallCapFor,
   toolCallChargeNanoUsd,
   toolCallsOfSteps,
+  toolLoopBound,
   toolLoopStepsFor,
 } from '@hushbox/shared/affordability';
-import { TEST_DAY_END, TEST_DAY_START, isoAt, secondsAt } from '@hushbox/shared/test-time';
-import { tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
+import { costAt, textCallCurve } from '@hushbox/shared/affordability/price/curve';
+import {
+  callInputUpperBoundTokens,
+  costPartsAt,
+} from '@hushbox/shared/affordability/price/reservation';
+import { expectCompileTimeProof } from '@hushbox/shared/test-assertions';
+import {
+  TEST_DAY_END,
+  TEST_DAY_START,
+  isoAt,
+  secondsAt,
+  testUuidV7,
+} from '@hushbox/shared/test-time';
+import {
+  perImagePricingFixture,
+  perSecondPricingFixture,
+  tokenPricingFixture,
+} from '@hushbox/shared/pricing-fixture';
 import { providerUsdToBillableNanoUsd } from '../../../billing/index.js';
 import { err, ok } from '../../../../lib/result/index.js';
 import { validationError } from '../../../../lib/errors/index.js';
 import { scrubSentryEvent } from '../../../../lib/telemetry/adapters/sentry-scrub.js';
 import { createValueStore } from '../engine/value-store.js';
-import { InferenceError, priceUsageBillableNanoUsd } from '../../../models/index.js';
+import { classifyInferenceFailure } from '../../../models/adapters/inference-error.js';
+import {
+  InferenceError,
+  priceMediaBillableNanoUsd,
+  priceUsageBillableNanoUsd,
+  reserveMediaBillableNanoUsd,
+} from '../../../models/index.js';
 import { SERVED_BY_UNREPORTED, createModelCallExecution } from './model-call-execution.js';
 import { TURN_DECISION_SCHEMA_NAME, TurnDecision } from './turn-decision.js';
 import type {
@@ -41,8 +66,15 @@ import type {
 } from '@hushbox/shared';
 import type { InferOptions, ModelProvider, ToolLoopOptions } from '../../../models/index.js';
 import type { Telemetry } from '../../../../lib/telemetry/index.js';
-import type { EngineClock, NodeRunContext, NodeRunSuccess } from '../engine/execution-registry.js';
+import type {
+  EngineClock,
+  NodeRunContext,
+  NodeRunSuccess,
+  SpendGate,
+} from '../engine/execution-registry.js';
 import type { ModelBinding } from './model-call-execution.js';
+import type { CallQuantities } from '@hushbox/shared/affordability/price/curve';
+import type { ReservedCall } from '@hushbox/shared/affordability/price/reservation';
 
 /** An inert fixture stamp: nothing in this file reads it against a clock. */
 const FIXTURE_STAMP_SECONDS = secondsAt(TEST_DAY_START);
@@ -73,11 +105,19 @@ function videoDescriptorWithDurations(values: readonly number[]): ModelDescripto
   };
 }
 
+/** The cap a fake binding prices every language call at. */
+const FAKE_MAX_PRICE = { prompt: '7.500000', completion: '28.125217' };
+
+/** The reserve price a fake binding holds a media call at: a cent, ten times past every returned cost here. */
+const FAKE_RESERVE_NANO_USD = 10_000_000n;
+
 function binding(overrides: Partial<ModelBinding> = {}): ModelBinding {
   return {
     descriptor: descriptor(),
     ports: { in: [textTag()], out: textTag() },
     price: () => ok(50n),
+    reserveMedia: () => ok(FAKE_RESERVE_NANO_USD),
+    maxPrice: () => FAKE_MAX_PRICE,
     ...overrides,
   };
 }
@@ -194,9 +234,9 @@ function throwingAfterProvider(events: readonly InferenceEvent[], thrown: Error)
   };
 }
 
-/** A stop/deadline abort surfaces as the adapters' InferenceError code 'aborted'. */
+/** A hard abort surfaces as the adapters' InferenceError code 'aborted'. */
 function abortError(): InferenceError {
-  return new InferenceError('aborted', 'Inference aborted: user stop');
+  return new InferenceError('aborted', 'Inference aborted: hard stop');
 }
 
 function throwingProvider(thrown: Error): ModelProvider {
@@ -215,6 +255,8 @@ function makeCtx(emit?: (event: InferenceEvent) => void): NodeRunContext {
     clock: { now: () => 0 },
     rng: { random: () => 0.5 },
     signal: new AbortController().signal,
+    spend: { isOpen: () => true, report: () => undefined },
+    runId: undefined,
     ...(emit === undefined ? {} : { emit }),
   };
 }
@@ -243,6 +285,205 @@ describe('createModelCallExecution — a routing-only call', () => {
     });
     await exec.run(modelCallNode(), ['hi'], makeCtx());
     expect(requests[0]?.routingOnly).toBeUndefined();
+  });
+});
+
+/** A reserved call for `quantities`, held at `wireCapTokens` per step, as the estimator builds one. */
+function reservedCallFor(quantities: CallQuantities, wireCapTokens: number): ReservedCall {
+  const pricing = tokenPricingFixture({ input: 1n, output: 1n });
+  const curve = textCallCurve(pricing, 'reserve', quantities, wireCapTokens);
+  const regime = curve.regimes.at(-1);
+  if (regime === undefined) throw new Error('a curve has a regime from 0');
+  const parts = costPartsAt(curve, wireCapTokens);
+  return {
+    nodeId: 'answer',
+    modelId: 'answer-model',
+    pricing,
+    quantities,
+    steps: quantities.loop?.steps ?? 1,
+    wireCapTokens,
+    stepTiers: regime.stepTiers,
+    ...parts,
+    heldNanoUsd: costAt(curve, wireCapTokens),
+  };
+}
+
+describe('a node run context', () => {
+  it("cannot be built without the run's spend gate", () => {
+    expectCompileTimeProof(() => {
+      const withoutSpend: Omit<NodeRunContext, 'spend'> = makeCtx();
+      // @ts-expect-error every node runs under the run's spend gate
+      const ungated: NodeRunContext = withoutSpend;
+      return ungated;
+    });
+  });
+
+  it('cannot be built without the id of the run it serves', () => {
+    expectCompileTimeProof(() => {
+      const withoutRunId: Omit<NodeRunContext, 'runId'> = makeCtx();
+      // @ts-expect-error every node names the run it serves, or says the caller minted none
+      const anonymous: NodeRunContext = withoutRunId;
+      return anonymous;
+    });
+  });
+});
+
+describe('a model binding', () => {
+  it('cannot be built without a reserve-side media pricer', () => {
+    expectCompileTimeProof(() => {
+      // @ts-expect-error a binding must say what its media calls were reserved at
+      const unreserved: ModelBinding = {
+        descriptor: descriptor(),
+        ports: { in: [textTag()], out: textTag() },
+        price: () => ok(50n),
+        maxPrice: () => FAKE_MAX_PRICE,
+      };
+      return unreserved;
+    });
+  });
+
+  it('cannot be built without a max_price pricer', () => {
+    expectCompileTimeProof(() => {
+      // @ts-expect-error a binding must cap its language calls
+      const uncapped: ModelBinding = {
+        descriptor: descriptor(),
+        ports: { in: [textTag()], out: textTag() },
+        price: () => ok(50n),
+        reserveMedia: () => ok(50n),
+      };
+      return uncapped;
+    });
+  });
+});
+
+describe('createModelCallExecution — the price reservation', () => {
+  const plainCall = reservedCallFor({ promptTokens: 2, persists: false, newMessageChars: 0 }, 64);
+
+  /** The UTF-8 bytes of what a language request sends: its system prompt, history and input. */
+  function promptBytesOf(
+    request: InferenceRequest | undefined,
+    history: readonly string[]
+  ): number {
+    if (request === undefined) throw new Error('no request was sent');
+    return promptUtf8Bytes(
+      [
+        buildTurnSystemPrompt({
+          utcDay: request.utcDay,
+          ...(request.customInstructions === undefined
+            ? {}
+            : { customInstructions: request.customInstructions }),
+        }),
+        ...history,
+        'hi',
+      ].map((content) => ({ content }))
+    );
+  }
+
+  it("routes a language call under its binding's max_price at the call's prompt bytes", async () => {
+    const requests: InferenceRequest[] = [];
+    const maxPrice = vi.fn(() => FAKE_MAX_PRICE);
+    const exec = runExec({
+      provider: capturingProvider([finish()], requests),
+      binding: binding({ maxPrice }),
+      schemas,
+    });
+
+    await exec.run(modelCallNode(), ['hi'], { ...makeCtx(), reservation: plainCall });
+
+    expect(requests[0]?.routing).toEqual({ maxPrice: FAKE_MAX_PRICE });
+    expect(maxPrice).toHaveBeenCalledExactlyOnceWith(promptBytesOf(requests[0], []));
+  });
+
+  it('counts the history and custom instructions the call sends into its bound', async () => {
+    const requests: InferenceRequest[] = [];
+    const maxPrice = vi.fn(() => FAKE_MAX_PRICE);
+    const exec = runExec({
+      provider: capturingProvider([finish()], requests),
+      binding: binding({ maxPrice }),
+      schemas,
+    });
+
+    await exec.run(modelCallNode(), ['hi'], {
+      ...makeCtx(),
+      reservation: plainCall,
+      history: [{ role: 'user', content: '漢字 earlier' }],
+      customInstructions: 'be brief',
+    });
+
+    expect(maxPrice).toHaveBeenCalledExactlyOnceWith(promptBytesOf(requests[0], ['漢字 earlier']));
+  });
+
+  it('leaves the base preamble out of a routing-only call’s bound, as that call sends none', async () => {
+    const requests: InferenceRequest[] = [];
+    const maxPrice = vi.fn(() => FAKE_MAX_PRICE);
+    const exec = runExec({
+      provider: capturingProvider([finish()], requests),
+      binding: binding({ maxPrice }),
+      schemas,
+    });
+    const prompt = '[HUSHBOX_CLASSIFIER] pick one';
+
+    await exec.run(modelCallNode(), [prompt], {
+      ...makeCtx(),
+      routingOnly: true,
+      reservation: plainCall,
+    });
+
+    expect(maxPrice).toHaveBeenCalledExactlyOnceWith(promptUtf8Bytes([{ content: prompt }]));
+  });
+
+  it('adds the re-sent output, results and overhead its tool loop reserved', async () => {
+    const requests: InferenceRequest[] = [];
+    const maxPrice = vi.fn(() => FAKE_MAX_PRICE);
+    const loop = toolLoopBound(['webSearch'], 2);
+    const looped = reservedCallFor(
+      { promptTokens: 2, loop, persists: false, newMessageChars: 0 },
+      64
+    );
+    const exec = runExec({
+      provider: capturingProvider([finish()], requests),
+      binding: binding({ maxPrice }),
+      schemas,
+    });
+
+    await exec.run(modelCallNode(), ['hi'], { ...makeCtx(), reservation: looped });
+
+    const bytes = promptBytesOf(requests[0], []);
+    expect(maxPrice).toHaveBeenCalledExactlyOnceWith(callInputUpperBoundTokens(looped, bytes));
+    expect(callInputUpperBoundTokens(looped, bytes)).toBeGreaterThan(bytes);
+  });
+
+  it('sends a call the engine reserved nothing for without routing, which a provider refuses', async () => {
+    const requests: InferenceRequest[] = [];
+    const exec = runExec({
+      provider: capturingProvider([finish()], requests),
+      binding: binding(),
+      schemas,
+    });
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(requests[0]?.routing).toBeUndefined();
+  });
+
+  it('sends a media call no price cap, which media routing does not carry', async () => {
+    const requests: InferenceRequest[] = [];
+    const maxPrice = vi.fn(() => FAKE_MAX_PRICE);
+    const exec = runExec({
+      provider: capturingProvider([finish(0.01)], requests),
+      binding: binding({
+        descriptor: descriptor(['image']),
+        ports: { in: [textTag()], out: mediaTag('image', ['image/png']) },
+        priceMedia: () => ok(40n),
+        maxPrice,
+      }),
+      schemas,
+    });
+
+    await exec.run(modelCallNode(), ['hi'], { ...makeCtx(), reservation: plainCall });
+
+    expect(requests[0]?.routing).toBeUndefined();
+    expect(maxPrice).not.toHaveBeenCalled();
   });
 });
 
@@ -683,13 +924,13 @@ describe('createModelCallExecution', () => {
     });
   });
 
-  it('bills an image generation at the deterministic media estimate with isEstimated true and never alerts', async () => {
+  it('charges the inline provider cost for an image generation with isEstimated false', async () => {
     const telemetry = fakeTelemetry();
     const exec = runExec({
       provider: streamOf([
         { kind: 'media-start', index: 0, modality: 'image', mimeType: 'image/png' },
         { kind: 'media-done', index: 0, value: IMAGE },
-        finish(), // image carries no inline cost by design
+        finish(0.000_002),
       ]),
       binding: binding({
         descriptor: descriptor(['image']),
@@ -704,8 +945,8 @@ describe('createModelCallExecution', () => {
     const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
     expect(result._unsafeUnwrap()).toEqual({
       value: IMAGE,
-      costNanoUsd: 50n,
-      isEstimated: true,
+      costNanoUsd: providerUsdToBillableNanoUsd(0.000_002),
+      isEstimated: false,
       // Image always records a count dimension (defaults to 1) for media_generations.
       billing: {
         modelId: 'answer-model',
@@ -715,7 +956,175 @@ describe('createModelCallExecution', () => {
       },
     });
     expect(telemetry.captureError).not.toHaveBeenCalled();
-    expect(telemetry.warn).not.toHaveBeenCalled();
+  });
+
+  describe('media cost sanity threshold', () => {
+    /** A media binding priced by the catalog's own pricers over `pricing`. */
+    function mediaBinding(
+      outputs: readonly Modality[],
+      pricing: ModelDescriptor['pricing']
+    ): ModelBinding {
+      const family = outputs[0] === 'video' ? 'video' : 'image';
+      return binding({
+        descriptor: { ...descriptor(outputs), pricing },
+        priceMedia: (params) => priceMediaBillableNanoUsd(pricing, family, params),
+        reserveMedia: (params) => reserveMediaBillableNanoUsd(pricing, family, params),
+      });
+    }
+
+    const VARIANT_IMAGE = perImagePricingFixture({ anchor: 51_750_000n, dearest: 103_500_000n });
+    const VIDEO_PARAMS = { resolution: '720p', durationSeconds: 4 };
+    const KLING_VIDEO = perSecondPricingFixture({
+      anchor: { '720p': 128_800_000n },
+      dearest: { '720p': 193_200_000n },
+    });
+
+    async function runImage(
+      pricing: ModelDescriptor['pricing'],
+      costUsd: number,
+      telemetry: Telemetry = fakeTelemetry()
+    ): Promise<NodeRunSuccess> {
+      const exec = runExec({
+        provider: streamOf([
+          { kind: 'media-start', index: 0, modality: 'image', mimeType: 'image/png' },
+          { kind: 'media-done', index: 0, value: IMAGE },
+          finish(costUsd),
+        ]),
+        binding: mediaBinding(['image'], pricing),
+        schemas,
+        telemetry,
+      });
+      const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+      return result._unsafeUnwrap();
+    }
+
+    async function runVideo(costUsd: number, telemetry: Telemetry): Promise<NodeRunSuccess> {
+      const video: MediaValue = {
+        ...IMAGE,
+        ref: 'media/v',
+        mimeType: 'video/mp4',
+        modality: 'video',
+      };
+      const exec = runExec({
+        provider: streamOf([
+          { kind: 'media-start', index: 0, modality: 'video', mimeType: 'video/mp4' },
+          { kind: 'media-done', index: 0, value: video },
+          finish(costUsd),
+        ]),
+        binding: mediaBinding(['video'], KLING_VIDEO),
+        schemas,
+        telemetry,
+      });
+      const result = await exec.run(modelCallNodeWithParams(VIDEO_PARAMS), ['hi'], makeCtx());
+      return result._unsafeUnwrap();
+    }
+
+    it("bills an image cost at exactly 10× the call's dearest-row price in full", async () => {
+      // $0.90 is 1,035,000,000 billable nano: 10 × the 103,500,000 dearest row.
+      const result = await runImage(VARIANT_IMAGE, 0.9);
+      expect(result).toMatchObject({ costNanoUsd: 1_035_000_000n, isEstimated: false });
+    });
+
+    it('refuses an image cost just above 10× the dearest-row price, billing the anchor estimate', async () => {
+      const result = await runImage(VARIANT_IMAGE, 0.900_000_1);
+      expect(result).toMatchObject({ costNanoUsd: 51_750_000n, isEstimated: true });
+    });
+
+    it('captures exactly once when it refuses an image cost above the threshold', async () => {
+      const telemetry = fakeTelemetry();
+      await runImage(VARIANT_IMAGE, 0.900_000_1, telemetry);
+      expect(telemetry.captureError).toHaveBeenCalledExactlyOnceWith(
+        expect.any(Error),
+        'inference_provider_cost_unavailable'
+      );
+    });
+
+    it("bills a video cost at exactly 10× the call's dearest-SKU price in full", async () => {
+      // 4 s at the 193,200,000 dearest 720p rate reserves 772,800,000; $6.72 is
+      // 7,728,000,000 billable nano, exactly 10× that.
+      const result = await runVideo(6.72, fakeTelemetry());
+      expect(result).toMatchObject({ costNanoUsd: 7_728_000_000n, isEstimated: false });
+    });
+
+    it('refuses a video cost just above 10× the dearest-SKU price, billing the anchor estimate', async () => {
+      const result = await runVideo(6.720_000_1, fakeTelemetry());
+      expect(result).toMatchObject({ costNanoUsd: 515_200_000n, isEstimated: true });
+    });
+
+    it('captures exactly once when it refuses a video cost above the threshold', async () => {
+      const telemetry = fakeTelemetry();
+      await runVideo(6.720_000_1, telemetry);
+      expect(telemetry.captureError).toHaveBeenCalledExactlyOnceWith(
+        expect.any(Error),
+        'inference_provider_cost_unavailable'
+      );
+    });
+
+    it('bills the returned cost for a listing whose 2-nano anchor sits beside a $0.045 row', async () => {
+      const attack = perImagePricingFixture({ anchor: 2n, dearest: 51_750_000n });
+      const result = await runImage(attack, 0.045);
+      expect(result).toMatchObject({ costNanoUsd: 51_750_000n, isEstimated: false });
+    });
+
+    it('bills a text cost at exactly 1000× its estimate in full', async () => {
+      // $0.001 is 1,150,000 billable nano: 1000 × the 1,150 estimate.
+      const exec = runExec({
+        provider: streamOf([{ kind: 'text-delta', index: 0, content: 'x' }, finish(0.001)]),
+        binding: binding({ price: () => ok(1150n) }),
+        schemas,
+      });
+      const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+      expect(result._unsafeUnwrap()).toMatchObject({ costNanoUsd: 1_150_000n, isEstimated: false });
+    });
+
+    it('refuses a text cost just above 1000× its estimate', async () => {
+      const exec = runExec({
+        provider: streamOf([{ kind: 'text-delta', index: 0, content: 'x' }, finish(0.001_000_1)]),
+        binding: binding({ price: () => ok(1150n) }),
+        schemas,
+      });
+      const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+      expect(result._unsafeUnwrap()).toMatchObject({ costNanoUsd: 1150n, isEstimated: true });
+    });
+  });
+
+  it('bills the anchor estimate, not the reserve, flagged isEstimated on a missing image cost', async () => {
+    // The catalog's media pricer itself, over a variant-priced row: the anchor
+    // (the base row) is what an estimated charge bills; the dearest is only reserved.
+    const pricing = perImagePricingFixture({ anchor: 51_750_000n, dearest: 103_500_000n });
+    const exec = runExec({
+      provider: streamOf([
+        { kind: 'media-start', index: 0, modality: 'image', mimeType: 'image/png' },
+        { kind: 'media-done', index: 0, value: IMAGE },
+        finish(),
+      ]),
+      binding: binding({
+        descriptor: { ...descriptor(['image']), pricing },
+        priceMedia: (params) => priceMediaBillableNanoUsd(pricing, 'image', params),
+      }),
+      schemas,
+    });
+    const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+    expect(result._unsafeUnwrap()).toMatchObject({ costNanoUsd: 51_750_000n, isEstimated: true });
+  });
+
+  it('raises one missing-cost alert when an image finish carries no cost', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = runExec({
+      provider: streamOf([
+        { kind: 'media-start', index: 0, modality: 'image', mimeType: 'image/png' },
+        { kind: 'media-done', index: 0, value: IMAGE },
+        finish(),
+      ]),
+      binding: binding({ descriptor: descriptor(['image']), priceMedia: () => ok(50n) }),
+      schemas,
+      telemetry,
+    });
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+    expect(telemetry.captureError).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Error),
+      'inference_provider_cost_unavailable'
+    );
   });
 
   it('falls back to the estimate and alerts when a text finish carries no inline cost', async () => {
@@ -754,12 +1163,39 @@ describe('createModelCallExecution', () => {
     expect(telemetry.captureError).toHaveBeenCalledOnce();
   });
 
-  it('bounds a video inline cost against the deterministic media estimate, not the token estimate', async () => {
+  it.each([
+    ['fails', () => err(validationError('no reserve-side price'))],
+    ['is zero', () => ok(0n)],
+  ] as const)(
+    'refuses a media inline cost whose reserve-side price %s, billing the estimate',
+    async (_label, reserveMedia) => {
+      const telemetry = fakeTelemetry();
+      const exec = runExec({
+        provider: streamOf([{ kind: 'text-delta', index: 0, content: 'v' }, finish(0.000_001)]),
+        binding: binding({
+          descriptor: descriptor(['video']),
+          priceMedia: () => ok(70n),
+          reserveMedia,
+        }),
+        schemas,
+        telemetry,
+      });
+      const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+      expect(result._unsafeUnwrap()).toMatchObject({ costNanoUsd: 70n, isEstimated: true });
+      expect(telemetry.captureError).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('bounds a video inline cost against the reserve-side media price, not the token estimate', async () => {
     const telemetry = fakeTelemetry();
     const exec = runExec({
-      // 1000 USD is far beyond 1000× the 70n media estimate — clearly corrupt.
+      // 1000 USD is far beyond 10× the 70n reserve-side price — clearly corrupt.
       provider: streamOf([{ kind: 'text-delta', index: 0, content: 'v' }, finish(1000)]),
-      binding: binding({ descriptor: descriptor(['video']), priceMedia: () => ok(70n) }),
+      binding: binding({
+        descriptor: descriptor(['video']),
+        priceMedia: () => ok(70n),
+        reserveMedia: () => ok(70n),
+      }),
       schemas,
       telemetry,
     });
@@ -1071,6 +1507,8 @@ describe('createModelCallExecution', () => {
       descriptor: { ...descriptor(), inputs: ['image' as const] },
       ports: { in: [mediaTag('image', ['image/png'])], out: textTag() },
       price: () => ok(0n),
+      reserveMedia: () => ok(0n),
+      maxPrice: () => FAKE_MAX_PRICE,
     };
     const exec = runExec({ provider, binding: mediaBinding, schemas });
     const result = await exec.run(modelCallNode(), [media], makeCtx());
@@ -1595,8 +2033,8 @@ describe('createModelCallExecution — each successful tool call is charged on t
   });
 });
 
-describe('createModelCallExecution — a stopped searching run settles its partial', () => {
-  it('bills the partial inline cost plus the searches that returned before the stop', async () => {
+describe('createModelCallExecution — a hard-stopped searching run settles its partial', () => {
+  it('bills the partial inline cost plus the searches that returned before the hard stop', async () => {
     const exec = runExec({
       provider: throwingAfterProvider(
         [
@@ -1618,7 +2056,7 @@ describe('createModelCallExecution — a stopped searching run settles its parti
     });
   });
 
-  it('bills zero plus the returned searches when the stopped partial observed no model cost', async () => {
+  it('bills zero plus the returned searches when the hard-stopped partial observed no model cost', async () => {
     const exec = runExec({
       provider: throwingAfterProvider(
         [
@@ -1641,7 +2079,7 @@ describe('createModelCallExecution — a stopped searching run settles its parti
     });
   });
 
-  it('bills the media estimate plus the returned searches for a stopped media partial', async () => {
+  it('bills the media estimate plus the returned searches for a hard-stopped media partial', async () => {
     const exec = runExec({
       provider: throwingAfterProvider(
         [searchCall('c1'), searchResult('c1'), { kind: 'media-done', index: 0, value: IMAGE }],
@@ -1663,7 +2101,7 @@ describe('createModelCallExecution — a stopped searching run settles its parti
     });
   });
 
-  it('fails a stop that streamed nothing, reporting its search spend as observed and charging nothing', async () => {
+  it('fails a hard stop that streamed nothing, reporting its search spend as observed and charging nothing', async () => {
     const exec = runExec({
       provider: throwingAfterProvider([searchCall('c1'), searchResult('c1')], abortError()),
       binding: binding(),
@@ -1753,7 +2191,7 @@ describe('createModelCallExecution — the stored text is the assistant-text tre
     ]);
   });
 
-  it('persists nothing for a stop after only searches, with no model text', async () => {
+  it('persists nothing for a hard stop after only searches, with no model text', async () => {
     const exec = runExec({
       provider: throwingAfterProvider(
         [searchCall('c1'), searchCall('c2'), searchResult('c1')],
@@ -1767,7 +2205,7 @@ describe('createModelCallExecution — the stored text is the assistant-text tre
     expect(result.isErr()).toBe(true);
   });
 
-  it('stores a search in flight at a stop as interrupted and does not bill it', async () => {
+  it('stores a search in flight at a hard stop as interrupted and does not bill it', async () => {
     const exec = runExec({
       provider: throwingAfterProvider(
         [
@@ -2247,7 +2685,7 @@ describe('createModelCallExecution — file-part mapper forwarding', () => {
   });
 });
 
-describe('createModelCallExecution — stop/deadline abort settles the streamed partial', () => {
+describe('createModelCallExecution — a hard abort settles the streamed partial', () => {
   it('resolves the accumulated text on abort, zero-cost estimated when no cost was observed', async () => {
     const exec = runExec({
       provider: throwingAfterProvider(
@@ -2286,7 +2724,7 @@ describe('createModelCallExecution — stop/deadline abort settles the streamed 
     expect(result._unsafeUnwrap().value).toEqual(IMAGE);
   });
 
-  it('fails the node on abort when nothing accumulated (empty stop bills nothing)', async () => {
+  it('fails the node on abort when nothing accumulated (an empty abort bills nothing)', async () => {
     const exec = runExec({
       provider: throwingAfterProvider([], abortError()),
       binding: binding(),
@@ -2424,7 +2862,7 @@ describe('createModelCallExecution — billing dimension extraction', () => {
       provider: streamOf([
         { kind: 'media-start', index: 0, modality: 'image', mimeType: 'image/png' },
         { kind: 'media-done', index: 0, value: IMAGE },
-        finish(), // image carries no inline cost by design
+        finish(),
       ]),
       binding: binding({ descriptor: descriptor(['image']), priceMedia: () => ok(50n) }),
       schemas,
@@ -2514,6 +2952,8 @@ function ctxWithStore(store: ReturnType<typeof createValueStore>): NodeRunContex
     clock: { now: () => 0 },
     rng: { random: () => 0.5 },
     signal: new AbortController().signal,
+    spend: { isOpen: () => true, report: () => undefined },
+    runId: undefined,
   };
 }
 
@@ -2697,7 +3137,7 @@ interface TimedEvent {
 
 /**
  * A scripted provider whose engine clock reads each event's `atMs` while that
- * event is handled; `abortAtMs` ends the stream with a stop at that instant.
+ * event is handled; `abortAtMs` ends the stream with a hard abort at that instant.
  */
 function timedStream(
   events: readonly TimedEvent[],
@@ -2784,7 +3224,7 @@ describe('createModelCallExecution — the reasoning time on the engine clock', 
     expect(await reasoningDurationOf(stream)).toBe(600);
   });
 
-  it('settles a stop inside reasoning with the time up to its last reasoning delta', async () => {
+  it('settles a hard abort inside reasoning with the time up to its last reasoning delta', async () => {
     const stream = timedStream([reasoningAt(0), reasoningAt(1500)], 1800);
     expect(await reasoningDurationOf(stream)).toBe(1500);
   });
@@ -2905,6 +3345,63 @@ describe('createModelCallExecution — the estimated charge prices each step', (
   });
 });
 
+describe('createModelCallExecution — what the call observed rides its billing', () => {
+  it('carries each step’s usage and the tool fees inside its charge', async () => {
+    const result = await runExec({
+      provider: streamOf([
+        searchCall('c1'),
+        searchCall('c2'),
+        searchResult('c1'),
+        searchResult('c2'),
+        reportedStep(0, { inputTokens: 120, outputTokens: 30 }),
+        { kind: 'text-delta', index: 0, content: 'answer' },
+        reportedStep(1, { inputTokens: 400, outputTokens: 60 }),
+        finish(0.000_002),
+      ]),
+      binding: binding(),
+      schemas,
+      tools: searchLoop(),
+    }).run(searchingNode(), ['hi'], makeCtx());
+
+    expect(result._unsafeUnwrap().billing?.observed).toEqual({
+      stepUsages: [
+        { inputTokens: 120, outputTokens: 30 },
+        { inputTokens: 400, outputTokens: 60 },
+      ],
+      toolFeeNanoUsd: toolCallChargeNanoUsd('webSearch', 2),
+    });
+  });
+
+  it('keeps only the token counts of each step’s usage', async () => {
+    const charged = await chargedFor([
+      { kind: 'text-delta', index: 0, content: 'answer' },
+      {
+        kind: 'step-finish',
+        step: 0,
+        generationId: 'gen-0',
+        usage: { inputTokens: 5, outputTokens: 7, reasoningTokens: 3, cachedInputTokens: 2 },
+      },
+      finish(0.000_001),
+    ]);
+
+    expect(charged.billing?.observed?.stepUsages).toEqual([{ inputTokens: 5, outputTokens: 7 }]);
+  });
+
+  it('carries no observation when a step reported no usage', async () => {
+    const charged = await chargedFor(
+      uncostedLoop([{ inputTokens: 150, outputTokens: 5 }, {}], { in: 300, out: 10 })
+    );
+
+    expect(charged.billing).not.toHaveProperty('observed');
+  });
+
+  it('carries no observation when the call reported no step', async () => {
+    const charged = await chargedFor(uncostedLoop([], { in: 300, out: 10 }));
+
+    expect(charged.billing).not.toHaveProperty('observed');
+  });
+});
+
 describe('createModelCallExecution — the usage record names the serving endpoint', () => {
   async function providerNameFor(events: readonly InferenceEvent[]): Promise<string | undefined> {
     const charged = await chargedFor(events);
@@ -2967,5 +3464,704 @@ describe('createModelCallExecution — the usage record names the serving endpoi
       uncostedLoop([{ inputTokens: 1, outputTokens: 1 }], { in: 1, out: 1 })
     );
     expect(name).toBe('unreported');
+  });
+});
+
+describe('createModelCallExecution — a provider failure is reported', () => {
+  /** What a provider error would carry into its own words: our account and the prompt. */
+  const PROVIDER_TEXT_MARKER = 'pangolin-provider-text-marker';
+
+  /**
+   * The execution as a fresh isolate has it. What an isolate has already
+   * reported is latched in module state, so each case takes the module again.
+   */
+  async function freshExecution(
+    telemetry: Telemetry,
+    thrown: Error
+  ): Promise<ReturnType<typeof createModelCallExecution>> {
+    vi.resetModules();
+    const fresh = await import('./model-call-execution.js');
+    return fresh.createModelCallExecution({
+      usdToBillableNanoUsd: providerUsdToBillableNanoUsd,
+      provider: throwingProvider(thrown),
+      binding: binding(),
+      schemas,
+      telemetry,
+    });
+  }
+
+  /**
+   * OpenRouter's non-stream failure as the SDK raises it: a 200 response whose
+   * body names the logical status beside the provider's own words.
+   */
+  function providerCallError(logicalCode: number): Error {
+    return Object.assign(new Error(`Payment Required ${PROVIDER_TEXT_MARKER}`), {
+      statusCode: 200,
+      responseBody: JSON.stringify({
+        error: { code: logicalCode, message: PROVIDER_TEXT_MARKER },
+      }),
+    });
+  }
+
+  function upstreamFailure(logicalCode: number): InferenceError {
+    return classifyInferenceFailure(providerCallError(logicalCode));
+  }
+
+  function capturesUnder(telemetry: Telemetry, code: string): Error[] {
+    return vi
+      .mocked(telemetry.captureError)
+      .mock.calls.filter(([, captured]) => captured === code)
+      .map(([error]) => error);
+  }
+
+  it('captures an unmapped provider failure under the provider-failure fingerprint, naming its inference code and status', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = await freshExecution(telemetry, upstreamFailure(402));
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    const captured = capturesUnder(telemetry, 'inference_provider_failed');
+    expect(captured).toHaveLength(1);
+    const scrubbed = scrubSentryEvent(
+      { type: undefined, tags: { errorCode: 'inference_provider_failed' } },
+      { originalException: captured[0] }
+    );
+    expect(scrubbed?.tags).toEqual({
+      errorCode: 'inference_provider_failed',
+      inferenceCode: 'upstream_error',
+      providerStatus: 402,
+    });
+  });
+
+  it('reports the provider failure by its code and status alone', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = await freshExecution(telemetry, upstreamFailure(402));
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    const captured = capturesUnder(telemetry, 'inference_provider_failed');
+    expect(
+      captured.map((error) =>
+        Object.getOwnPropertyNames(error).toSorted((a, b) => a.localeCompare(b))
+      )
+    ).toEqual([['inferenceCode', 'message', 'name', 'providerStatus', 'stack']]);
+    expect(
+      captured.map((error) => [
+        Reflect.get(error, 'inferenceCode'),
+        Reflect.get(error, 'providerStatus'),
+      ])
+    ).toEqual([['upstream_error', 402]]);
+  });
+
+  it('carries none of the provider text in the capture', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = await freshExecution(telemetry, upstreamFailure(402));
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    const [error] = capturesUnder(telemetry, 'inference_provider_failed');
+    const surfaces = [
+      error?.message,
+      error?.stack,
+      error?.name,
+      JSON.stringify(error),
+      String(error?.cause),
+    ].join('\n');
+    expect(surfaces).not.toContain(PROVIDER_TEXT_MARKER);
+  });
+
+  it('takes the status the failure names', async () => {
+    const telemetry = fakeTelemetry();
+    const failure = new InferenceError('upstream_error', 'Inference upstream error', {
+      status: 503,
+    });
+    const exec = await freshExecution(telemetry, failure);
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    const captured = capturesUnder(telemetry, 'inference_provider_failed');
+    expect(captured.map((error) => Reflect.get(error, 'providerStatus'))).toEqual([503]);
+  });
+
+  it('leaves the status off a failure that carries none', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = await freshExecution(
+      telemetry,
+      new InferenceError('truncated_stream', 'Stream ended without the provider finish part')
+    );
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    const captured = capturesUnder(telemetry, 'inference_provider_failed');
+    expect(
+      captured.map((error) =>
+        Object.getOwnPropertyNames(error).toSorted((a, b) => a.localeCompare(b))
+      )
+    ).toEqual([['inferenceCode', 'message', 'name', 'stack']]);
+  });
+
+  it('reads no status off the provider error a failure wraps', async () => {
+    const telemetry = fakeTelemetry();
+    const failure = new InferenceError('upstream_error', 'Inference upstream error', {
+      cause: Object.assign(new Error('bad gateway'), { statusCode: 502 }),
+    });
+    const exec = await freshExecution(telemetry, failure);
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    const captured = capturesUnder(telemetry, 'inference_provider_failed');
+    expect(captured.map((error) => Object.hasOwn(error, 'providerStatus'))).toEqual([false]);
+  });
+
+  it.each([
+    ['content_policy', new InferenceError('content_policy', 'refused')],
+    ['context_length', new InferenceError('context_length', 'too long')],
+    ['aborted', abortError()],
+  ])('captures nothing for a %s failure the user caused', async (_code, failure) => {
+    const telemetry = fakeTelemetry();
+    const exec = await freshExecution(telemetry, failure);
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(telemetry.captureError).not.toHaveBeenCalled();
+  });
+
+  it('captures one of two identical failures inside one window', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = await freshExecution(telemetry, upstreamFailure(502));
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(capturesUnder(telemetry, 'inference_provider_failed')).toHaveLength(1);
+  });
+
+  it('captures a second failure that differs from the first by its status', async () => {
+    vi.resetModules();
+    const fresh = await import('./model-call-execution.js');
+    const telemetry = fakeTelemetry();
+    const run = (statusCode: number): Promise<unknown> =>
+      fresh
+        .createModelCallExecution({
+          usdToBillableNanoUsd: providerUsdToBillableNanoUsd,
+          provider: throwingProvider(upstreamFailure(statusCode)),
+          binding: binding(),
+          schemas,
+          telemetry,
+        })
+        .run(modelCallNode(), ['hi'], makeCtx());
+
+    await run(502);
+    await run(503);
+
+    expect(
+      capturesUnder(telemetry, 'inference_provider_failed').map((error) =>
+        Reflect.get(error, 'providerStatus')
+      )
+    ).toEqual([502, 503]);
+  });
+
+  it('fails the node with no wire reason while reporting it', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = await freshExecution(telemetry, upstreamFailure(402));
+
+    const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(result._unsafeUnwrapErr()).toEqual({});
+  });
+});
+
+/** A spend gate the test opens and closes, recording every running total reported to it. */
+function drivenGate(): { readonly gate: SpendGate; readonly reports: bigint[]; close(): void } {
+  const state = { open: true };
+  const reports: bigint[] = [];
+  return {
+    reports,
+    close: (): void => {
+      state.open = false;
+    },
+    gate: {
+      isOpen: (): boolean => state.open,
+      report: (total): void => {
+        reports.push(total);
+      },
+    },
+  };
+}
+
+/** A provider whose stream the test scripts with the infer options it was handed. */
+function scriptedProvider(
+  script: (options: InferOptions | undefined) => AsyncGenerator<InferenceEvent>
+): ModelProvider {
+  return { infer: (_request, _descriptor, options) => script(options) };
+}
+
+/** The continuation a provider was handed, or the defect of a call that handed none. */
+function continuationOf(
+  options: InferOptions | undefined
+): NonNullable<InferOptions['continuation']> {
+  if (options?.continuation === undefined) throw new Error('the call handed no continuation');
+  return options.continuation;
+}
+
+/** A run id in the shape the conversation room mints one. */
+const CUT_RUN_ID = testUuidV7(17);
+
+/** What the inline cost of 0.01 USD bills, at the port's conversion. */
+const ONE_CENT_BILLABLE = 11_500_000n;
+
+describe('createModelCallExecution — the spend gate before the call', () => {
+  it('starts no provider call when the gate is closed', async () => {
+    const infer = vi.fn(streamOf([finish(0.01)]).infer);
+    const driven = drivenGate();
+    driven.close();
+
+    await runExec({ provider: { infer }, binding: binding(), schemas }).run(
+      modelCallNode(),
+      ['hi'],
+      { ...makeCtx(), spend: driven.gate }
+    );
+
+    expect(infer).not.toHaveBeenCalled();
+  });
+
+  it('fails the node with no spend when the gate is closed', async () => {
+    const driven = drivenGate();
+    driven.close();
+
+    const result = await runExec({
+      provider: streamOf([finish(0.01)]),
+      binding: binding(),
+      schemas,
+    }).run(modelCallNode(), ['hi'], { ...makeCtx(), spend: driven.gate });
+
+    expect(result._unsafeUnwrapErr()).toEqual({});
+  });
+
+  it('emits nothing when the gate is closed', async () => {
+    const emit = vi.fn();
+    const driven = drivenGate();
+    driven.close();
+
+    await runExec({ provider: streamOf([finish(0.01)]), binding: binding(), schemas }).run(
+      modelCallNode(),
+      ['hi'],
+      { ...makeCtx(emit), spend: driven.gate }
+    );
+
+    expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("createModelCallExecution — the tool loop asks the run's spend gate", () => {
+  /** Runs one searching call whose provider runs `script`, under `gate`. */
+  async function runGated(
+    gate: SpendGate,
+    script: (options: InferOptions | undefined) => AsyncGenerator<InferenceEvent>
+  ): Promise<void> {
+    await runExec({
+      provider: scriptedProvider(script),
+      binding: binding(),
+      schemas,
+      tools: searchLoop(),
+    }).run(searchingNode(), ['hi'], { ...makeCtx(), spend: gate });
+  }
+
+  it('reports the completed steps’ inline cost as the running total', async () => {
+    const driven = drivenGate();
+
+    await runGated(driven.gate, async function* script(options) {
+      await Promise.resolve();
+      continuationOf(options).mayStartNextStep([0.004, undefined, 0.006]);
+      yield { kind: 'text-delta', index: 0, content: 'a' };
+      yield finish(0.01);
+    });
+
+    expect(driven.reports).toEqual([ONE_CENT_BILLABLE]);
+  });
+
+  it('counts the tool calls that returned into the running total', async () => {
+    const driven = drivenGate();
+
+    await runGated(driven.gate, async function* script(options) {
+      await Promise.resolve();
+      yield searchCall('c1');
+      yield searchResult('c1');
+      continuationOf(options).mayStartNextStep([0.01]);
+      yield { kind: 'text-delta', index: 0, content: 'a' };
+      yield finish(0.01);
+    });
+
+    expect(driven.reports).toEqual([ONE_CENT_BILLABLE + toolCallChargeNanoUsd('webSearch', 1)]);
+  });
+
+  it('leaves a step cost that is not a usable amount out of the running total', async () => {
+    const driven = drivenGate();
+
+    await runGated(driven.gate, async function* script(options) {
+      await Promise.resolve();
+      continuationOf(options).mayStartNextStep([-1, Number.NaN, Number.POSITIVE_INFINITY, 0.01]);
+      yield { kind: 'text-delta', index: 0, content: 'a' };
+      yield finish(0.01);
+    });
+
+    expect(driven.reports).toEqual([ONE_CENT_BILLABLE]);
+  });
+
+  it('admits the next step while the gate is open', async () => {
+    const answers: boolean[] = [];
+
+    await runGated(drivenGate().gate, async function* script(options) {
+      await Promise.resolve();
+      answers.push(continuationOf(options).mayStartNextStep([0.01]));
+      yield { kind: 'text-delta', index: 0, content: 'a' };
+      yield finish(0.01);
+    });
+
+    expect(answers).toEqual([true]);
+  });
+
+  it('refuses the next step once the gate has closed', async () => {
+    const driven = drivenGate();
+    const answers: boolean[] = [];
+
+    await runGated(driven.gate, async function* script(options) {
+      await Promise.resolve();
+      driven.close();
+      answers.push(continuationOf(options).mayStartNextStep([0.01]));
+      yield { kind: 'text-delta', index: 0, content: 'a' };
+      yield finish(0.01);
+    });
+
+    expect(answers).toEqual([false]);
+  });
+
+  it('admits a tool call while the gate is open', async () => {
+    const answers: boolean[] = [];
+
+    await runGated(drivenGate().gate, async function* script(options) {
+      await Promise.resolve();
+      answers.push(continuationOf(options).mayExecuteTool());
+      yield { kind: 'text-delta', index: 0, content: 'a' };
+      yield finish(0.01);
+    });
+
+    expect(answers).toEqual([true]);
+  });
+
+  it('refuses a tool call once the gate has closed', async () => {
+    const driven = drivenGate();
+    const answers: boolean[] = [];
+
+    await runGated(driven.gate, async function* script(options) {
+      await Promise.resolve();
+      driven.close();
+      answers.push(continuationOf(options).mayExecuteTool());
+      yield { kind: 'text-delta', index: 0, content: 'a' };
+      yield finish(0.01);
+    });
+
+    expect(answers).toEqual([false]);
+  });
+});
+
+describe('createModelCallExecution — a call that ran on past a closed gate', () => {
+  /** A binding whose estimate keeps a cent's inline cost inside the sanity bound. */
+  const centBinding = (): ModelBinding => binding({ price: () => ok(ONE_CENT_BILLABLE) });
+
+  it('bills a drained single-step call its inline cost exactly', async () => {
+    const driven = drivenGate();
+    const exec = runExec({
+      provider: scriptedProvider(async function* script() {
+        await Promise.resolve();
+        yield { kind: 'text-delta', index: 0, content: 'partial' };
+        driven.close();
+        yield { kind: 'text-delta', index: 0, content: ' answer' };
+        yield finish(0.01);
+      }),
+      binding: centBinding(),
+      schemas,
+    });
+
+    const result = await exec.run(modelCallNode(), ['hi'], { ...makeCtx(), spend: driven.gate });
+
+    expect(result._unsafeUnwrap()).toMatchObject({
+      value: 'partial answer',
+      costNanoUsd: ONE_CENT_BILLABLE,
+      isEstimated: false,
+    });
+  });
+
+  it('fails a drained loop that wrote no model text, reporting its observed spend', async () => {
+    const driven = drivenGate();
+    const exec = runExec({
+      provider: scriptedProvider(async function* script() {
+        await Promise.resolve();
+        yield { kind: 'step-start', step: 0 };
+        yield searchCall('c1');
+        yield searchResult('c1');
+        driven.close();
+        yield stepFinish(0, 0.01);
+        yield finish(0.01);
+      }),
+      binding: binding(),
+      schemas,
+      tools: searchLoop(),
+    });
+
+    const result = await exec.run(searchingNode(), ['hi'], { ...makeCtx(), spend: driven.gate });
+
+    expect(result._unsafeUnwrapErr()).toEqual({
+      costNanoUsd: ONE_CENT_BILLABLE + toolCallChargeNanoUsd('webSearch', 1),
+    });
+  });
+
+  it('bills an empty truncation the open gate let finish', async () => {
+    const exec = runExec({
+      provider: streamOf([
+        {
+          kind: 'finish',
+          metadata: {
+            usage: { inputTokens: 3, outputTokens: 5 },
+            finishReason: 'length',
+            providerCostUsd: 0.01,
+          },
+        },
+      ]),
+      binding: centBinding(),
+      schemas,
+    });
+
+    const result = await exec.run(modelCallNode(), ['hi'], {
+      ...makeCtx(),
+      spend: drivenGate().gate,
+    });
+
+    expect(result._unsafeUnwrap()).toMatchObject({
+      costNanoUsd: ONE_CENT_BILLABLE,
+      isEstimated: false,
+    });
+  });
+});
+
+describe('createModelCallExecution — a step cut at the hard stop', () => {
+  /** Step 0 completes at a cent, step 1 starts and streams text, then the hard stop cuts it. */
+  function cutSecondStep(): ModelProvider {
+    return throwingAfterProvider(
+      [
+        { kind: 'step-start', step: 0 },
+        stepFinish(0, 0.01),
+        { kind: 'step-start', step: 1 },
+        { kind: 'text-delta', index: 0, content: 'cut short' },
+      ],
+      abortError()
+    );
+  }
+
+  it('bills the completed steps and nothing for the cut step, flagged estimated', async () => {
+    const exec = runExec({ provider: cutSecondStep(), binding: binding(), schemas });
+
+    const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(result._unsafeUnwrap()).toMatchObject({
+      costNanoUsd: ONE_CENT_BILLABLE,
+      isEstimated: true,
+    });
+  });
+
+  it('captures the cut step as absorbed, by its count', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = runExec({ provider: cutSecondStep(), binding: binding(), schemas, telemetry });
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(telemetry.captureError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: 'HardStopAbsorbed', cutStepCount: 1 }),
+      'workflow_hard_stop_absorbed'
+    );
+  });
+
+  it('captures the cut step under the id of the run it served', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = runExec({ provider: cutSecondStep(), binding: binding(), schemas, telemetry });
+
+    await exec.run(modelCallNode(), ['hi'], { ...makeCtx(), runId: CUT_RUN_ID });
+
+    const [error] = vi.mocked(telemetry.captureError).mock.calls.map(([captured]) => captured);
+    expect(Object.getOwnPropertyNames(error).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      'cutStepCount',
+      'message',
+      'name',
+      'runId',
+      'stack',
+    ]);
+    expect(Reflect.get(error ?? {}, 'runId')).toBe(CUT_RUN_ID);
+    expect(Reflect.get(error ?? {}, 'cutStepCount')).toBe(1);
+  });
+
+  it('reaches Sentry with the run id and the cut-step count alone', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = runExec({ provider: cutSecondStep(), binding: binding(), schemas, telemetry });
+
+    await exec.run(modelCallNode(), ['hi'], { ...makeCtx(), runId: CUT_RUN_ID });
+
+    const [error] = vi.mocked(telemetry.captureError).mock.calls.map(([captured]) => captured);
+    const scrubbed = scrubSentryEvent(
+      { type: undefined, tags: { errorCode: 'workflow_hard_stop_absorbed' } },
+      { originalException: error }
+    );
+    expect(scrubbed?.tags).toEqual({
+      errorCode: 'workflow_hard_stop_absorbed',
+      runId: CUT_RUN_ID,
+      cutStepCount: 1,
+    });
+  });
+
+  it('captures a cut step even when the call produced nothing', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = runExec({
+      provider: throwingAfterProvider(
+        [{ kind: 'step-start', step: 0 }, stepFinish(0, 0.01), { kind: 'step-start', step: 1 }],
+        abortError()
+      ),
+      binding: binding(),
+      schemas,
+      telemetry,
+    });
+
+    await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(telemetry.captureError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: 'HardStopAbsorbed', cutStepCount: 1 }),
+      'workflow_hard_stop_absorbed'
+    );
+  });
+
+  it('bills an abort between steps exactly, capturing nothing', async () => {
+    const telemetry = fakeTelemetry();
+    const exec = runExec({
+      provider: throwingAfterProvider(
+        [
+          { kind: 'step-start', step: 0 },
+          { kind: 'text-delta', index: 0, content: 'whole step' },
+          stepFinish(0, 0.01),
+        ],
+        abortError()
+      ),
+      binding: binding(),
+      schemas,
+      telemetry,
+    });
+
+    const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(result._unsafeUnwrap()).toMatchObject({
+      costNanoUsd: ONE_CENT_BILLABLE,
+      isEstimated: false,
+    });
+    expect(telemetry.captureError).not.toHaveBeenCalled();
+  });
+});
+
+describe('createModelCallExecution — an aborted call flags its figure by whether it is whole', () => {
+  it('flags an aborted call exact when every completed step reported its cost', async () => {
+    const exec = runExec({
+      provider: throwingAfterProvider(
+        [
+          { kind: 'step-start', step: 0 },
+          { kind: 'text-delta', index: 0, content: 'first' },
+          stepFinish(0, 0.01),
+          { kind: 'step-start', step: 1 },
+          { kind: 'text-delta', index: 0, content: ' second' },
+          stepFinish(1, 0.01),
+        ],
+        abortError()
+      ),
+      binding: binding(),
+      schemas,
+    });
+
+    const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(result._unsafeUnwrap()).toMatchObject({
+      costNanoUsd: providerUsdToBillableNanoUsd(0.02),
+      isEstimated: false,
+    });
+  });
+
+  it('flags an aborted call estimated when a completed step reported no cost', async () => {
+    const exec = runExec({
+      provider: throwingAfterProvider(
+        [
+          { kind: 'step-start', step: 0 },
+          { kind: 'text-delta', index: 0, content: 'first' },
+          stepFinish(0),
+          { kind: 'step-start', step: 1 },
+          { kind: 'text-delta', index: 0, content: ' second' },
+          stepFinish(1, 0.01),
+        ],
+        abortError()
+      ),
+      binding: binding(),
+      schemas,
+    });
+
+    const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(result._unsafeUnwrap()).toMatchObject({
+      costNanoUsd: ONE_CENT_BILLABLE,
+      isEstimated: true,
+    });
+  });
+});
+
+describe('createModelCallExecution — a failed call reports its model spend', () => {
+  it('reports the completed steps of an inference failure as observed spend', async () => {
+    const exec = runExec({
+      provider: throwingAfterProvider(
+        [{ kind: 'step-start', step: 0 }, stepFinish(0, 0.01)],
+        new InferenceError('rate_limited', 'slow down')
+      ),
+      binding: binding(),
+      schemas,
+    });
+
+    const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(result._unsafeUnwrapErr()).toEqual({ costNanoUsd: ONE_CENT_BILLABLE });
+  });
+
+  it('reports the completed steps of an abort that wrote nothing as observed spend', async () => {
+    const exec = runExec({
+      provider: throwingAfterProvider(
+        [{ kind: 'step-start', step: 0 }, stepFinish(0, 0.01)],
+        abortError()
+      ),
+      binding: binding(),
+      schemas,
+    });
+
+    const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(result._unsafeUnwrapErr()).toEqual({ costNanoUsd: ONE_CENT_BILLABLE });
+  });
+
+  it('reports the completed steps of an unpriceable run as observed spend', async () => {
+    const exec = runExec({
+      provider: streamOf([
+        { kind: 'step-start', step: 0 },
+        { kind: 'text-delta', index: 0, content: 'answer' },
+        stepFinish(0),
+        { kind: 'step-start', step: 1 },
+        stepFinish(1, 0.01),
+        finish(0.01),
+      ]),
+      binding: binding({ price: () => err(validationError('no rate')) }),
+      schemas,
+    });
+
+    const result = await exec.run(modelCallNode(), ['hi'], makeCtx());
+
+    expect(result._unsafeUnwrapErr()).toEqual({ costNanoUsd: ONE_CENT_BILLABLE });
   });
 });

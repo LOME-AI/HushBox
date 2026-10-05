@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Redis } from '@upstash/redis';
+import { SERIAL_POOL_OVERLAP_ERROR_NAME } from '@hushbox/db';
 import { TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
 import {
   ACCESS_LOG_CRON,
@@ -16,7 +17,7 @@ import { rateLimitBound } from '../lib/rate-limit/index.js';
 import { createJobWakeCollector, grantJobWakes } from '../lib/jobs/index.js';
 import type { Database } from '@hushbox/db';
 import type { CronEntry } from '../lib/jobs/index.js';
-import type { ScheduleCheckIn } from '../lib/telemetry/check-in.js';
+import type { CheckInStatus, ScheduleCheckIn } from '../lib/telemetry/check-in.js';
 import type { SafeLogFields, Telemetry } from '../lib/telemetry/index.js';
 import type { CronDependencies, ScheduledBindings, ScheduledRuntime } from '../scheduled.js';
 
@@ -42,7 +43,7 @@ function recordingTelemetry(): TelemetryRecorder {
     captureError: (_error, code: string) => {
       captured.push(code);
     },
-    checkIn: (status: 'in_progress' | 'ok') => {
+    checkIn: (status: CheckInStatus) => {
       passEvents.push(status);
     },
   };
@@ -165,14 +166,19 @@ describe('cronEntriesFor', () => {
   it('routes the hourly schedule to the pollers and auditors', () => {
     const entries = cronEntriesFor(HOURLY_MAINTENANCE_CRON, fakeDeps());
     expect(entries?.map((entry) => entry.name)).toEqual([
-      'model-catalog-refresh',
       'media-gc',
       'ledger-conservation-audit',
       'wallet-snapshot-drift-audit',
       'payments-status-audit',
       'backup-repository-audit',
       'growth-rollup-enqueue',
+      'model-catalog-refresh',
     ]);
+  });
+
+  it('lists the catalog refresh last in the hourly pass', () => {
+    const entries = cronEntriesFor(HOURLY_MAINTENANCE_CRON, fakeDeps());
+    expect(entries?.at(-1)?.name).toBe('model-catalog-refresh');
   });
 
   it('routes the daily schedule to the retention deletes and the admin digest', () => {
@@ -273,13 +279,13 @@ describe('cronEntriesFor', () => {
       env: { NODE_ENV: 'production' } as ScheduledBindings,
     });
     expect(entries?.map((entry) => entry.name)).toEqual([
-      'model-catalog-refresh',
       'media-gc',
       'ledger-conservation-audit',
       'wallet-snapshot-drift-audit',
       'payments-status-audit',
       'backup-repository-audit',
       'growth-rollup-enqueue',
+      'model-catalog-refresh',
     ]);
   });
 
@@ -399,6 +405,17 @@ describe('createScheduledHandler', () => {
     expect(harness.recorder.passEvents).toEqual(['in_progress', 'entries-ran', 'ok']);
   });
 
+  it('closes the jobs-health check-in as an error when an entry rejects', async () => {
+    const harness = handlerHarness(() => [
+      { name: 'broken', run: () => Promise.reject(new Error('boom')) },
+      { name: 'healthy', run: () => Promise.resolve() },
+    ]);
+
+    await createScheduledHandler(harness.runtime)({ cron: JOBS_HEALTH_CRON }, ENV, CTX);
+
+    expect(harness.recorder.passEvents).toEqual(['in_progress', 'error']);
+  });
+
   it.each([ACCESS_LOG_CRON, HOURLY_MAINTENANCE_CRON, DAILY_RETENTION_CRON])(
     'leaves the pass on %s unchecked-in',
     async (cron) => {
@@ -421,6 +438,21 @@ describe('createScheduledHandler', () => {
   });
 });
 
+/**
+ * The refusal a second acquire meets while the first is still connecting, or
+ * undefined when the pool queues it instead. The first acquire is counted
+ * synchronously, so the refusal needs no live database behind the handle.
+ */
+async function concurrentAcquireRefusal(db: Database): Promise<unknown> {
+  const acquires = await Promise.allSettled([db.$client.connect(), db.$client.connect()]);
+  for (const acquire of acquires) {
+    if (acquire.status === 'fulfilled') acquire.value.release();
+  }
+  await db.$client.end();
+  const second = acquires[1];
+  return second.status === 'rejected' ? second.reason : undefined;
+}
+
 describe('productionScheduledRuntime', () => {
   const DEV_ENV = {
     NODE_ENV: 'development',
@@ -440,6 +472,21 @@ describe('productionScheduledRuntime', () => {
   it('opens (and can close) a dev-mode db handle', async () => {
     const db = productionScheduledRuntime.createDb(DEV_ENV);
     await expect(db.$client.end()).resolves.toBeUndefined();
+  });
+
+  it('opens a dev-mode db handle that refuses a concurrent acquire', async () => {
+    const refusal = await concurrentAcquireRefusal(productionScheduledRuntime.createDb(DEV_ENV));
+    expect(refusal).toMatchObject({ name: SERIAL_POOL_OVERLAP_ERROR_NAME });
+  });
+
+  it('opens a production-mode db handle that refuses a concurrent acquire', async () => {
+    const refusal = await concurrentAcquireRefusal(
+      productionScheduledRuntime.createDb({
+        ...DEV_ENV,
+        NODE_ENV: 'production',
+      } as ScheduledBindings)
+    );
+    expect(refusal).toMatchObject({ name: SERIAL_POOL_OVERLAP_ERROR_NAME });
   });
 
   it('opens (and can close) a production-mode db handle', async () => {

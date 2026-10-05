@@ -169,7 +169,7 @@ const TEXT_MODEL: Model = {
   contextLength: 128_000,
   created: OLD_RELEASE_SECONDS,
   maxOutputTokens: 4096,
-  pricing: { inputPerToken: '1000', outputPerToken: '2000' },
+  pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1000', outputPerToken: '2000' },
 };
 
 const COMPOSER_INPUT = { value: 'hello there', historyCharacters: 0, conversationId: null };

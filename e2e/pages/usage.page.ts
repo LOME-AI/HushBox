@@ -1,5 +1,5 @@
 import { type Locator, type Page } from '@playwright/test';
-import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { NANO_USD_PER_DOLLAR, TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { expect } from '../helpers/expect.js';
 
 export class UsagePage {
@@ -74,23 +74,22 @@ export class UsagePage {
   }
 
   /**
-   * The summary's message count as the loaded summary renders it.
+   * The summary's total spend, in nano-USD, exactly as the loaded summary prints it.
    *
-   * Read off the facts line, which the summary renders only once its query has
-   * resolved: the loading branch draws placeholder marks carrying no text, so a
-   * figure compared against a read taken then would be comparing a loading
-   * state. The count is an integer the line prints unformatted, so it survives
-   * the round trip exactly — which a spend figure, rendered to the cent, does
-   * not.
+   * Read off the total, which the summary renders only once its query has resolved: the
+   * loading branch draws placeholder marks carrying no text, so a figure compared against a
+   * read taken then would be comparing a loading state. The summary's `formatCost` prints the
+   * total rounded half-up, to four places under a cent and to two from a cent up, so what
+   * this returns is that rounded figure, never the unrounded total.
    */
-  async readSummaryMessages(): Promise<number> {
-    const rendered = (await this.messagesFact.textContent()) ?? '';
-    const count = Number.parseInt(rendered, 10);
-    if (!Number.isInteger(count)) {
-      throw new TypeError(
-        `readSummaryMessages: the summary's message count rendered "${rendered}"`
-      );
+  async readTotalSpentNanoUsd(): Promise<bigint> {
+    const rendered = (await this.totalSpent.textContent()) ?? '';
+    const match = /^\$(\d+)\.(\d{2}|\d{4})$/.exec(rendered);
+    if (match === null) {
+      throw new TypeError(`readTotalSpentNanoUsd: the summary's total rendered "${rendered}"`);
     }
-    return count;
+    const [, dollars = '', fraction = ''] = match;
+    const nanoPerFractionUnit = NANO_USD_PER_DOLLAR / 10n ** BigInt(fraction.length);
+    return BigInt(dollars) * NANO_USD_PER_DOLLAR + BigInt(fraction) * nanoPerFractionUnit;
   }
 }

@@ -98,6 +98,7 @@ afterAll(async () => {
 /** The per-token rates and window a text row carries; the only priceable basis. */
 const TOKEN_PRICING: StoredPricing = {
   kind: 'tokens',
+  anchorContextTokens: 1_000_000,
   anchor: { base: { input: '2500', output: '10000' }, tiers: [] },
 };
 /** An exposed image row's whole pricing object, as the live catalog holds it. */
@@ -130,7 +131,7 @@ async function seedModel(outputs: readonly Modality[], body: DescriptorBody): Pr
     descriptor: {
       id: modelId,
       provider: 'p',
-      version: '3',
+      version: '4',
       inputs: ['text'],
       outputs: [...outputs],
       parameters: {},
@@ -141,6 +142,8 @@ async function seedModel(outputs: readonly Modality[], body: DescriptorBody): Pr
       releasedAt: OLD_RELEASE_SECONDS,
       fetchedAt: 0,
       ...(body.reasoning === undefined ? {} : { reasoning: body.reasoning }),
+      // Ingestion pins every image row it writes; an unpinned one is never exposed.
+      ...(outputs.includes('image') ? { zdrPin: ['test-provider'] } : {}),
     },
   });
   return modelId;

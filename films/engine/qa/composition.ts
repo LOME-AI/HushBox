@@ -21,7 +21,7 @@ const TRAVEL_SPAN_SECONDS = 2;
 const TRAVEL_SPAN_SAMPLES = (TRAVEL_SPAN_SECONDS * FPS) / TRAVEL_STEP;
 
 /** The changed seconds among the one-second comparisons from `fromSecond` to `toSecond`. */
-export interface TurnoverWindow {
+interface TurnoverWindow {
   fromSecond: number;
   toSecond: number;
   changedSeconds: number;
@@ -33,14 +33,14 @@ export interface TurnoverWindow {
  * 10 s window reports every full window stepped by 1 s; a shorter one reports a
  * single window over the whole piece, marked `wholePiece`.
  */
-export interface Turnover {
+interface Turnover {
   windows: TurnoverWindow[];
   lowest: TurnoverWindow;
   wholePiece: boolean;
 }
 
 /** Travel: the median of net change over churn across every 2 s span, or why the piece holds none. */
-export type Travel = { median: number; spans: number } | { absent: string };
+type Travel = { median: number; spans: number } | { absent: string };
 
 /** What the composition measure reads of a piece: reported, never gated. */
 export interface CompositionReport {

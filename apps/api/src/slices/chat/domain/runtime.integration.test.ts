@@ -22,7 +22,7 @@ import { MOCK_ECHO_AFFIXES } from '../../models/index.js';
 import { succeedKeyRow } from '../../../lib/idempotency/index.js';
 import { createConversationRuntime } from './runtime.js';
 import { CHAT_TURN_HOOKS, CHAT_TURN_INPUT, PER_WALLET_CONCURRENT_RUN_CAP } from './constants.js';
-import { buildTurnDefinition } from './turn/definition.js';
+import { buildMultiModelTurnDefinition, buildTurnDefinition } from './turn/definition.js';
 import { resolveTurnContext } from './turn/context.js';
 import { seedConversationWithEpoch } from '../../../test-support/conversation-seed.js';
 import { mintLinkCredential } from '../../../test-support/link-credential.js';
@@ -695,7 +695,7 @@ describe('conversation runtime — admission hook', () => {
     sender: SenderPrincipal
   ): Promise<TurnContext> {
     const resolved = await resolveTurnContext(
-      { conversations: createConversationsStores, billing: createBillingStores() },
+      { conversations: createConversationsStores, billing: createBillingStores(), redis },
       db,
       {
         conversationId,
@@ -905,7 +905,7 @@ describe('conversation runtime — executor', () => {
             costCircuitLimitNanoUsd: 5n,
           },
         }),
-      settlement: () => Promise.resolve(),
+      settlement: () => Promise.resolve({ billed: [] }),
       answerMessageIds: new Map(),
       assistantMessageIds: [],
     };
@@ -936,7 +936,7 @@ describe('conversation runtime — executor', () => {
             costCircuitLimitNanoUsd: 5n,
           },
         }),
-      settlement: () => Promise.resolve(),
+      settlement: () => Promise.resolve({ billed: [] }),
       answerMessageIds: new Map(),
       assistantMessageIds: [],
     };
@@ -964,7 +964,7 @@ describe('conversation runtime — executor', () => {
             costCircuitLimitNanoUsd: 5n,
           },
         }),
-      settlement: () => Promise.resolve(),
+      settlement: () => Promise.resolve({ billed: [] }),
       answerMessageIds: new Map(),
       assistantMessageIds: [],
     };
@@ -987,7 +987,7 @@ describe('conversation runtime — executor', () => {
         holdRef: 'h',
         circuit: { estimateNanoUsd: 1n, costCircuitMultiplier: 5n, costCircuitLimitNanoUsd: 5n },
       }),
-    settlement: () => Promise.resolve(),
+    settlement: () => Promise.resolve({ billed: [] }),
     answerMessageIds: new Map(),
     assistantMessageIds: [],
   };
@@ -1024,7 +1024,7 @@ describe('conversation runtime — executor', () => {
       descriptor: {
         id: model,
         provider: 'p',
-        version: '3',
+        version: '4',
         inputs: ['text'],
         outputs: ['text'],
         parameters: {},
@@ -1032,6 +1032,7 @@ describe('conversation runtime — executor', () => {
         limits: { contextLength: 128_000 },
         pricing: {
           kind: 'tokens',
+          anchorContextTokens: 1_000_000,
           anchor: { base: { input: '2500', output: '10000' }, tiers: [] },
         },
         zdrReachable: true,
@@ -1102,7 +1103,7 @@ describe('conversation runtime — executor', () => {
         descriptor: {
           id: model,
           provider: 'p',
-          version: '3',
+          version: '4',
           inputs: ['text'],
           outputs: ['text'],
           parameters: {},
@@ -1110,6 +1111,7 @@ describe('conversation runtime — executor', () => {
           limits: { contextLength: 128_000 },
           pricing: {
             kind: 'tokens',
+            anchorContextTokens: 1_000_000,
             anchor: { base: { input: '2500', output: '10000' }, tiers: [] },
           },
           zdrReachable: true,
@@ -1148,7 +1150,7 @@ describe('conversation runtime — executor', () => {
             ...okHooks,
             settlement: (request) => {
               settled.push(request);
-              return Promise.resolve();
+              return Promise.resolve({ billed: [] });
             },
           },
           runKey: crypto.randomUUID(),
@@ -1336,5 +1338,199 @@ describe('conversation runtime — run money/lease capabilities', () => {
     await expect(rt.heartbeat({ ...claim.fence, claims: claim.fence.claims - 1 })).resolves.toBe(
       'lost'
     );
+  });
+});
+
+describe('conversation runtime — catalog generation', () => {
+  /** A text model's descriptor at `outputRate` billable nano per output token. */
+  function textDescriptor(modelId: string, outputRate: string, fetchedAt: number): object {
+    return {
+      id: modelId,
+      provider: 'p',
+      version: '4',
+      inputs: ['text'],
+      outputs: ['text'],
+      parameters: {},
+      behaviors: ['streaming'],
+      limits: { contextLength: 128_000 },
+      pricing: {
+        kind: 'tokens',
+        anchorContextTokens: 1_000_000,
+        anchor: { base: { input: '2500', output: outputRate }, tiers: [] },
+      },
+      zdrReachable: true,
+      releasedAt: secondsAt(TEST_DAY_START),
+      fetchedAt,
+    };
+  }
+
+  /** Builds `model`'s single-model turn against the catalog as it stands. */
+  async function builtTurn(model: string): Promise<WorkflowDefinition> {
+    const built = await buildTurnDefinition({ db, telemetry: telemetry() }, model, {});
+    return built._unsafeUnwrap();
+  }
+
+  /**
+   * Starts `definition` on the runtime's real-provider path and returns the
+   * estimate its admission was asked to hold. Admission refuses, so no provider
+   * call is made.
+   */
+  async function heldEstimate(
+    rt: ReturnType<typeof createConversationRuntime>,
+    definition: WorkflowDefinition
+  ): Promise<bigint | undefined> {
+    const held: bigint[] = [];
+    const handle = rt.executor.start({
+      definition,
+      inputs: { [CHAT_TURN_INPUT]: { kind: 'text', text: 'hello' } },
+      hooks: {
+        admission: ({ estimate }) => {
+          held.push(BigInt(estimate));
+          return Promise.resolve({ admitted: false, code: ERROR_CODES.INSUFFICIENT_ADMISSION });
+        },
+        settlement: () => Promise.resolve({ billed: [] }),
+        answerMessageIds: new Map(),
+        assistantMessageIds: [],
+      },
+      runKey: crypto.randomUUID(),
+      emit: () => {},
+    });
+    await handle.done;
+    return held[0];
+  }
+
+  it('holds a turn naming a newer catalog generation at the rate that catalog carries', async () => {
+    const model = `chat-generation/${crypto.randomUUID().slice(0, 8)}`;
+    await db
+      .insert(modelCatalog)
+      .values({ modelId: model, descriptor: textDescriptor(model, '10000', TEST_DAY_START) });
+    try {
+      const rt = runtime();
+      const first = await builtTurn(model);
+      const firstHold = await heldEstimate(rt, first);
+
+      await db
+        .update(modelCatalog)
+        .set({ descriptor: textDescriptor(model, '20000', TEST_DAY_START + HOUR_MS) })
+        .where(eq(modelCatalog.modelId, model));
+      const second = await builtTurn(model);
+      expect(second.catalogGeneration).not.toBe(first.catalogGeneration);
+
+      const secondHold = await heldEstimate(rt, second);
+      const freshRoomHold = await heldEstimate(runtime(), second);
+      expect(firstHold).toBeDefined();
+      expect(secondHold).toBe(freshRoomHold);
+      expect(secondHold).not.toBe(firstHold);
+    } finally {
+      await db.delete(modelCatalog).where(eq(modelCatalog.modelId, model));
+    }
+  });
+
+  it('holds a multi-model turn naming a newer catalog generation at the rate that catalog carries', async () => {
+    const models = [0, 1].map(() => `chat-generation/${crypto.randomUUID().slice(0, 8)}`);
+    const builtFanOut = async (): Promise<WorkflowDefinition> => {
+      const built = await buildMultiModelTurnDefinition({ db, telemetry: telemetry() }, models, {
+        now: new Date(TEST_DAY_START),
+      });
+      const outcome = built._unsafeUnwrap();
+      if (outcome.kind !== 'built') throw new Error('expected a built multi-model turn');
+      return outcome.definition;
+    };
+    for (const modelId of models) {
+      await db
+        .insert(modelCatalog)
+        .values({ modelId, descriptor: textDescriptor(modelId, '10000', TEST_DAY_START) });
+    }
+    try {
+      const rt = runtime();
+      const firstHold = await heldEstimate(rt, await builtFanOut());
+
+      for (const modelId of models) {
+        await db
+          .update(modelCatalog)
+          .set({ descriptor: textDescriptor(modelId, '20000', TEST_DAY_START + HOUR_MS) })
+          .where(eq(modelCatalog.modelId, modelId));
+      }
+      const second = await builtFanOut();
+
+      const secondHold = await heldEstimate(rt, second);
+      const freshRoomHold = await heldEstimate(runtime(), second);
+      expect(firstHold).toBeDefined();
+      expect(secondHold).toBe(freshRoomHold);
+      expect(secondHold).not.toBe(firstHold);
+    } finally {
+      await db.delete(modelCatalog).where(inArray(modelCatalog.modelId, models));
+    }
+  });
+
+  it('holds runs that start together naming a newer generation at its rate', async () => {
+    const model = `chat-generation/${crypto.randomUUID().slice(0, 8)}`;
+    await db
+      .insert(modelCatalog)
+      .values({ modelId: model, descriptor: textDescriptor(model, '10000', TEST_DAY_START) });
+    try {
+      const rt = runtime();
+      const first = await builtTurn(model);
+      await heldEstimate(rt, first);
+
+      await db
+        .update(modelCatalog)
+        .set({ descriptor: textDescriptor(model, '20000', TEST_DAY_START + HOUR_MS) })
+        .where(eq(modelCatalog.modelId, model));
+      const second = await builtTurn(model);
+
+      const together = await Promise.all([heldEstimate(rt, second), heldEstimate(rt, second)]);
+      const freshRoomHold = await heldEstimate(runtime(), second);
+      expect(together).toEqual([freshRoomHold, freshRoomHold]);
+    } finally {
+      await db.delete(modelCatalog).where(eq(modelCatalog.modelId, model));
+    }
+  });
+
+  it('prices a model re-enabled after the room loaded its snapshot', async () => {
+    const model = `chat-generation/${crypto.randomUUID().slice(0, 8)}`;
+    await db.insert(modelCatalog).values({
+      modelId: model,
+      descriptor: textDescriptor(model, '10000', TEST_DAY_START),
+      adminDisabledAt: new Date(TEST_DAY_START),
+    });
+    try {
+      const rt = runtime();
+      // An unstamped run loads the room's snapshot while the model is disabled.
+      await heldEstimate(rt, DEFINITION);
+
+      await db
+        .update(modelCatalog)
+        .set({ adminDisabledAt: null })
+        .where(eq(modelCatalog.modelId, model));
+      const definition = await builtTurn(model);
+
+      await expect(heldEstimate(rt, definition)).resolves.toBeDefined();
+    } finally {
+      await db.delete(modelCatalog).where(eq(modelCatalog.modelId, model));
+    }
+  });
+
+  it('rebuilds a snapshot whose read failed when a run names a catalog generation', async () => {
+    const unreadable = `chat-generation/${crypto.randomUUID().slice(0, 8)}`;
+    const model = `chat-generation/${crypto.randomUUID().slice(0, 8)}`;
+    // A catalog whose only row was written under an older descriptor version
+    // exposes nothing current, so the read refuses.
+    await db.delete(modelCatalog);
+    await db.insert(modelCatalog).values({ modelId: unreadable, descriptor: { version: '2' } });
+    try {
+      const rt = runtime();
+      await expect(heldEstimate(rt, DEFINITION)).rejects.toThrow(/catalog/);
+
+      await db.delete(modelCatalog).where(eq(modelCatalog.modelId, unreadable));
+      await db
+        .insert(modelCatalog)
+        .values({ modelId: model, descriptor: textDescriptor(model, '10000', TEST_DAY_START) });
+      const definition = await builtTurn(model);
+
+      await expect(heldEstimate(rt, definition)).resolves.toBeDefined();
+    } finally {
+      await db.delete(modelCatalog).where(inArray(modelCatalog.modelId, [unreadable, model]));
+    }
   });
 });

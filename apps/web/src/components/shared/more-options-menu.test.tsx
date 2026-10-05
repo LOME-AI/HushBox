@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from 'vitest';
-import { MOBILE_BREAKPOINT } from '@hushbox/shared';
+import { MOBILE_BREAKPOINT, TEST_IDS } from '@hushbox/shared';
 import { useAccessibilityPanelStore } from '@/stores/ui/accessibility-panel';
 import { MoreOptionsMenu } from './more-options-menu';
 
@@ -75,6 +75,25 @@ describe('MoreOptionsMenu', () => {
     render(<MoreOptionsMenu />);
 
     expect(trigger()).toBeInTheDocument();
+  });
+
+  it('carries the More options button test id on its trigger', () => {
+    installViewport(DESKTOP);
+    render(<MoreOptionsMenu />);
+
+    expect(trigger()).toHaveAttribute('data-testid', TEST_IDS.moreOptionsButton);
+  });
+
+  it.each([
+    ['at 767', PHONE],
+    ['at 768', DESKTOP],
+  ])('carries the Accessibility test id on the Accessibility item %s', async (_label, width) => {
+    await openMenu(width);
+
+    expect(screen.getByRole('menuitem', { name: 'Accessibility' })).toHaveAttribute(
+      'data-testid',
+      TEST_IDS.moreOptionsAccessibility
+    );
   });
 
   it('draws the trigger as an icon button with no visible text', () => {

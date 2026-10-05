@@ -341,6 +341,7 @@ export type TypeRole =
   | 'auth-title'
   | 'header-title'
   | 'chat-greeting'
+  | 'share-title'
   | 'site-post-title'
   | 'site-lead'
   | 'site-value'
@@ -442,6 +443,13 @@ export const TYPE_ROLES: Readonly<Record<TypeRole, TypeRoleValues>> = {
     weight: 700,
     tracking: '-0.025em',
     fromDesktop: { size: '2.75rem', lineHeight: '1.15' },
+  },
+  'share-title': {
+    face: 'serif',
+    size: '1.5rem',
+    lineHeight: '1.25',
+    weight: 700,
+    fromDesktop: { size: '1.875rem', lineHeight: '1.25' },
   },
   'site-post-title': {
     face: 'serif',

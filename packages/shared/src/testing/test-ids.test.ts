@@ -114,7 +114,6 @@ describe('TEST_IDS', () => {
       diagramSourceToggle: 'diagram-source-toggle',
       sandboxBadge: 'sandbox-badge',
       documentOutputCodeToggle: 'document-output-code-toggle',
-      assistantReplyView: 'assistant-reply-view',
     });
   });
 

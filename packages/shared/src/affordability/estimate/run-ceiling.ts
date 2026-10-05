@@ -9,8 +9,8 @@
 import { nanoUSD } from '../money/nano-usd.ts';
 import { costAt, mediaCallCurve, textCallCurve, tiersAt } from '../price/curve.ts';
 import { costPartsAt } from '../price/reservation.ts';
+import { listsResolution } from '../price/schedule.ts';
 import { mediaPricingOf, tokenPricingOf } from '../price/wire.ts';
-import { mediaStorageNanoUsd } from './storage-rate.ts';
 import { estimateErr, estimateOk } from './types.ts';
 import type { EstimateError, EstimateResult, MediaRateKey } from './types.ts';
 import type { NanoUSD } from '../money/nano-usd.ts';
@@ -51,15 +51,14 @@ export interface DeclaredCeiling {
 }
 
 /**
- * The per-node storage inputs a persisting turn adds to its ceiling. Absent ⇒
- * provider cost only (general workflows and every non-persisting call). Input
- * storage is NOT here — it is charged once per turn by the run estimator, not
- * per node. A token node's output storage needs no input: every output token
- * reserves its stored characters at the one stored-output ratio.
+ * Marks a call whose value a persisting turn stores. Absent ⇒ provider cost only
+ * (general workflows and every non-persisting call). It carries no amount: a
+ * token call's storage terms come from its own usage on the price core's curve,
+ * and the prompt's storage and a media run's stored bytes are each reserved
+ * once per run by the run estimator, never per call.
  */
 export interface NodeStorage {
-  /** Estimated encrypted output bytes (media nodes). */
-  readonly mediaStorageBytes: number;
+  readonly persists: true;
 }
 
 /** The output-token count a token usage emits; media has no token output leg. */
@@ -122,7 +121,7 @@ function perSecondNanoUsd(
   usage: MediaUsage
 ): EstimateResult<NanoUSD> {
   const resolution = usage.dimensionKey;
-  if (resolution === undefined || !Object.hasOwn(media.anchor, resolution)) {
+  if (resolution === undefined || !listsResolution(media, resolution)) {
     return estimateErr(
       'model-pricing-incomplete',
       `model pricing 'perSecondByResolution' has no dimension '${String(resolution)}'`
@@ -202,31 +201,27 @@ function tokenCallParts(
 function mediaCallParts(
   pricing: ModelPricing,
   usage: MediaUsage,
-  storage: NodeStorage | undefined
+  persists: boolean
 ): EstimateResult<ReservedCallParts> {
   const generation = mediaGenerationNanoUsd(pricing, 'reserve', usage);
   if (!generation.ok) return generation;
-  if (storage !== undefined && !isCount(storage.mediaStorageBytes)) {
-    return estimateErr('invalid-request', 'media storageBytes must be a non-negative integer');
-  }
   return estimateOk({
-    quantities: { promptTokens: 0, persists: storage !== undefined, newMessageChars: 0 },
+    quantities: { promptTokens: 0, persists, newMessageChars: 0 },
     steps: 1,
     wireCapTokens: 0,
     stepTiers: [],
     providerNanoUsd: generation.value,
-    storageNanoUsd: nanoUSD(
-      storage === undefined ? 0n : mediaStorageNanoUsd(storage.mediaStorageBytes)
-    ),
+    storageNanoUsd: nanoUSD(0n),
   });
 }
 
 /**
  * One call's reserved parts across the run's declared worst case: its cost at
  * the usage's output ceiling, each step at the tier its own input bound resolves
- * to, multiplied by width × iterations. With `storage` present the call's
- * output storage (text) or media storage (media) is reserved; absent, only
- * provider cost is.
+ * to, multiplied by width × iterations. With `storage` present the call is
+ * marked as persisting and a token call's output storage is reserved; a media
+ * call reserves none of its own, because its run reserves media storage once.
+ * Absent, only provider cost is reserved.
  */
 export function reservedCallParts(
   pricing: ModelPricing,
@@ -236,10 +231,11 @@ export function reservedCallParts(
 ): EstimateResult<ReservedCallParts> {
   const invalid = declaredCeilingError(ceiling);
   if (invalid !== undefined) return { ok: false, error: invalid };
+  const persists = storage !== undefined;
   const parts =
     usage.kind === 'tokens'
-      ? tokenCallParts(pricing, usage, storage !== undefined)
-      : mediaCallParts(pricing, usage, storage);
+      ? tokenCallParts(pricing, usage, persists)
+      : mediaCallParts(pricing, usage, persists);
   if (!parts.ok) return parts;
   const multiplier = BigInt(ceiling.maxFanOutWidth) * BigInt(ceiling.maxIterations);
   return estimateOk({

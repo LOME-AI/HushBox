@@ -54,6 +54,7 @@ const SMART_SLOT: Selection = {
   modality: 'text',
   pinned: {},
   webSearch: false,
+  effortAuto: true,
 };
 
 describe('the classifier reserve', () => {

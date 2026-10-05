@@ -261,7 +261,6 @@ export const TEST_IDS = {
   compareGroup: 'compare-group',
   continueWithModel: 'continue-with-model',
   compareSummary: 'compare-summary',
-  assistantReplyView: 'assistant-reply-view',
   turnNoticeTile: 'turn-notice-tile',
 
   // Model selector
@@ -272,8 +271,10 @@ export const TEST_IDS = {
   modelFilter: 'model-filter',
   modelListPanel: 'model-list-panel',
   modelListScroll: 'model-list-scroll',
+  modelLongContextRates: 'model-long-context-rates',
   modelNametag: 'model-nametag',
   modelNametagContainer: 'model-nametag-container',
+  modelPriceReference: 'model-price-reference',
   modelSelectorButton: 'model-selector-button',
   modelSelectorFooterMotion: 'model-selector-footer-motion',
   modelSelectorModal: 'model-selector-modal',
@@ -368,7 +369,6 @@ export const TEST_IDS = {
   shareMessageUrl: 'share-message-url',
   sharedConversationError: 'shared-conversation-error',
   sharedConversationLoading: 'shared-conversation-loading',
-  sharedMessageContent: 'shared-message-content',
   sharedMessageError: 'shared-message-error',
   sharedMessageLoading: 'shared-message-loading',
   shareHead: 'share-head',
@@ -539,7 +539,6 @@ export const TEST_IDS = {
 
   // Loading & misc UI
   animatedPlaceholder: 'animated-placeholder',
-  privacyTagline: 'privacy-tagline',
   roadmapLoading: 'roadmap-loading',
   skeletonBlock: 'skeleton-block',
   typedText: 'typed-text',

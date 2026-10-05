@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ACTIVE_HOLDS_LUA, ADMISSION_SCRIPT, HOLDS_READ_SCRIPT } from './scripts.js';
+import {
+  ACTIVE_HOLDS_LUA,
+  ADMISSION_SCRIPT,
+  HOLDS_READ_SCRIPT,
+  SETTLED_RELEASE_SCRIPT,
+  SNAPSHOT_CAS_LUA,
+  SNAPSHOT_CAS_SCRIPT,
+} from './scripts.js';
 
 /**
  * The hold format/expiry rule ("{amount}:{expiresAtMs}", lazy prune) must have
@@ -17,5 +24,20 @@ describe('activeHolds Lua fragment sharing', () => {
 
   it('defines the activeHolds function over an arbitrary hold hash key', () => {
     expect(ACTIVE_HOLDS_LUA).toContain('local function activeHolds(key, now)');
+  });
+});
+
+/**
+ * The snapshot compare-and-set has one implementation: the write-through and
+ * the settled release both embed the one fragment, so the release can never
+ * regress a snapshot the write-through would have kept.
+ */
+describe('snapshot CAS Lua fragment sharing', () => {
+  it('is embedded verbatim in the write-through script', () => {
+    expect(SNAPSHOT_CAS_SCRIPT).toContain(SNAPSHOT_CAS_LUA);
+  });
+
+  it('is embedded verbatim in the settled release script', () => {
+    expect(SETTLED_RELEASE_SCRIPT).toContain(SNAPSHOT_CAS_LUA);
   });
 });

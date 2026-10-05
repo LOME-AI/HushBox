@@ -12,6 +12,7 @@ import {
   resolveRaw,
   resolveValue,
   isProductionSecret,
+  githubEnvironmentOf,
   isAnyModeSecret,
   CREDENTIAL_FAMILIES,
   runbookPath,
@@ -397,6 +398,20 @@ describe('env-types', () => {
         [Mode.Production]: 'prod-value',
       };
       expect(isAnyModeSecret(config)).toBe(false);
+    });
+  });
+
+  describe('githubEnvironmentOf', () => {
+    it('names the GitHub environment an environment store holds the secret in', () => {
+      expect(githubEnvironmentOf('github:backup')).toBe('backup');
+    });
+
+    it('names repository level for a secret held outside any environment', () => {
+      expect(githubEnvironmentOf('github:repository')).toBe('repository');
+    });
+
+    it('names nothing for a store no GitHub secret backs', () => {
+      expect(githubEnvironmentOf('worker-only')).toBeUndefined();
     });
   });
 

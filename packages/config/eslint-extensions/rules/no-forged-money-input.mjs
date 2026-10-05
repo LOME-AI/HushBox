@@ -149,7 +149,7 @@ export default {
       unnameable:
         'this argument has the type {{what}}, which the compiler cannot refuse against a brand. ' +
         'A money input comes from a read, and a read returns a declared type: ' +
-        'readMockChargeBasis, readServedModelPricing or readMoneyState.',
+        'readMockChargeBasis or readMoneyState.',
       writeThrough:
         'this writes through a widened alias of a value that was read — TypeScript ignores ' +
         '`readonly` when the branded value is assigned to a plain-typed binding, so the brand ' +

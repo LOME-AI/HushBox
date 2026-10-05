@@ -11,7 +11,12 @@ import { createModelPricingResolver } from '../../../models/index.js';
 import { validationError } from '../../../../lib/errors/index.js';
 import { err, ok } from '../../../../lib/result/index.js';
 import { CHAT_TURN_HOOKS, CHAT_TURN_INPUT, CHAT_TURN_NODE_ID } from '../constants.js';
-import { createTurnCompileRegistries, multiModelNodeId, withStorageStamp } from './definition.js';
+import {
+  createTurnCompileRegistries,
+  multiModelNodeId,
+  withCatalogGeneration,
+  withStorageStamp,
+} from './definition.js';
 import type { MediaParameterName } from '@hushbox/shared/affordability';
 import type { TurnModality } from './pricing.js';
 import type { NodeRegistryContext, createConstraintRegistry } from '../../../workflows/index.js';
@@ -158,6 +163,24 @@ interface MediaTurnParams {
    * stamp records. Omitted only by unit callers that price no storage.
    */
   readonly budget?: TurnBudget;
+  /**
+   * The catalog the selected models resolve against. Each node also carries
+   * its model's declared resolution default when the request names no resolution:
+   * ingestion declares one where the resolution decides which price row bills.
+   */
+  readonly resolve: ModelPricingResolver;
+}
+
+/** The turn's parameters, plus the model's declared resolution default when they name none. */
+function withResolutionDefault(
+  params: MediaTurnGenerationParams,
+  descriptor: ModelDescriptor | undefined
+): MediaTurnGenerationParams {
+  const resolution = descriptor?.parameters[MEDIA_PARAMETER_NAMES.resolution]?.default;
+  if (resolution === undefined || params[MEDIA_PARAMETER_NAMES.resolution] !== undefined) {
+    return params;
+  }
+  return { ...params, [MEDIA_PARAMETER_NAMES.resolution]: resolution };
 }
 
 /**
@@ -182,17 +205,26 @@ export function buildMediaTurn(params: MediaTurnParams): Result<WorkflowDefiniti
     accepts: textTag(),
     in: inputs.ports[CHAT_TURN_INPUT],
     produces,
-    params: params.params,
   } as const;
+  const paramsFor = (model: string): MediaTurnGenerationParams =>
+    withResolutionDefault(params.params, params.resolve(model));
   const nodes =
     params.models.length === 1 && params.models[0] !== undefined
-      ? [modelCall({ id: CHAT_TURN_NODE_ID, model: params.models[0], ...shared })]
+      ? [
+          modelCall({
+            id: CHAT_TURN_NODE_ID,
+            model: params.models[0],
+            params: paramsFor(params.models[0]),
+            ...shared,
+          }),
+        ]
       : params.models.map((model, index) =>
           modelCall({
             id: multiModelNodeId(index),
             model,
             optional: true,
             onError: 'skip',
+            params: paramsFor(model),
             ...shared,
           })
         );
@@ -257,7 +289,8 @@ export function buildMediaTurnDefinition(
             nodes: registries.nodes,
             constraints: registries.constraints,
             budget: options.budget,
-          });
+            resolve: pricingResolver,
+          }).map((definition) => withCatalogGeneration(definition, pricingResolver.generation));
         });
     }
   );

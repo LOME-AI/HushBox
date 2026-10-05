@@ -37,6 +37,11 @@ afterEach(() => {
 });
 
 function testDescriptor(overrides: Partial<ModelDescriptor> = {}): ModelDescriptor {
+  return { ...unpinnedDescriptor(), zdrPin: ['google-vertex/global'], ...overrides };
+}
+
+/** The test descriptor with no pin, as a stored row written before pins existed. */
+function unpinnedDescriptor(): ModelDescriptor {
   return {
     id: 'google/imagen-4.0-generate-001',
     provider: 'google',
@@ -50,8 +55,17 @@ function testDescriptor(overrides: Partial<ModelDescriptor> = {}): ModelDescript
     zdrReachable: true,
     releasedAt: FIXTURE_STAMP_SECONDS,
     fetchedAt: 0,
-    ...overrides,
   };
+}
+
+/** A fetch that records each request body it is sent and answers a minimal `/images` 200. */
+function captureFetch(): { readonly fetch: typeof globalThis.fetch; readonly bodies: unknown[] } {
+  const bodies: unknown[] = [];
+  const fetch: typeof globalThis.fetch = (_input, init) => {
+    bodies.push(JSON.parse(typeof init?.body === 'string' ? init.body : '{}'));
+    return Promise.resolve(jsonResponse(imageResponseBody()));
+  };
+  return { fetch, bodies };
 }
 
 function imageRequest(text: string, parameters: Record<string, unknown> = {}): InferenceRequest {
@@ -70,8 +84,9 @@ const PNG_BASE64 = Buffer.from(PNG_BYTES).toString('base64');
 
 /**
  * SYNTHETIC wire response: OpenRouter's `/images` JSON contract (`data` is an
- * array of `{ b64_json }`; no provider metadata, no inline cost), authored from
- * the provider schema, not recorded from the live provider (no credentials).
+ * array of `{ b64_json }`; no provider metadata), carrying no `usage.cost` unless
+ * a test adds one, authored from the provider schema, not recorded from the live
+ * provider (no credentials).
  */
 function imageResponseBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -141,7 +156,7 @@ describe('createImageAdapter cassette replay', () => {
       replayer.infer(imageRequest('A red fox'), testDescriptor(), { mapFilePart })
     );
 
-    // Image emits no generation id and no cost — settlement uses the estimate.
+    // The response names no generation id and no cost, so the finish carries neither.
     expect(events).toEqual([
       { kind: 'media-start', index: 0, modality: 'image', mimeType: 'image/png' },
       { kind: 'media-done', index: 0, value: mediaValue },
@@ -157,37 +172,42 @@ describe('createImageAdapter cassette replay', () => {
 });
 
 describe('createImageAdapter ZDR', () => {
-  it('sends the ZDR routing block in the request body on every recorded request', async () => {
-    const adapter = createImageAdapter({
-      apiKey: 'test-key',
-      fetch: createCassetteFetch({
-        store,
-        mode: 'record',
-        realFetch: scriptedFetch([() => jsonResponse(imageResponseBody())]),
-      }),
-    });
+  it('pins the call to the descriptor ZDR endpoints with fallbacks off', async () => {
+    const capture = captureFetch();
+    const adapter = createImageAdapter({ apiKey: 'test-key', fetch: capture.fetch });
 
     await collect(adapter.infer(imageRequest('A red fox'), testDescriptor(), { mapFilePart }));
-    await vi.waitFor(() => {
-      expect(store.list()).toHaveLength(1);
-    });
 
-    for (const hash of store.list()) {
-      const request = store.read(hash)?.request;
-      expect(request?.pathAndQuery).toBe('/api/v1/images');
-      const body = z
-        .looseObject({
-          provider: z.looseObject({
-            zdr: z.boolean(),
-            data_collection: z.string(),
-            allow_fallbacks: z.boolean(),
-          }),
-        })
-        .parse(JSON.parse(request?.body ?? '{}'));
-      expect(body.provider.zdr).toBe(true);
-      expect(body.provider.data_collection).toBe('deny');
-      expect(body.provider.allow_fallbacks).toBe(false);
-    }
+    const body = z
+      .looseObject({
+        provider: z.looseObject({ only: z.array(z.string()), allow_fallbacks: z.boolean() }),
+      })
+      .parse(capture.bodies[0]);
+    expect(body.provider.only).toEqual(['google-vertex/global']);
+    expect(body.provider.allow_fallbacks).toBe(false);
+  });
+
+  it('sends no zdr field, which the Images API does not define', async () => {
+    const capture = captureFetch();
+    const adapter = createImageAdapter({ apiKey: 'test-key', fetch: capture.fetch });
+
+    await collect(adapter.infer(imageRequest('A red fox'), testDescriptor(), { mapFilePart }));
+
+    const body = z
+      .looseObject({ provider: z.record(z.string(), z.unknown()) })
+      .parse(capture.bodies[0]);
+    expect('zdr' in body.provider).toBe(false);
+    expect('zdr' in body).toBe(false);
+  });
+
+  it('refuses a descriptor without a pin before any request', () => {
+    const capture = captureFetch();
+    const adapter = createImageAdapter({ apiKey: 'test-key', fetch: capture.fetch });
+
+    expect(() =>
+      adapter.infer(imageRequest('A red fox'), unpinnedDescriptor(), { mapFilePart })
+    ).toThrow(expect.objectContaining({ name: 'InferenceError', code: 'invalid_request' }));
+    expect(capture.bodies).toHaveLength(0);
   });
 
   it('refuses a ZDR-unreachable descriptor without calling the provider', () => {
@@ -233,6 +253,30 @@ describe('createImageAdapter parameters', () => {
     expect(body).toMatchObject({ n: 2, size: '1024x768', aspect_ratio: '4:3' });
   });
 
+  it('wires resolution onto the request body', async () => {
+    const adapter = createImageAdapter({
+      apiKey: 'test-key',
+      fetch: createCassetteFetch({
+        store,
+        mode: 'record',
+        realFetch: scriptedFetch([() => jsonResponse(imageResponseBody())]),
+      }),
+    });
+
+    await collect(
+      adapter.infer(imageRequest('A red fox', { resolution: '1K' }), testDescriptor(), {
+        mapFilePart,
+      })
+    );
+    await vi.waitFor(() => {
+      expect(store.list()).toHaveLength(1);
+    });
+
+    const hash = store.list()[0];
+    const body: unknown = JSON.parse(store.read(hash ?? '')?.request?.body ?? '{}');
+    expect(body).toMatchObject({ resolution: '1K' });
+  });
+
   it('rejects a parameter key the adapter cannot wire', async () => {
     const adapter = createImageAdapter({ apiKey: 'test-key', fetch: scriptedFetch([]) });
 
@@ -251,6 +295,106 @@ describe('createImageAdapter parameters', () => {
         mapFilePart,
       })
     ).toThrow(expect.objectContaining({ name: 'InferenceError', code: 'invalid_request' }));
+  });
+});
+
+describe('createImageAdapter returned cost', () => {
+  it("carries the images API's returned usage.cost onto the finish", async () => {
+    const adapter = createImageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch([
+        () =>
+          jsonResponse(
+            imageResponseBody({
+              usage: {
+                prompt_tokens: 13,
+                completion_tokens: 1568,
+                total_tokens: 1581,
+                cost: 0.045,
+              },
+            })
+          ),
+      ]),
+    });
+
+    const events = await collect(
+      adapter.infer(imageRequest('A red fox'), testDescriptor(), { mapFilePart })
+    );
+
+    expect(events.at(-1)).toMatchObject({ kind: 'finish', metadata: { providerCostUsd: 0.045 } });
+  });
+
+  it.each([
+    ['a negative', -0.045],
+    ['a string', '0.045'],
+  ])('carries no cost when usage.cost is %s', async (_shape, cost) => {
+    const adapter = createImageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch([
+        () =>
+          jsonResponse(
+            imageResponseBody({
+              usage: { prompt_tokens: 13, completion_tokens: 1568, total_tokens: 1581, cost },
+            })
+          ),
+      ]),
+    });
+
+    const events = await collect(
+      adapter.infer(imageRequest('A red fox'), testDescriptor(), { mapFilePart })
+    );
+
+    expect(events.at(-1)).toMatchObject({ kind: 'finish' });
+    expect(events.at(-1)).not.toHaveProperty('metadata.providerCostUsd');
+  });
+
+  it("sums the returned cost across a call's /images requests", async () => {
+    // Twelve images exceed the SDK's ten-per-request limit, so the call makes two requests.
+    const costed = (images: number) => (): Response =>
+      jsonResponse(
+        imageResponseBody({
+          data: Array.from({ length: images }, () => ({ b64_json: PNG_BASE64 })),
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2, cost: 0.045 },
+        })
+      );
+    const adapter = createImageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch([costed(10), costed(2)]),
+    });
+
+    const events = await collect(
+      adapter.infer(imageRequest('A red fox', { n: 12 }), testDescriptor(), { mapFilePart })
+    );
+
+    expect(events.at(-1)).toMatchObject({ kind: 'finish', metadata: { providerCostUsd: 0.09 } });
+  });
+
+  it("carries no cost when one of the call's /images requests returned none", async () => {
+    const response = (cost?: number) => (): Response =>
+      jsonResponse(
+        imageResponseBody({
+          data: Array.from({ length: cost === undefined ? 2 : 10 }, () => ({
+            b64_json: PNG_BASE64,
+          })),
+          usage: {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: 2,
+            ...(cost === undefined ? {} : { cost }),
+          },
+        })
+      );
+    const adapter = createImageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch([response(0.045), response()]),
+    });
+
+    const events = await collect(
+      adapter.infer(imageRequest('A red fox', { n: 12 }), testDescriptor(), { mapFilePart })
+    );
+
+    expect(events.at(-1)).toMatchObject({ kind: 'finish' });
+    expect(events.at(-1)).not.toHaveProperty('metadata.providerCostUsd');
   });
 });
 
@@ -314,6 +458,19 @@ describe('createImageAdapter failure shapes', () => {
     const adapter = createImageAdapter({
       apiKey: 'test-key',
       fetch: createFixtureFetch(IMAGE_FAILURE_FIXTURES.malformedResponse),
+    });
+
+    await expect(
+      collect(adapter.infer(imageRequest('A red fox'), testDescriptor(), { mapFilePart }))
+    ).rejects.toMatchObject({ name: 'InferenceError', code: 'upstream_error' });
+  });
+
+  it('classifies a 200 whose body is not JSON as a typed upstream error', async () => {
+    const adapter = createImageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch([
+        () => new Response('not json', { status: 200, headers: { 'content-type': 'text/plain' } }),
+      ]),
     });
 
     await expect(

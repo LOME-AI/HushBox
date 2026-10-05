@@ -25,7 +25,11 @@ function makeModel(overrides: Partial<Model> = {}): Model {
     modality: 'text',
     contextLength: 1000,
     supportedParameters: [],
-    pricing: { inputPerToken: '1000000000', outputPerToken: '2000000000' },
+    pricing: {
+      anchorContextTokens: 1_000_000,
+      inputPerToken: '1000000000',
+      outputPerToken: '2000000000',
+    },
     ...overrides,
   };
 }
@@ -69,16 +73,36 @@ describe('sortModels', () => {
 
   it('sorts by text price ascending', () => {
     const models = [
-      makeModel({ id: 'a', pricing: { inputPerToken: '5000000000', outputPerToken: '1' } }),
-      makeModel({ id: 'b', pricing: { inputPerToken: '1000000000', outputPerToken: '1' } }),
+      makeModel({
+        id: 'a',
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: '5000000000',
+          outputPerToken: '1',
+        },
+      }),
+      makeModel({
+        id: 'b',
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: '1000000000',
+          outputPerToken: '1',
+        },
+      }),
     ];
     expect(sortModels(models, 'price', 'asc', 'text').map((m) => m.id)).toEqual(['b', 'a']);
   });
 
   it('sorts text models by their input rate, not their combined rate', () => {
     const models = [
-      makeModel({ id: 'a', pricing: { inputPerToken: '2000', outputPerToken: '3000' } }),
-      makeModel({ id: 'b', pricing: { inputPerToken: '1000', outputPerToken: '9000' } }),
+      makeModel({
+        id: 'a',
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '2000', outputPerToken: '3000' },
+      }),
+      makeModel({
+        id: 'b',
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1000', outputPerToken: '9000' },
+      }),
     ];
 
     expect(sortModels(models, 'price', 'asc', 'text').map((m) => m.id)).toEqual(['b', 'a']);
@@ -163,7 +187,14 @@ describe('sortModels', () => {
   it('sorts a text model with no input rate last, not cheapest', () => {
     const models = [
       makeModel({ id: 'a', pricing: { outputPerToken: '2000000000' } }),
-      makeModel({ id: 'b', pricing: { inputPerToken: '1000000000', outputPerToken: '1' } }),
+      makeModel({
+        id: 'b',
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: '1000000000',
+          outputPerToken: '1',
+        },
+      }),
     ];
     expect(sortModels(models, 'price', 'asc', 'text').map((m) => m.id)).toEqual(['b', 'a']);
   });

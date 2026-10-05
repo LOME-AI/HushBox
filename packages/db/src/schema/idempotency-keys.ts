@@ -7,8 +7,11 @@ import { idempotencyKeyKindEnum, idempotencyKeyStatusEnum } from './enums';
  * The dual-role table — request dedup and THE run referee (there is no
  * run table). First arrival INSERTs `claimed` (the unique constraint is the
  * claim); the claims/claimedBy fence has the same semantics as jobs;
- * the live DO heartbeat-touches claimedAt (~90 s lease). TTL purge skips
- * non-terminal rows; read paths never depend on the purge having run.
+ * the live DO heartbeat-touches claimedAt (~90 s lease). The TTL purge
+ * deletes a terminal row once completedAt is past the purge TTL, and a
+ * `claimed` row once claimedAt is past the stale-claim horizon, which a live
+ * claimant's heartbeat keeps it inside; read paths never depend on the purge
+ * having run.
  */
 export const idempotencyKeys = pgTable(
   'idempotency_keys',
@@ -23,7 +26,8 @@ export const idempotencyKeys = pgTable(
     key: text('key').notNull(),
     kind: idempotencyKeyKindEnum('kind').notNull(),
     status: idempotencyKeyStatusEnum('status').notNull().default('claimed'),
-    // Canonicalized-JSON hash; reused key + different body ⇒ 409
+    // HMAC of the canonicalized-JSON body under a Worker-held key, so the
+    // table alone cannot confirm a guessed body; reused key + different body ⇒ 409
     bodyHash: text('body_hash').notNull(),
     response: jsonb('response'),
     // Groups a run's usage_records; null on kind=request rows

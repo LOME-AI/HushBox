@@ -97,6 +97,7 @@ const ARGUMENT_HANDLING: Readonly<Record<string, Handling>> = {
   'refresh-catalog.ts': parsed(() => import('./refresh-catalog.js')),
   'skills/generate-skills.ts': parsed(() => import('./skills/generate-skills.js')),
   'stack-teardown.ts': parsed(() => import('./stack-teardown.js')),
+  'sweep-shipped-artifacts.ts': parsed(() => import('./sweep-shipped-artifacts.js')),
   'publication/sync-alignment.ts': parsed(() => import('./publication/sync-alignment.js')),
   'publication/sync-auditor.ts': parsed(() => import('./publication/sync-auditor.js')),
   'publication/sync-inbound.ts': parsed(() => import('./publication/sync-inbound.js')),

@@ -7,7 +7,7 @@ import { resolveTurnContext } from './context.js';
 import { turnMinCost } from './pricing.js';
 import { DAILY_ALLOWANCE_NANO_USD } from '../../../billing/index.js';
 import type { ConversationsStoresFactory, ResolveTurnContextDeps } from './context.js';
-import type { BillingStores } from '../../../billing/index.js';
+import type { BillingStores, RedisClient } from '../../../billing/index.js';
 import type { ModelDescriptor } from '@hushbox/shared';
 import type { TurnPricingSelection } from './pricing.js';
 import type { Database } from '@hushbox/db';
@@ -113,6 +113,42 @@ interface StoreStubs {
   readonly walletLookups?: string[];
 }
 
+/**
+ * Redis with no snapshot cached and no hold placed: a snapshot read misses (so
+ * the balance comes from the wallet row), the snapshot write-through takes, and
+ * every holds hash reads zero. Cast because only the calls the funding read
+ * makes are stood in for; the hold-aware figures themselves are proven
+ * against real Redis in the integration suite.
+ */
+const EMPTY_REDIS = {
+  get: () => Promise.resolve(null),
+  createScript: () => ({
+    exec: (keys: readonly string[], args: readonly string[]) =>
+      // The holds read passes only the clock; the snapshot write-through passes three.
+      Promise.resolve(args.length === 1 ? keys.map(() => '0') : 1),
+  }),
+} as unknown as RedisClient;
+
+/**
+ * {@link EMPTY_REDIS} with `heldNanoUsd` already held against every holds hash —
+ * another run in flight on whatever wallet or scope the read names.
+ */
+function redisHolding(heldNanoUsd: bigint): RedisClient {
+  return {
+    get: () => Promise.resolve(null),
+    createScript: () => ({
+      exec: (keys: readonly string[], args: readonly string[]) =>
+        Promise.resolve(args.length === 1 ? keys.map(() => String(heldNanoUsd)) : 1),
+    }),
+  } as unknown as RedisClient;
+}
+
+/** Redis refusing every call the funding read makes, as an outage does. */
+const DOWN_REDIS = {
+  get: () => Promise.reject(new Error('redis down')),
+  createScript: () => ({ exec: () => Promise.reject(new Error('redis down')) }),
+} as unknown as RedisClient;
+
 function deps(stubs: StoreStubs): ResolveTurnContextDeps {
   const conversations = (() => ({
     members: {
@@ -148,8 +184,18 @@ function deps(stubs: StoreStubs): ResolveTurnContextDeps {
     readMemberBudget: () => okAsync(stubs.memberBudget ?? null),
     readConversationSpent: () => okAsync(stubs.conversationSpent ?? 0n),
     readAllowanceSpent: () => okAsync(stubs.allowanceSpent ?? 0n),
+    readWalletSnapshot: (_db: Database, walletId: string) => {
+      const wallet = Object.values(stubs.walletsByUser ?? {})
+        .flat()
+        .find((row) => row.id === walletId);
+      return okAsync(
+        wallet === undefined
+          ? null
+          : { balanceNanoUsd: wallet.balanceNanoUsd ?? 0n, ledgerSeq: 1n, type: wallet.type }
+      );
+    },
   } as unknown as BillingStores;
-  return { conversations, billing };
+  return { conversations, billing, redis: EMPTY_REDIS };
 }
 
 describe('resolveTurnContext', () => {
@@ -359,8 +405,9 @@ describe('resolveTurnContext', () => {
         minTurnCostNanoUsd: CHEAP_TURN,
       },
     });
-    // Only the owner's wallet is read on the owner-funded branch.
-    expect(walletLookups).toEqual(['owner-9']);
+    // Only the owner's wallet is read on the owner-funded branch: once to decide
+    // who pays, and once by the producer that sizes the reply.
+    expect(walletLookups).toEqual(['owner-9', 'owner-9']);
   });
 
   it("falls through to the SENDER's own wallet when the group headroom is exhausted (personal)", async () => {
@@ -760,6 +807,126 @@ describe('resolveTurnContext', () => {
     const context = result._unsafeUnwrap();
     expect(context.payerUserId).toBe('owner-9');
     expect(context.fundingDecisionInputs.minTurnCostNanoUsd).toBeUndefined();
+  });
+
+  it("sizes a solo reply to the purchased funds net of another run's hold", async () => {
+    const held = 300_000n;
+    const result = await resolveTurnContext(
+      {
+        ...deps({
+          member: { id: 'm1' },
+          conversation: { currentEpoch: 3 },
+          walletsByUser: {
+            u1: [{ id: 'paid-w', type: 'purchased', balanceNanoUsd: 1_000_000n }],
+          },
+        }),
+        redis: redisHolding(held),
+      },
+      DB,
+      ARGS
+    );
+    expect(result._unsafeUnwrap().funding).toEqual({
+      spendableNanoUsd: 1_000_000n + PAID_CUSHION_NANO_USD - held,
+      kind: 'purchased',
+    });
+  });
+
+  it('keeps the owner as payer when only a hold takes the headroom below the minimum', async () => {
+    // Who pays is decided hold-blind, as the served snapshot names the payer:
+    // the allocation exactly covers the turn, so the owner pays, and the hold
+    // shrinks only the figure the reply is sized against.
+    const held = 1n;
+    const result = await resolveTurnContext(
+      {
+        ...deps({
+          member: { id: 'm1' },
+          conversation: {
+            currentEpoch: 3,
+            ownerUserId: 'owner-9',
+            conversationBudgetNanoUsd: 10_000_000_000n,
+          },
+          memberBudget: { budgetNanoUsd: CHEAP_TURN, spentNanoUsd: 0n },
+          walletsByUser: {
+            'owner-9': [{ id: 'owner-paid-w', type: 'purchased', balanceNanoUsd: 10_000_000_000n }],
+            u1: [{ id: 'sender-paid-w', type: 'purchased', balanceNanoUsd: 10_000_000_000n }],
+          },
+        }),
+        redis: redisHolding(held),
+      },
+      DB,
+      ARGS
+    );
+    const context = result._unsafeUnwrap();
+    expect(context.walletId).toBe('owner-paid-w');
+    expect(context.funding.spendableNanoUsd).toBe(CHEAP_TURN - held);
+  });
+
+  it('keeps a payer with a purchased balance on the purchased wallet once holds exceed its funds', async () => {
+    const overdrawnBy = 5n;
+    const result = await resolveTurnContext(
+      {
+        ...deps({
+          member: { id: 'm1' },
+          conversation: { currentEpoch: 3 },
+          walletsByUser: {
+            u1: [
+              { id: 'free-w', type: 'free', balanceNanoUsd: 0n },
+              { id: 'paid-w', type: 'purchased', balanceNanoUsd: 1_000_000n },
+            ],
+          },
+        }),
+        redis: redisHolding(1_000_000n + PAID_CUSHION_NANO_USD + overdrawnBy),
+      },
+      DB,
+      ARGS
+    );
+    const context = result._unsafeUnwrap();
+    expect(context.walletId).toBe('paid-w');
+    expect(context.funding).toEqual({ spendableNanoUsd: -overdrawnBy, kind: 'purchased' });
+  });
+
+  it("refuses a free payer's send as unavailable when Redis is down", async () => {
+    const result = await resolveTurnContext(
+      {
+        ...deps({
+          member: { id: 'm1' },
+          conversation: { currentEpoch: 3 },
+          walletsByUser: {
+            u1: [
+              { id: 'free-w', type: 'free', balanceNanoUsd: 0n },
+              { id: 'paid-w', type: 'purchased', balanceNanoUsd: 0n },
+            ],
+          },
+        }),
+        redis: DOWN_REDIS,
+      },
+      DB,
+      ARGS
+    );
+    expect(result._unsafeUnwrapErr().code).toBe('unavailable');
+  });
+
+  it("refuses an owner-funded member's send as unavailable when Redis is down", async () => {
+    const result = await resolveTurnContext(
+      {
+        ...deps({
+          member: { id: 'm1' },
+          conversation: {
+            currentEpoch: 3,
+            ownerUserId: 'owner-9',
+            conversationBudgetNanoUsd: 2_000_000n,
+          },
+          memberBudget: { budgetNanoUsd: 2_000_000n, spentNanoUsd: 0n },
+          walletsByUser: {
+            'owner-9': [{ id: 'owner-paid-w', type: 'purchased', balanceNanoUsd: 2_000_000n }],
+          },
+        }),
+        redis: DOWN_REDIS,
+      },
+      DB,
+      ARGS
+    );
+    expect(result._unsafeUnwrapErr().code).toBe('unavailable');
   });
 
   const GUEST_ARGS = {

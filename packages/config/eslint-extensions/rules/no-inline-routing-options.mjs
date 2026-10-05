@@ -1,15 +1,17 @@
 /**
- * Forbids inlining OpenRouter provider-routing / ZDR option literals in the
- * model adapters. Every call's routing block must come from the single-sourced
- * `languageRoutingOptions` / `mediaRoutingOptions` helpers in
- * `@hushbox/shared`, because OpenRouter's `extraBody.provider` REPLACES
- * `settings.provider` on the wire (it does not deep-merge) — an inline literal
- * that omits `zdr`, `data_collection`, or `allow_fallbacks` silently unpins the
- * ZDR guarantee. Centralizing the shapes makes that impossible to get wrong.
+ * Forbids inlining OpenRouter provider-routing literals in the model adapters.
+ * Every call's routing block must come from the single-sourced
+ * `languageRoutingOptions` / `imageRoutingOptions` / `mediaRoutingOptions`
+ * helpers in `@hushbox/shared`. A provider block on the wire is one object that
+ * a later one replaces rather than merges into (`extraBody.provider` replaces
+ * `settings.provider`), so an inline block that omits a routing field —
+ * a language call's `zdr` or `data_collection`, an image call's `only` pin, or
+ * `allow_fallbacks: false` — silently drops it, whatever keys the inline block
+ * carries. Centralizing the shapes makes that impossible to get wrong.
  *
  * Flags, inside adapter code only:
- *   - `{ provider: { zdr: … } }`      — an inline provider-routing block
- *   - `{ extraBody: { provider: … } }` — the media-family routing block inlined
+ *   - `{ provider: { … } }`           — an inline provider block, whatever its keys
+ *   - `{ extraBody: { provider: … } }` — the video routing block inlined
  *
  * Spreading a helper result (`...mediaRoutingOptions()`) is untouched — that is
  * the sanctioned path.
@@ -79,7 +81,7 @@ export default {
     ],
     messages: {
       inlineProvider:
-        'Inline OpenRouter `provider` routing literal — use languageRoutingOptions()/mediaRoutingOptions() from @hushbox/shared so the ZDR block is single-sourced.',
+        'Inline OpenRouter `provider` routing literal — use languageRoutingOptions()/imageRoutingOptions()/mediaRoutingOptions() from @hushbox/shared so the ZDR block is single-sourced.',
       inlineExtraBodyProvider:
         'Inline `extraBody.provider` routing literal — use mediaRoutingOptions() from @hushbox/shared (extraBody.provider replaces settings.provider on the wire).',
     },
@@ -96,7 +98,7 @@ export default {
       /** @param {Extract<import('eslint').Rule.Node, { type: 'Property' }>} node */
       Property(node) {
         const name = keyName(node);
-        if (name === 'provider' && objectHasKey(node.value, 'zdr')) {
+        if (name === 'provider' && node.value.type === 'ObjectExpression') {
           // A `provider` nested directly under `extraBody` is already covered by
           // the extraBody branch below — don't double-report the same literal.
           const enclosing = node.parent?.parent;

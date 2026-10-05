@@ -21,6 +21,7 @@ import {
 } from '@hushbox/shared';
 import { tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
 import {
+  MissingPriceReservation,
   buildToolset,
   createLanguageAdapter,
   extractStepCost,
@@ -41,7 +42,9 @@ import type {
   MediaValue,
   ModelDescriptor,
 } from '@hushbox/shared';
-import type { ToolDefinition, ToolSelection } from '../ports/model-provider.js';
+import type { InferOptions, ToolDefinition, ToolSelection } from '../ports/model-provider.js';
+
+type StepContinuation = NonNullable<InferOptions['continuation']>;
 
 /** An inert fixture stamp: nothing in this file reads it against a clock. */
 const FIXTURE_STAMP_SECONDS = secondsAt(TEST_DAY_START);
@@ -80,6 +83,22 @@ function testDescriptor(overrides: Partial<ModelDescriptor> = {}): ModelDescript
   };
 }
 
+/** The price cap a test request carries where the test is about something else. */
+const TEST_ROUTING: NonNullable<InferenceRequest['routing']> = {
+  maxPrice: { prompt: '0.001739', completion: '0.001739' },
+};
+
+/** Claude Sonnet 4.5's anchor, its own tier above 200,000 inside its 1,000,000 context. */
+const SONNET_45_PRICING = tokenPricingFixture({
+  input: 3450n,
+  output: 17_250n,
+  anchorContextTokens: 1_000_000,
+  tiers: [{ abovePromptTokens: 200_000, input: 6900n, output: 25_875n }],
+});
+
+/** Sonnet 4.5's call cap: its own tier's ceiling, un-baked. */
+const SONNET_45_MAX_PRICE = { prompt: '7.500000', completion: '28.125217' };
+
 function textRequest(text: string): InferenceRequest {
   return {
     model: 'openai/gpt-4o',
@@ -87,6 +106,7 @@ function textRequest(text: string): InferenceRequest {
     parameters: {},
     outputs: ['text'],
     utcDay: FIXTURE_UTC_DAY,
+    routing: TEST_ROUTING,
   };
 }
 
@@ -230,6 +250,7 @@ describe('buildToolset', () => {
     const execute = vi.fn((input: unknown) => Promise.resolve(input));
     const toolset = buildToolset(
       { search: { description: 'Search', inputSchema: z.object({ q: z.string() }), execute } },
+      () => true,
       () => true
     );
 
@@ -251,6 +272,7 @@ describe('buildToolset', () => {
           },
         },
       },
+      () => true,
       () => true
     );
     const controller = new AbortController();
@@ -268,13 +290,40 @@ describe('buildToolset', () => {
     const execute = vi.fn(() => Promise.resolve('ran'));
     const toolset = buildToolset(
       { search: { description: 'Search', inputSchema: z.object({}), execute } },
-      (toolCallId) => toolCallId !== 'call-9'
+      (toolCallId) => toolCallId !== 'call-9',
+      () => true
     );
 
     await expect(
       builtExecute(toolset, 'search')({}, sdkOptions({ toolCallId: 'call-9' }))
     ).rejects.toMatchObject({ name: 'ToolCallLimitError' });
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses a call the spend gate refuses without invoking the definition execute', async () => {
+    const execute = vi.fn(() => Promise.resolve('ran'));
+    const toolset = buildToolset(
+      { search: { description: 'Search', inputSchema: z.object({}), execute } },
+      () => true,
+      () => false
+    );
+
+    await expect(builtExecute(toolset, 'search')({}, sdkOptions())).rejects.toMatchObject({
+      name: 'ToolCallGateClosedError',
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses a call the closed gate refuses even when the budget is spent', async () => {
+    const toolset = buildToolset(
+      { search: { description: 'Search', inputSchema: z.object({}), execute: vi.fn() } },
+      () => false,
+      () => false
+    );
+
+    await expect(builtExecute(toolset, 'search')({}, sdkOptions())).rejects.toMatchObject({
+      name: 'ToolCallGateClosedError',
+    });
   });
 });
 
@@ -352,7 +401,7 @@ describe('mapPart on the stream-part kinds that carry no InferenceEvent', () => 
 
   it('maps a tool-error that arrives after the run aborted to nothing, holding no reason', () => {
     const controller = new AbortController();
-    controller.abort(new Error('run stopped'));
+    controller.abort(new Error('run hard-stopped'));
     const state = freshState();
     const events = mapPart(
       { type: 'tool-error', toolCallId: 'call-1', toolName: 'search', input: {}, error: 'x' },
@@ -449,20 +498,42 @@ describe('createLanguageAdapter ZDR', () => {
       fetch: createCassetteFetch({
         store,
         mode: 'record',
-        realFetch: scriptedFetch(toolLoopResponses()),
+        realFetch: scriptedFetch([
+          () => sseResponse(simpleTextChunks()),
+          () => sseResponse(simpleTextChunks()),
+          () => sseResponse(simpleTextChunks()),
+          ...EIGHT_STEP_LOOP,
+        ]),
       }),
     });
+    const sonnet = testDescriptor({ pricing: SONNET_45_PRICING });
+    const routed = (request: InferenceRequest): InferenceRequest => ({
+      ...request,
+      routing: { maxPrice: SONNET_45_MAX_PRICE },
+    });
 
+    await collect(adapter.infer(routed(textRequest('plain')), sonnet));
     await collect(
-      adapter.infer(loopRequest('Find hushbox'), loopDescriptor(), {
-        tools: {
-          registry: searchToolRegistry(() => Promise.resolve({ hits: 2 })),
-          maxSteps: 2,
-        },
-      })
+      adapter.infer(
+        routed({ ...textRequest('reasoned'), parameters: { reasoning: { effort: 'low' } } }),
+        sonnet
+      )
+    );
+    await collect(adapter.infer(routed({ ...textRequest('classify'), routingOnly: true }), sonnet));
+    await collect(
+      adapter.infer(
+        routed(loopRequest('Find hushbox')),
+        testDescriptor({ ...loopDescriptor(), pricing: SONNET_45_PRICING }),
+        {
+          tools: {
+            registry: searchToolRegistry(() => Promise.resolve({ hits: 2 })),
+            maxSteps: EIGHT_STEP_LOOP.length,
+          },
+        }
+      )
     );
     await vi.waitFor(() => {
-      expect(store.list()).toHaveLength(2);
+      expect(store.list()).toHaveLength(3 + EIGHT_STEP_LOOP.length);
     });
 
     for (const hash of store.list()) {
@@ -470,21 +541,36 @@ describe('createLanguageAdapter ZDR', () => {
       expect(request?.pathAndQuery).toBe('/api/v1/chat/completions');
       const body = z
         .looseObject({
-          provider: z.looseObject({
-            zdr: z.boolean(),
-            data_collection: z.string(),
-            allow_fallbacks: z.boolean(),
-          }),
+          provider: z.looseObject({}),
           usage: z.looseObject({ include: z.boolean() }),
           transforms: z.array(z.unknown()),
         })
         .parse(JSON.parse(request?.body ?? '{}'));
-      expect(body.provider.zdr).toBe(true);
-      expect(body.provider.data_collection).toBe('deny');
-      expect(body.provider.allow_fallbacks).toBe(false);
+      expect(body.provider).toMatchObject({
+        zdr: true,
+        data_collection: 'deny',
+        allow_fallbacks: true,
+        sort: 'price',
+        max_price: SONNET_45_MAX_PRICE,
+      });
       expect(body.usage.include).toBe(true);
       expect(body.transforms).toEqual([]);
     }
+  });
+
+  it('refuses a language call that carries no price reservation, before sending anything', () => {
+    const fetch = vi.fn(scriptedFetch([() => sseResponse(simpleTextChunks())]));
+    const adapter = createLanguageAdapter({ apiKey: 'test-key', fetch });
+    const unreserved: InferenceRequest = {
+      model: 'openai/gpt-4o',
+      inputs: [{ modality: 'text', text: 'Say hi' }],
+      parameters: {},
+      outputs: ['text'],
+      utcDay: FIXTURE_UTC_DAY,
+    };
+
+    expect(() => adapter.infer(unreserved, testDescriptor())).toThrow(MissingPriceReservation);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -1025,6 +1111,16 @@ function loopRequest(text: string): InferenceRequest {
   return { ...textRequest(text), parameters: { maxOutputTokens: LOOP_CEILING_TOKENS } };
 }
 
+/** Seven steps that each call the search tool once, then an answer: an 8-step loop. */
+const EIGHT_STEP_LOOP: readonly (() => Response)[] = [
+  ...Array.from({ length: 7 }, (_unused, index) =>
+    parallelCallsResponse(`gen_loop_${String(index)}`, [
+      [`call-${String(index)}`, 'search', `{"query":"step ${String(index)}"}`],
+    ])
+  ),
+  answerResponse('gen_loop_answer', 'Found it'),
+];
+
 function loopDescriptor(): ModelDescriptor {
   return testDescriptor({ limits: { contextLength: LOOP_CONTEXT_TOKENS } });
 }
@@ -1448,7 +1544,7 @@ describe('createLanguageAdapter tool-error events', () => {
           controller.signal.addEventListener('abort', () => {
             reject(controller.signal.reason as Error);
           });
-          controller.abort(new Error('run stopped'));
+          controller.abort(new Error('run hard-stopped'));
         })
     );
 
@@ -1463,6 +1559,201 @@ describe('createLanguageAdapter tool-error events', () => {
 
     await expect(consumed).rejects.toMatchObject({ name: 'InferenceError', code: 'aborted' });
     expect(events.filter((event) => event.kind === 'tool-error')).toEqual([]);
+  });
+});
+
+/** A continuation with fixed answers that records the step costs each step question carried. */
+function fixedContinuation(answers: { readonly nextStep: boolean; readonly tool: boolean }): {
+  readonly continuation: StepContinuation;
+  readonly stepCosts: (readonly (number | undefined)[])[];
+} {
+  const stepCosts: (readonly (number | undefined)[])[] = [];
+  return {
+    stepCosts,
+    continuation: {
+      mayStartNextStep: (completedStepCostsUsd): boolean => {
+        stepCosts.push([...completedStepCostsUsd]);
+        return answers.nextStep;
+      },
+      mayExecuteTool: (): boolean => answers.tool,
+    },
+  };
+}
+
+function gatedLoopOptions(
+  continuation: StepContinuation,
+  execute: (input: unknown) => Promise<unknown> = (): Promise<unknown> =>
+    Promise.resolve({ hits: 2 })
+): InferOptions {
+  return { tools: { registry: searchToolRegistry(execute), maxSteps: 3 }, continuation };
+}
+
+describe('createLanguageAdapter spend gate', () => {
+  it('makes exactly one model call when the gate refuses the step after the first', async () => {
+    const wire = capturingFetch(toolLoopResponses());
+    const adapter = createLanguageAdapter({ apiKey: 'test-key', fetch: wire.fetch });
+    const { continuation } = fixedContinuation({ nextStep: false, tool: true });
+
+    await collect(
+      adapter.infer(loopRequest('Find hushbox'), loopDescriptor(), gatedLoopOptions(continuation))
+    );
+
+    expect(wire.bodies).toHaveLength(1);
+  });
+
+  it('ends a loop the gate stopped with its finish, throwing nothing', async () => {
+    const adapter = createLanguageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch(toolLoopResponses()),
+    });
+    const { continuation } = fixedContinuation({ nextStep: false, tool: true });
+
+    const events = await collect(
+      adapter.infer(loopRequest('Find hushbox'), loopDescriptor(), gatedLoopOptions(continuation))
+    );
+
+    expect(events.at(-1)).toEqual({
+      kind: 'finish',
+      metadata: {
+        generationId: 'gen_step1',
+        providerCostUsd: 0.001,
+        usage: { inputTokens: 12, outputTokens: 5, reasoningTokens: 0, cachedInputTokens: 0 },
+        finishReason: 'tool-calls',
+      },
+    });
+  });
+
+  it('continues the loop while the gate admits its next step', async () => {
+    const wire = capturingFetch(toolLoopResponses());
+    const adapter = createLanguageAdapter({ apiKey: 'test-key', fetch: wire.fetch });
+    const { continuation } = fixedContinuation({ nextStep: true, tool: true });
+
+    const events = await collect(
+      adapter.infer(loopRequest('Find hushbox'), loopDescriptor(), gatedLoopOptions(continuation))
+    );
+
+    expect(wire.bodies).toHaveLength(2);
+    expect(events).toContainEqual({ kind: 'text-delta', index: 0, content: 'Found it' });
+  });
+
+  it("asks for the next step with each completed step's inline cost", async () => {
+    const adapter = createLanguageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch([
+        parallelCallsResponse('gen_a', [['call-0', 'search', '{"query":"a"}']]),
+        parallelCallsResponse('gen_b', [['call-1', 'search', '{"query":"b"}']], {
+          finishReason: 'tool_calls',
+          usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+        }),
+        answerResponse('gen_answer', 'Done'),
+      ]),
+    });
+    const { continuation, stepCosts } = fixedContinuation({ nextStep: true, tool: true });
+
+    await collect(
+      adapter.infer(loopRequest('Find twice'), loopDescriptor(), gatedLoopOptions(continuation))
+    );
+
+    expect(stepCosts).toEqual([[0.001], [0.001, undefined]]);
+  });
+
+  it('never runs a tool the gate refuses', async () => {
+    const execute = vi.fn(() => Promise.resolve('ran'));
+    const adapter = createLanguageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch(toolLoopResponses()),
+    });
+    const { continuation } = fixedContinuation({ nextStep: false, tool: false });
+
+    await collect(
+      adapter.infer(
+        loopRequest('Find hushbox'),
+        loopDescriptor(),
+        gatedLoopOptions(continuation, execute)
+      )
+    );
+
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('leaves a call the gate refused unanswered, with no tool-error', async () => {
+    const adapter = createLanguageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch(toolLoopResponses()),
+    });
+    const { continuation } = fixedContinuation({ nextStep: false, tool: false });
+
+    const events = await collect(
+      adapter.infer(loopRequest('Find hushbox'), loopDescriptor(), gatedLoopOptions(continuation))
+    );
+
+    expect(
+      events.filter((event) => event.kind === 'tool-error' || event.kind === 'tool-result')
+    ).toEqual([]);
+  });
+
+  it('runs a tool the gate admits', async () => {
+    const execute = vi.fn(() => Promise.resolve('ran'));
+    const adapter = createLanguageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch(toolLoopResponses()),
+    });
+    const { continuation } = fixedContinuation({ nextStep: false, tool: true });
+
+    await collect(
+      adapter.infer(
+        loopRequest('Find hushbox'),
+        loopDescriptor(),
+        gatedLoopOptions(continuation, execute)
+      )
+    );
+
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it('ends a gate-stopped loop whose tool failed with its finish, naming no reason', async () => {
+    const adapter = createLanguageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch([
+        parallelCallsResponse('gen_fail', [['call-0', 'search', '{"query":"a"}']]),
+        () => sseResponse([finishChunk('gen_empty')]),
+      ]),
+    });
+    const { continuation } = fixedContinuation({ nextStep: false, tool: true });
+
+    const events = await collect(
+      adapter.infer(
+        loopRequest('Find hushbox'),
+        loopDescriptor(),
+        gatedLoopOptions(continuation, () => Promise.reject(new Error('backend down')))
+      )
+    );
+
+    expect(events.at(-1)?.kind).toBe('finish');
+  });
+
+  it('still fails an empty turn the gate let run on', async () => {
+    const adapter = createLanguageAdapter({
+      apiKey: 'test-key',
+      fetch: scriptedFetch([
+        parallelCallsResponse('gen_fail', [['call-0', 'search', '{"query":"a"}']]),
+        () => sseResponse([finishChunk('gen_empty')]),
+      ]),
+    });
+    const { continuation } = fixedContinuation({ nextStep: true, tool: true });
+
+    const consumed = collect(
+      adapter.infer(
+        loopRequest('Find hushbox'),
+        loopDescriptor(),
+        gatedLoopOptions(continuation, () => Promise.reject(new Error('backend down')))
+      )
+    );
+
+    await expect(consumed).rejects.toMatchObject({
+      name: 'InferenceError',
+      code: 'upstream_error',
+    });
   });
 });
 
@@ -2278,6 +2569,6 @@ describe('wire message assembly (system + history)', () => {
       fetch: call.fetch,
     });
     await collect(adapter.infer(textRequest('What is the capital of France?'), testDescriptor()));
-    expect(descriptorHash(await requestToDescriptor(call.request()))).toBe('123bf1df5aa5f164');
+    expect(descriptorHash(await requestToDescriptor(call.request()))).toBe('68c160bd969c0a31');
   });
 });

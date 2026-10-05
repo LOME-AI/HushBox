@@ -33,10 +33,10 @@ export const MEDIA_GC_MIN_AGE_SECONDS =
 
 /**
  * Soft runtime budget for a GC pass. The Workers `cpu_ms` ceiling is 30s and GC
- * shares that isolate with the other hourly cron auditors (ledger-conservation +
- * snapshot-drift) run together under one `Promise.all`, so the sweep bails at
- * 15s — a DELIBERATE shared-isolate margin that leaves ~15s of the 30s window
- * for the co-runners, not strict legacy parity. Legacy's 25s assumed GC owned
+ * shares that invocation with the other hourly cron entries, which run one after
+ * another within it, so the sweep bails at 15s — a DELIBERATE shared-isolate
+ * margin that leaves ~15s of the 30s window for the pass's other entries, not
+ * strict legacy parity. Legacy's 25s assumed GC owned
  * the isolate; here it does not. The bail still leaves headroom to record
  * evidence and return, and lets the next hourly pass reclaim the rest. A killed
  * pass leaves nothing to clean up (deletes are idempotent, no DB writes), so an

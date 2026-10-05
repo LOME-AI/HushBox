@@ -23,11 +23,18 @@ const ROW_BUTTON_ACTION = /^(?:Use|Toggle selection for) /u;
 const RATIO_CHIP_NAME = 'Aspect ratio';
 const RATIO_CHIP_PATTERN = new RegExp(`^${RATIO_CHIP_NAME}: `, 'u');
 
-/** Video's phone summary chip, which opens its generation settings sheet. */
-const VIDEO_SUMMARY_CHIP_PATTERN = /^Video settings:/u;
+/**
+ * The composer's video settings chip names itself "Video settings: <label>, <ratio>", its label
+ * being "<duration>s · <resolution>", and its popover "Video settings".
+ */
+const VIDEO_SETTINGS_NAME = 'Video settings';
+const VIDEO_SETTINGS_CHIP_PATTERN = new RegExp(`^${VIDEO_SETTINGS_NAME}: `, 'u');
 
-/** The open generation settings: the image ratio popover, or video's phone sheet. */
-const GENERATION_SETTINGS_NAME = new RegExp(`^${RATIO_CHIP_NAME}$|generation settings$`, 'iu');
+/** The open generation settings: the image ratio popover or the video settings popover. */
+const GENERATION_SETTINGS_NAME = new RegExp(`^(?:${RATIO_CHIP_NAME}|${VIDEO_SETTINGS_NAME})$`, 'u');
+
+/** A media turn's estimate figure, "≈ $0.123"; its "(estimate)" caption is a separate element. */
+const MEDIA_ESTIMATE_PATTERN = /^≈\s+\$\d+\.\d{3}$/u;
 
 /** The image ratio grid's tile that opens the ratios beyond the common ten. */
 const MORE_RATIOS_NAME = /^\d+ more$/u;
@@ -159,7 +166,6 @@ export class ChatComposerPage extends ChatShellPage {
 
   /** Opens the mode menu from the composer's "+". */
   async openModeMenu(): Promise<void> {
-    await this.waitForAppStable();
     await this.modeMenuButton.click();
     await expect(this.modeMenu).toBeVisible();
   }
@@ -173,6 +179,7 @@ export class ChatComposerPage extends ChatShellPage {
 
   /** Switch the prompt input to image generation modality through the mode menu. */
   async switchToImageMode(): Promise<void> {
+    await this.waitForAppStable();
     await this.selectMode('image');
     // Confirmation: the composer's ratio chip, named for the default ratio.
     await expect(this.page.getByRole('button', { name: `${RATIO_CHIP_NAME}: 1:1` })).toBeVisible();
@@ -180,6 +187,7 @@ export class ChatComposerPage extends ChatShellPage {
 
   /** Switch the prompt input back to the text modality through the mode menu. */
   async switchToTextMode(): Promise<void> {
+    await this.waitForAppStable();
     await this.selectMode('text');
     // Confirmation: the image/video config pills unmount once text is active.
     await expect(this.page.getByRole('button', { name: /1:1|720p/i })).not.toBeVisible();
@@ -187,40 +195,57 @@ export class ChatComposerPage extends ChatShellPage {
 
   /** Switch the prompt input to video generation modality through the mode menu. */
   async switchToVideoMode(): Promise<void> {
+    await this.waitForAppStable();
     await this.selectMode('video');
-    // Confirmation: either the inline 720p resolution pill (desktop) or the
-    // GenerationSummaryChip (mobile, name embeds the default "720p"). Either
-    // layout satisfies the substring match.
-    await expect(this.page.getByRole('button', { name: /720p/i })).toBeVisible();
+    // Confirmation: the composer's video settings chip, whose name embeds the default "720p".
+    await expect(
+      this.page.getByRole('button', { name: new RegExp(`^${VIDEO_SETTINGS_NAME}: .*720p`, 'u') })
+    ).toBeVisible();
+  }
+
+  /** The page's composer: the box around its field, which a gauge on its top edge straddles. */
+  composer(): Locator {
+    return this.page.locator('main').locator('[data-slot="composer"]');
   }
 
   /**
-   * The open generation settings, whichever surface holds them: image's "Aspect
-   * ratio" popover (anchored, or a sheet below 768px), or video's phone sheet,
-   * named "Video generation settings". Both expose `role=dialog` by that name,
-   * which keeps them apart from the other dialogs that may share the tree.
+   * The composer's estimate for a media turn, at any width. The composer carries two copies,
+   * beside the model chip and above the field, and shows one by its own width, so the copy a
+   * reader sees is picked by visibility, never by document order.
+   */
+  mediaEstimate(): Locator {
+    return this.page
+      .locator('[data-slot="composer"]')
+      .getByText(MEDIA_ESTIMATE_PATTERN)
+      .filter({ visible: true });
+  }
+
+  /**
+   * The open generation settings, whichever turn they belong to: image's "Aspect ratio"
+   * popover or video's "Video settings" popover, each anchored from 768px and a sheet below
+   * it. Both expose `role=dialog` by that name, which keeps them apart from the other dialogs
+   * that may share the tree.
    */
   private generationSettings(): Locator {
     return this.page.getByRole('dialog', { name: GENERATION_SETTINGS_NAME });
   }
 
   /**
-   * Opens the generation settings when a control opens them and they are shut:
-   * image's ratio chip, at every width, or video's summary chip, below 768px. A
-   * no-op where the controls sit inline (video from 768px) and when the settings
-   * are already open.
+   * Opens the generation settings from the composer's chip when they are shut: image's
+   * ratio chip or video's settings chip, at every width. A no-op when the settings are
+   * already open, and in a mode with no settings chip.
    *
    * Uses `waitFor` so a still-mounting DOM (e.g. caller invoked the helper
    * before the modality-switch render had committed) doesn't race a one-shot
    * `count()` and short-circuit into the wrong branch. Open settings either mark
-   * the ratio chip expanded or, as a modal sheet, hide their chip from the
-   * accessibility tree, so the chips are looked for only in their closed state
-   * and the open case falls through to the no-op branch.
+   * their chip expanded or, as a modal sheet, hide it from the accessibility
+   * tree, so the chips are looked for only in their closed state and the open
+   * case falls through to the no-op branch.
    */
   async openGenerationSheetIfNeeded(): Promise<void> {
     const control = this.page
       .getByRole('button', { name: RATIO_CHIP_PATTERN, expanded: false })
-      .or(this.page.getByRole('button', { name: VIDEO_SUMMARY_CHIP_PATTERN }));
+      .or(this.page.getByRole('button', { name: VIDEO_SETTINGS_CHIP_PATTERN, expanded: false }));
     const present = await control
       .first()
       .waitFor({ state: 'visible', timeout: TIMEOUTS.MODAL })
@@ -236,9 +261,9 @@ export class ChatComposerPage extends ChatShellPage {
    * this between configuring generation settings and sending the prompt, so the
    * settings don't block the composer interaction.
    *
-   * The presence probe is short by design: where the controls sit inline the
-   * settings are never mounted, so the wait times out into the no-op branch and
-   * shouldn't stall the suite.
+   * The presence probe is short by design: settings that were never opened are
+   * not mounted, so the wait times out into the no-op branch and shouldn't stall
+   * the suite.
    */
   async closeGenerationSheetIfOpen(): Promise<void> {
     const settings = this.generationSettings();
@@ -269,9 +294,9 @@ export class ChatComposerPage extends ChatShellPage {
 
   /**
    * Click a video resolution toggle pill ('720p' | '1080p' | '4k'). The pill's
-   * accessible name is the bare resolution string — the visible "HD"/"FHD"
-   * label and price live elsewhere in the row. Exact match avoids colliding
-   * with the mobile `GenerationSummaryChip`, whose name embeds the resolution.
+   * accessible name is the bare resolution string — its visible "HD"/"FHD"
+   * label is not part of it. Exact match avoids colliding with the video
+   * settings chip, whose name embeds the resolution.
    */
   async selectResolution(resolution: '720p' | '1080p' | '4k'): Promise<void> {
     await this.openGenerationSheetIfNeeded();

@@ -1,6 +1,10 @@
 import { InvalidToolInputError, NoSuchToolError } from 'ai';
 import { describe, expect, it } from 'vitest';
-import { ToolCallLimitError, toolErrorReason } from './tool-error-reason.js';
+import {
+  ToolCallGateClosedError,
+  ToolCallLimitError,
+  toolErrorReason,
+} from './tool-error-reason.js';
 
 function abortedSignal(): AbortSignal {
   const controller = new AbortController();
@@ -44,6 +48,15 @@ describe('ToolCallLimitError', () => {
     const error = new ToolCallLimitError();
     expect(error.name).toBe('ToolCallLimitError');
     expect(error.message).toBe('tool call refused: the call budget is spent');
+    expect(error.cause).toBeUndefined();
+  });
+});
+
+describe('ToolCallGateClosedError', () => {
+  it('carries a fixed message and no cause', () => {
+    const error = new ToolCallGateClosedError();
+    expect(error.name).toBe('ToolCallGateClosedError');
+    expect(error.message).toBe('tool call refused: the spend gate is closed');
     expect(error.cause).toBeUndefined();
   });
 });

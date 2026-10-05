@@ -129,7 +129,7 @@ export interface MasterLevels {
 }
 
 /** Every level of the master the rules judge. */
-export function measureMaster(master: StereoBuffer): MasterLevels {
+function measureMaster(master: StereoBuffer): MasterLevels {
   return {
     integratedLufs: measureLoudness(master).integratedLufs,
     truePeakDbtp: truePeakDbtp(master),

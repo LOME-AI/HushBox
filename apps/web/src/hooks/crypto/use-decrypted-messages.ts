@@ -16,11 +16,8 @@ import {
 } from '@/lib/crypto/epoch-key-cache';
 import { keyChainQueryOptions, keyKeys } from '@/hooks/crypto/keys';
 import { decryptedCache, decryptedCacheKey } from '@/lib/crypto/decrypted-message-cache';
-import type {
-  MessageResponse,
-  HistoryContentItemResponse,
-  ResolvedReasoningEffort,
-} from '@hushbox/shared';
+import { joinTextParts, pickModelName, replyDisplayFields } from '@/hooks/crypto/reply-merge';
+import type { MessageResponse, HistoryContentItemResponse } from '@hushbox/shared';
 import type { Message, MessageMediaItem } from '@/lib/api/api';
 
 // Re-exported so existing consumers keep importing the cache clear from here.
@@ -76,49 +73,20 @@ function sumCost(contentItems: HistoryContentItemResponse[]): string | null {
   return seen ? serializeNanoUSD(nanoUSD(total)) : null;
 }
 
-function pickModelName(contentItems: HistoryContentItemResponse[]): string | null {
-  for (const item of contentItems) {
-    if (item.modelName != null) return item.modelName;
-  }
-  return null;
-}
-
 /**
- * True iff any content item on the message was produced via a routing stage
- * (Smart Model today). Drives the "Smart" chip on the assistant nametag.
+ * Sums one persisted per-item token count. Undefined when no item recorded one,
+ * which keeps a count the read withheld apart from a recorded zero.
  */
-function pickIsSmartModel(contentItems: HistoryContentItemResponse[]): boolean {
-  return contentItems.some((item) => item.isSmartModel);
-}
-
-/**
- * Sums the persisted per-item reasoning token counts. Returns 0 when none —
- * the caller leaves the field absent so a zero-reasoning message renders no
- * thinking line (parity with the live streaming path, which only stamps a
- * positive count).
- */
-function sumReasoningTokens(contentItems: HistoryContentItemResponse[]): number {
-  let total = 0;
+function sumTokenCount(
+  contentItems: HistoryContentItemResponse[],
+  field: 'inputTokens' | 'outputTokens'
+): number | undefined {
+  let total: number | undefined;
   for (const item of contentItems) {
-    total += item.reasoningTokens ?? 0;
+    const count = item[field];
+    if (count !== null) total = (total ?? 0) + count;
   }
   return total;
-}
-
-/**
- * The level the message's generation reasoned at. Taken from the first item
- * that recorded one — never folded, because a level is a decision taken once
- * per generation rather than a quantity spent. Absent when no item recorded
- * one, which is why `off` (reasoning resolved to none) survives here as a
- * value: the badge shows it, and shows nothing for the absent case.
- */
-function pickReasoningEffort(
-  contentItems: HistoryContentItemResponse[]
-): ResolvedReasoningEffort | undefined {
-  for (const item of contentItems) {
-    if (item.reasoningEffort !== null) return item.reasoningEffort;
-  }
-  return undefined;
 }
 
 function extractMediaItems(contentItems: HistoryContentItemResponse[]): MessageMediaItem[] {
@@ -152,18 +120,14 @@ function buildDecryptedMessage(
 ): Message {
   const cost = sumCost(msg.contentItems);
   const modelName = pickModelName(msg.contentItems);
-  const mediaItems = extractMediaItems(msg.contentItems);
-  const isSmartModel = pickIsSmartModel(msg.contentItems);
-  const reasoningTokens = sumReasoningTokens(msg.contentItems);
-  const reasoningEffort = pickReasoningEffort(msg.contentItems);
+  const inputTokens = sumTokenCount(msg.contentItems, 'inputTokens');
+  const outputTokens = sumTokenCount(msg.contentItems, 'outputTokens');
   return {
     id: msg.id,
     conversationId,
     role: mapSenderTypeToRole(msg.senderType),
     content,
-    // The history wire carries no timestamp; message order comes from
-    // `sequenceNumber`, and no surface renders a message's own date.
-    createdAt: '',
+    createdAt: msg.createdAt,
     ...(cost != null && { cost }),
     ...(msg.senderId != null && { senderId: msg.senderId }),
     modelName,
@@ -171,10 +135,9 @@ function buildDecryptedMessage(
     batchId: msg.batchId,
     wrappedContentKey: msg.wrappedContentKey,
     epochNumber: msg.epochNumber,
-    ...(isSmartModel && { isSmartModel: true }),
-    ...(mediaItems.length > 0 && { mediaItems }),
-    ...(reasoningTokens > 0 && { reasoningTokens }),
-    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    ...replyDisplayFields(msg.contentItems, extractMediaItems(msg.contentItems)),
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    ...(outputTokens === undefined ? {} : { outputTokens }),
   };
 }
 
@@ -290,7 +253,7 @@ export function useDecryptedMessages(
             parts.push(textDecoder.decode(plaintextBytes));
           }
         }
-        const content = parts.join('');
+        const content = joinTextParts(parts);
         decryptedCache.set(cacheKey, { epochNumber: msg.epochNumber, content });
         return buildDecryptedMessage(msg, content, conversationId);
       } catch {

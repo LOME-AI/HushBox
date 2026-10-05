@@ -27,9 +27,15 @@ describe('iOS Fastfile', () => {
     expect(content).toMatch(/^\s*lane :build do\b/m);
   });
 
-  it('defines a public lane :release that accepts options', () => {
+  it('defines a public lane :upload that accepts options', () => {
     const content = readFastfile();
-    expect(content).toMatch(/lane :release do \|\w+\|/);
+    expect(content).toMatch(/lane :upload do \|\w+\|/);
+  });
+
+  it('defines no lane that builds and uploads in one run, so the IPA is swept in between', () => {
+    const content = readFastfile();
+    expect(content).not.toMatch(/lane :release\b/);
+    expect(extractLane(content, 'upload', 'lane')).not.toContain('build_ipa');
   });
 
   it('build_ipa calls setup_ci for CI keychain', () => {
@@ -38,9 +44,9 @@ describe('iOS Fastfile', () => {
     expect(lane).toContain('setup_ci');
   });
 
-  it('build_ipa reads App Store Connect API key from environment', () => {
+  it('asc_api_key reads App Store Connect API key from environment', () => {
     const content = readFastfile();
-    const lane = extractLane(content, 'build_ipa', 'private_lane');
+    const lane = extractLane(content, 'asc_api_key', 'private_lane');
     expect(lane).toContain('app_store_connect_api_key(');
     expect(lane).toContain('ENV["ASC_KEY_ID"]');
     expect(lane).toContain('ENV["ASC_ISSUER_ID"]');
@@ -52,6 +58,7 @@ describe('iOS Fastfile', () => {
     const lane = extractLane(content, 'build_ipa', 'private_lane');
     expect(lane).toContain('match(');
     expect(lane).toContain('readonly: true');
+    expect(lane).toContain('api_key: asc_api_key');
   });
 
   it('build_ipa calls build_app with app-store export method', () => {
@@ -68,22 +75,26 @@ describe('iOS Fastfile', () => {
     expect(lane).not.toContain('upload_to_app_store');
   });
 
-  it('release lane delegates to build_ipa and captures its return value', () => {
+  it('upload lane uploads the IPA build_ipa writes', () => {
     const content = readFastfile();
-    const lane = extractLane(content, 'release', 'lane');
-    expect(lane).toMatch(/=\s*build_ipa/);
+    const build = extractLane(content, 'build_ipa', 'private_lane');
+    const upload = extractLane(content, 'upload', 'lane');
+    expect(build).toContain('output_directory: "./build"');
+    expect(build).toContain('output_name: "HushBox.ipa"');
+    expect(upload).toContain('ipa: "./build/HushBox.ipa"');
   });
 
-  it('release lane calls upload_to_app_store with parameterized submit_for_review', () => {
+  it('upload lane calls upload_to_app_store with parameterized submit_for_review', () => {
     const content = readFastfile();
-    const lane = extractLane(content, 'release', 'lane');
+    const lane = extractLane(content, 'upload', 'lane');
     expect(lane).toContain('upload_to_app_store(');
+    expect(lane).toContain('api_key: asc_api_key');
     expect(lane).toMatch(/submit_for_review:\s*submit_for_review/);
   });
 
-  it('release lane reads submit_for_review from options with false default', () => {
+  it('upload lane reads submit_for_review from options with false default', () => {
     const content = readFastfile();
-    const lane = extractLane(content, 'release', 'lane');
+    const lane = extractLane(content, 'upload', 'lane');
     expect(lane).toMatch(/\[:submit_for_review\]\s*\|\|\s*false/);
   });
 

@@ -21,7 +21,14 @@ export interface AssistantRender {
  * so the owner, a watcher, a reload and a share read the same tree.
  */
 export function useAssistantRender(content: string, facts: MessageRenderFacts): AssistantRender {
-  const { messageId, isStreaming, modelName, reasoningTokens, reasoningEffort } = facts;
+  const {
+    messageId,
+    isStreaming,
+    modelName,
+    reasoningTokens,
+    reasoningEffort,
+    reasoningDurationMs,
+  } = facts;
   const tree = React.useMemo(() => parseAssistantMessage(content), [content]);
   const context = React.useMemo(
     () =>
@@ -31,8 +38,9 @@ export function useAssistantRender(content: string, facts: MessageRenderFacts): 
         modelName,
         reasoningTokens,
         reasoningEffort,
+        reasoningDurationMs,
       }),
-    [tree, messageId, isStreaming, modelName, reasoningTokens, reasoningEffort]
+    [tree, messageId, isStreaming, modelName, reasoningTokens, reasoningEffort, reasoningDurationMs]
   );
   return { tree, context };
 }

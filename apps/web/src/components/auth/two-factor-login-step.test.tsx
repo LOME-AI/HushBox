@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TEST_IDS, friendlyErrorMessage } from '@hushbox/shared';
 import { TwoFactorLoginStep } from './two-factor-login-step';
 import type { FormFactor } from '@hushbox/ui/platform';
+import type { TotpVerifyResult } from '@/lib/auth/auth';
 
 const formFactor = vi.hoisted((): { band: FormFactor['band'] } => ({ band: 'desktop' }));
 
@@ -17,12 +18,14 @@ document.elementFromPoint = vi.fn(() => null);
 
 const originalLocation = globalThis.location;
 const signInCompletionMessage = friendlyErrorMessage('SIGN_IN_COMPLETION_FAILED');
+const frozenMessage = friendlyErrorMessage('TWO_FACTOR_FROZEN');
 
 describe('TwoFactorLoginStep', () => {
   const defaultProps = {
     onSuccess: vi.fn(),
     onVerify: vi.fn(),
     onBack: vi.fn(),
+    onUseRecoveryPhrase: vi.fn(),
   };
 
   beforeEach(() => {
@@ -552,6 +555,88 @@ describe('TwoFactorLoginStep', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/incorrect or has expired/i)).toBeInTheDocument();
+      });
+      expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
+    });
+  });
+
+  describe('a frozen second factor', () => {
+    async function submitCodeWhileFrozen(): Promise<ReturnType<typeof userEvent.setup>> {
+      const user = userEvent.setup();
+      const onVerify = vi.fn<(code: string) => Promise<TotpVerifyResult>>().mockResolvedValue({
+        success: false,
+        error: frozenMessage,
+        errorCode: 'TWO_FACTOR_FROZEN',
+      });
+      render(<TwoFactorLoginStep {...defaultProps} onVerify={onVerify} />);
+
+      await user.click(screen.getByTestId(TEST_IDS.otpInput));
+      await user.keyboard('123456');
+
+      await waitFor(() => {
+        expect(onVerify).toHaveBeenCalledTimes(1);
+      });
+      return user;
+    }
+
+    it('tells the user two-factor is locked and how to unlock it', async () => {
+      await submitCodeWhileFrozen();
+
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Two-factor is locked' })
+      ).toBeInTheDocument();
+      expect(screen.getByText(frozenMessage)).toBeInTheDocument();
+    });
+
+    it('retires the code prompt, which no code can pass', async () => {
+      await submitCodeWhileFrozen();
+
+      await waitFor(() => {
+        expect(screen.queryByTestId(TEST_IDS.otpInput)).not.toBeInTheDocument();
+      });
+      expect(screen.queryByRole('button', { name: /^verify$/i })).not.toBeInTheDocument();
+    });
+
+    it('moves focus to the locked heading', async () => {
+      await submitCodeWhileFrozen();
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { level: 1, name: 'Two-factor is locked' })
+        ).toHaveFocus();
+      });
+    });
+
+    it('enters the recovery phrase reset from its primary action', async () => {
+      const user = await submitCodeWhileFrozen();
+
+      await user.click(await screen.findByRole('button', { name: 'Use recovery phrase' }));
+
+      expect(defaultProps.onUseRecoveryPhrase).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the way back to login', async () => {
+      const user = await submitCodeWhileFrozen();
+
+      await user.click(await screen.findByRole('button', { name: 'Back to login' }));
+
+      expect(defaultProps.onBack).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the code prompt for a sentence that only reads like the frozen one', async () => {
+      const user = userEvent.setup();
+      const onVerify = vi.fn<(code: string) => Promise<TotpVerifyResult>>().mockResolvedValue({
+        success: false,
+        error: frozenMessage,
+        errorCode: 'INVALID_TOTP_CODE',
+      });
+      render(<TwoFactorLoginStep {...defaultProps} onVerify={onVerify} />);
+
+      await user.click(screen.getByTestId(TEST_IDS.otpInput));
+      await user.keyboard('123456');
+
+      await waitFor(() => {
+        expect(screen.getByText(frozenMessage)).toBeInTheDocument();
       });
       expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
     });

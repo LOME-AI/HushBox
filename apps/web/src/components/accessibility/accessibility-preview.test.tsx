@@ -1,8 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TEST_IDS } from '@hushbox/shared';
+import { PinnedBandHeightContext } from '@/components/shared/page-body';
 import { AccessibilityPreview } from './accessibility-preview';
+import type { FormFactor } from '@hushbox/ui/platform';
+
+const formFactor = vi.hoisted((): { band: FormFactor['band'] } => ({ band: 'desktop' }));
+
+vi.mock('@hushbox/ui/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@hushbox/ui/platform')>()),
+  useFormFactor: (): FormFactor => ({ band: formFactor.band, pointer: 'fine' }),
+}));
 
 const REPLY =
   'Sourdough at 75% hydration means 750 g of water for every kilogram of flour. Start at 70% if the dough feels hard to shape, and read the hydration guide for the full method.';
@@ -12,10 +21,20 @@ function preview(): HTMLElement {
 }
 
 describe('AccessibilityPreview', () => {
+  beforeEach(() => {
+    formFactor.band = 'desktop';
+  });
+
   it('is a region named Preview', () => {
     render(<AccessibilityPreview />);
 
     expect(screen.getByRole('region', { name: 'Preview' })).toBe(preview());
+  });
+
+  it('marks itself as the part of the page band that sticks on its own below 768', () => {
+    render(<AccessibilityPreview />);
+
+    expect(preview()).toHaveAttribute('data-page-pinned-sticky');
   });
 
   it('names the model that wrote the reply', () => {
@@ -135,19 +154,54 @@ describe('AccessibilityPreview', () => {
     expect(reply).toHaveClass('max-md:line-clamp-3');
   });
 
-  it('releases the clamp while the link has keyboard focus, so a clamped-away link shows', () => {
+  it('shows the reply link as text, not a link, below 768', () => {
+    formFactor.band = 'phone';
     render(<AccessibilityPreview />);
 
-    const reply = within(preview()).getByText(
-      (_, element) => element?.tagName === 'P' && element.textContent === REPLY
-    );
-    expect(reply).toHaveClass('max-md:has-[:focus-visible]:line-clamp-none');
+    expect(within(preview()).queryByRole('link')).toBeNull();
+    expect(within(preview()).getByText('hydration guide').tagName).toBe('SPAN');
   });
 
-  it('sticks to the top of the page scroller on its own below 768', () => {
+  it("draws that text in the link's styling below 768", () => {
+    formFactor.band = 'phone';
     render(<AccessibilityPreview />);
 
+    expect(within(preview()).getByText('hydration guide')).toHaveClass(
+      'text-brand-red',
+      'font-medium',
+      'underline'
+    );
+  });
+
+  it('keeps the reply word for word below 768', () => {
+    formFactor.band = 'phone';
+    render(<AccessibilityPreview />);
+
+    expect(
+      within(preview()).getByText(
+        (_, element) => element?.tagName === 'P' && element.textContent === REPLY
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('sticks to the top of the page scroller on its own below 768 while the page pins it', () => {
+    render(
+      <PinnedBandHeightContext.Provider value={200}>
+        <AccessibilityPreview />
+      </PinnedBandHeightContext.Provider>
+    );
+
     expect(preview()).toHaveClass('max-md:sticky', 'max-md:top-0', 'max-md:z-sticky');
+  });
+
+  it('scrolls with the page below 768 while the page pins nothing, as when it is too tall', () => {
+    render(
+      <PinnedBandHeightContext.Provider value={null}>
+        <AccessibilityPreview />
+      </PinnedBandHeightContext.Provider>
+    );
+
+    expect(preview()).not.toHaveClass('max-md:sticky');
   });
 
   it('draws no top border below 768', () => {

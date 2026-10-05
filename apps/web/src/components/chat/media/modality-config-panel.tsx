@@ -39,8 +39,8 @@ interface MediaAxisProps {
    * arrive here as an absent `dimensions`. The reason is what tells them apart,
    * so it travels whole and this file asks it the question (see
    * {@link isSendCheckUnavailable}). A control takes itself down in that state
-   * and says nothing; the composer's notice list carries the sentence, except on
-   * the sheet (see {@link MediaFundingNotice}).
+   * and says nothing; the composer's notice list carries the sentence, and the
+   * settings surface says it once for its axes (see {@link MediaFundingNotice}).
    */
   readonly sendRefusal?: NoticeReason | undefined;
 }
@@ -63,21 +63,18 @@ function OptionRefusalReason({
 }
 
 /**
- * A caller that lays its axes out as titled sections asks for the title here
- * rather than rendering it itself: a heading rendered by the caller stays on
- * screen when the control it labels takes itself down, announcing a section
- * with nothing in it. A caller that labels its axes by layout instead (the
- * inline desktop row) passes none, and the control renders its body bare.
+ * The caller asks for each axis' title here rather than rendering it itself: a
+ * heading rendered by the caller stays on screen when the control it labels
+ * takes itself down, announcing a section with nothing in it.
  */
 interface MediaAxisHeadingProps {
-  readonly heading?: string | undefined;
+  readonly heading: string;
 }
 
 function MediaAxisSection({
   heading,
   children,
 }: Readonly<MediaAxisHeadingProps & { children: React.ReactNode }>): React.JSX.Element {
-  if (heading === undefined) return <>{children}</>;
   return (
     <section className="flex flex-col items-center gap-2">
       <h3 className="text-muted-foreground self-start text-sm font-medium">{heading}</h3>
@@ -118,8 +115,6 @@ interface AspectRatioGroupProps extends MediaAxisProps {
   ratios: readonly string[];
   activeRatio: string;
   onSelect: (ratio: string) => void;
-  /** Pill size — `lg` for the mobile bottom sheet, `sm` for the inline desktop row. */
-  pillSize?: 'sm' | 'lg';
 }
 
 /** Present when the money layer refused a ratio: the element that says why. */
@@ -160,7 +155,6 @@ function AspectRatioGroup({
   ratios,
   activeRatio,
   onSelect,
-  pillSize = 'sm',
   dimensions,
 }: Readonly<AspectRatioGroupProps>): React.JSX.Element {
   return (
@@ -173,7 +167,6 @@ function AspectRatioGroup({
           <AspectRatioPill
             ratio={ratio}
             isActive={activeRatio === ratio}
-            size={pillSize}
             {...(refusal && { unavailable: refusal })}
             onClick={() => {
               if (refusal === undefined) onSelect(ratio);
@@ -222,7 +215,7 @@ export function AxisConflictNotice({ axis }: Readonly<{ axis: string }>): React.
  * produced verdict is absent in both.
  *
  * This is the only comparison of that reason anywhere: every control and the
- * sheet's notice ask it here, so no surface can hold a second opinion about a
+ * settings surface's notice ask it here, so no surface can hold a second opinion about a
  * verdict the money layer already reached.
  */
 export function isSendCheckUnavailable(
@@ -232,12 +225,12 @@ export function isSendCheckUnavailable(
 }
 
 /**
- * The unread funding figure, said once for a whole sheet — the composer's notice
- * list owns this sentence everywhere it can be read, and the sheet is the one
- * surface it cannot reach.
+ * The unread funding figure, said once for a whole settings surface. The
+ * composer's notice list owns this sentence wherever it can be read; below 768
+ * the settings open as a modal sheet over the composer, which hides that list.
  *
- * It belongs to the sheet rather than to each control because it is ONE fact
- * about the turn, not a verdict per axis: a sheet's three axes rendering it each
+ * It belongs to the surface rather than to each control because it is ONE fact
+ * about the turn, not a verdict per axis: three axes rendering it each
  * would put the identical sentence in three live regions and a screen reader
  * would announce it three times. The axis-conflict notice repeats legitimately
  * — each of those names its own axis — and this one does not.
@@ -251,11 +244,6 @@ export function MediaFundingNotice({
 }: Readonly<Pick<MediaAxisProps, 'sendRefusal'>> = {}): React.JSX.Element | null {
   if (!isSendCheckUnavailable(sendRefusal)) return null;
   return <ControlNotice>{noticeText(sendRefusal)}</ControlNotice>;
-}
-
-interface AspectRatioControlProps extends MediaAxisProps, MediaAxisHeadingProps {
-  /** Pill size — `lg` for the mobile bottom sheet, `sm` for the inline row. */
-  pillSize?: 'sm' | 'lg';
 }
 
 /** The image turn's ratio, the setter for it, and what the selected image models agree on. */
@@ -277,45 +265,11 @@ export function useImageAspectRatio(): {
   };
 }
 
-export function ImageAspectRatioControl({
-  pillSize = 'sm',
-  heading,
-  dimensions,
-  sendRefusal,
-}: Readonly<AspectRatioControlProps> = {}): React.JSX.Element | null {
-  const { aspectRatio, choose, agreement } = useImageAspectRatio();
-
-  // The conflict is named FIRST wherever both hold: it is a property of the
-  // selection that no retry clears, while the unread funding resolves on its
-  // own — leading with the self-clearing one would park a permanent problem
-  // behind a temporary sentence.
-  if (agreement.kind === 'conflict')
-    return (
-      <MediaAxisSection heading={heading}>
-        <AxisConflictNotice axis="aspect ratio" />
-      </MediaAxisSection>
-    );
-  if (isSendCheckUnavailable(sendRefusal)) return null;
-
-  return (
-    <MediaAxisSection heading={heading}>
-      <AspectRatioGroup
-        ratios={agreedOptions(agreement)}
-        activeRatio={aspectRatio}
-        pillSize={pillSize}
-        {...(dimensions === undefined ? {} : { dimensions })}
-        onSelect={choose}
-      />
-    </MediaAxisSection>
-  );
-}
-
 export function VideoAspectRatioControl({
-  pillSize = 'sm',
   heading,
   dimensions,
   sendRefusal,
-}: Readonly<AspectRatioControlProps> = {}): React.JSX.Element | null {
+}: Readonly<MediaAxisProps & MediaAxisHeadingProps>): React.JSX.Element | null {
   const aspectRatio = useModelStore((s) => s.videoConfig.aspectRatio);
   const setVideoConfig = useModelStore((s) => s.setVideoConfig);
   const selectedModels = useModelStore((s) => s.selections.video);
@@ -336,7 +290,6 @@ export function VideoAspectRatioControl({
       <AspectRatioGroup
         ratios={supportedRatios}
         activeRatio={aspectRatio}
-        pillSize={pillSize}
         {...(dimensions === undefined ? {} : { dimensions })}
         onSelect={(ratio) => {
           setVideoConfig({ aspectRatio: ratio });
@@ -399,7 +352,7 @@ export function VideoResolutionControl({
   heading,
   dimensions,
   sendRefusal,
-}: Readonly<MediaAxisProps & MediaAxisHeadingProps> = {}): React.JSX.Element | null {
+}: Readonly<MediaAxisProps & MediaAxisHeadingProps>): React.JSX.Element | null {
   const resolution = useModelStore((s) => s.videoConfig.resolution);
   const setVideoConfig = useModelStore((s) => s.setVideoConfig);
   const selectedModels = useModelStore((s) => s.selections.video);
@@ -545,7 +498,7 @@ export function VideoDurationControl({
   heading,
   dimensions,
   sendRefusal,
-}: Readonly<MediaAxisProps & MediaAxisHeadingProps> = {}): React.JSX.Element | null {
+}: Readonly<MediaAxisProps & MediaAxisHeadingProps>): React.JSX.Element | null {
   const durationSeconds = useModelStore((s) => s.videoConfig.durationSeconds);
   const setVideoConfig = useModelStore((s) => s.setVideoConfig);
   const selectedModels = useModelStore((s) => s.selections.video);
@@ -569,18 +522,8 @@ export function VideoDurationControl({
 
   return (
     <MediaAxisSection heading={heading}>
-      {/* The heading already says the axis, so the inline label would say it
-          twice; max-w-xs keeps the slider off the full width of the sheet that
-          is the only surface heading it. */}
-      <div
-        className={cn(
-          'flex w-full min-w-0 items-center gap-2',
-          heading !== undefined && 'max-w-xs'
-        )}
-      >
-        {heading === undefined ? (
-          <span className="text-muted-foreground shrink-0 text-xs">Duration</span>
-        ) : null}
+      {/* max-w-xs keeps the slider off the full width of a phone's sheet. */}
+      <div className="flex w-full max-w-xs min-w-0 items-center gap-2">
         <DurationSnapSlider
           value={durationSeconds}
           min={min}
@@ -650,7 +593,17 @@ export function AudioDurationControl(): React.JSX.Element {
 
 interface MediaCostLineProps {
   modality: 'image' | 'video' | 'audio';
+  /**
+   * `stacked` sets "(estimate)" under the figure; `inline` sets it on the figure's line, for a
+   * row that must stay one line tall.
+   */
+  layout?: 'stacked' | 'inline';
 }
+
+const COST_LINE_LAYOUT_CLASS = {
+  stacked: 'flex-col items-end',
+  inline: 'flex-row items-baseline gap-1',
+} as const;
 
 /** Decimals the estimate shows — the same precision as the per-image rate beside it. */
 const MEDIA_ESTIMATE_DECIMALS = 3;
@@ -709,6 +662,7 @@ function selectModalityEstimate(
 
 export function MediaCostLine({
   modality,
+  layout = 'stacked',
 }: Readonly<MediaCostLineProps>): React.JSX.Element | null {
   const imageNanoUsd = useImageCost();
   const videoNanoUsd = useVideoCost();
@@ -724,7 +678,7 @@ export function MediaCostLine({
   // does not carry) shows nothing rather than "≈ $0.000".
   if (estimateNanoUsd === undefined || estimateNanoUsd <= 0n) return null;
   return (
-    <div className="flex flex-col items-end leading-tight whitespace-nowrap">
+    <div className={cn('flex leading-tight whitespace-nowrap', COST_LINE_LAYOUT_CLASS[layout])}>
       <span className="text-foreground font-mono text-xs">{`≈ ${nanoUnitPriceUsd(estimateNanoUsd, MEDIA_ESTIMATE_DECIMALS)}`}</span>
       <span className="text-caption text-muted-foreground font-sans">(estimate)</span>
     </div>

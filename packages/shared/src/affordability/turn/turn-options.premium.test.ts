@@ -53,6 +53,7 @@ const SELECTION: Selection = {
   modality: 'text',
   pinned: {},
   webSearch: false,
+  effortAuto: true,
 };
 
 function fundingAt(payerTier: UserTier): FundingSnapshot {
@@ -98,6 +99,40 @@ describe('a model released inside the premium window', () => {
 describe('a model released outside the premium window', () => {
   it('is available at the same tier, driven from the same clock', () => {
     expect(verdictFor(NOW_MS - PREMIUM_RECENCY_MS - DAY_MS, 'free')).toEqual({ available: true });
+  });
+});
+
+describe('a model premium only by its trial budget at the classification prompt size', () => {
+  // Its trial turn's reserve-side price is over the 1¢ cap at the 1,000-character
+  // classification exchange and under it at the 90-character prompt below. One
+  // old model, so neither the price leg nor the recency leg can fire.
+  const BUDGET_PREMIUM: PriceableModel = {
+    ...modelReleasedAt(0),
+    pricing: tokenPricingFixture({ input: nanoUSD(10_000n), output: nanoUSD(3500n) }),
+  };
+  const SHORT_BASIS: PromptBasis = { ...BASIS, systemChars: 30, historyChars: 30, inputChars: 30 };
+
+  function shortPromptVerdict(tier: UserTier): Availability | undefined {
+    const options = getTurnOptions(fundingAt(tier), SHORT_BASIS, SELECTION, {
+      models: [BUDGET_PREMIUM],
+      nowMs: NOW_MS,
+    });
+    return options.admissible.all[0]?.availability;
+  }
+
+  it('names the account to a trial payer whose own prompt is short', () => {
+    expect(shortPromptVerdict('trial')).toEqual({
+      available: false,
+      reason: 'premium_requires_account',
+    });
+  });
+
+  it('stays available to a free payer', () => {
+    expect(shortPromptVerdict('free')).toEqual({ available: true });
+  });
+
+  it('stays available to a link guest', () => {
+    expect(shortPromptVerdict('guest')).toEqual({ available: true });
   });
 });
 
@@ -166,6 +201,7 @@ describe('what a wrong-but-usable clock can reach', () => {
     modality: 'text',
     pinned: {},
     webSearch: false,
+    effortAuto: true,
   };
 
   function priceVerdictAt(nowMs: number): Availability | undefined {

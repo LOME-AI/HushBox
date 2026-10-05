@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { nanoUSD } from '@hushbox/shared';
 import {
   MARKUP_BASIS_POINTS,
   MEDIA_STORAGE_COST_PER_BYTE_NANO,
@@ -6,6 +7,7 @@ import {
   applyMarkup,
   assertMarkupMatchesSharedRate,
   billableRateToMaxPriceUsdPerMillion,
+  billableRatesToMaxPrice,
   providerUsdToBillableNanoUsd,
   roundHalfEvenDiv,
   usdToNanoUsd,
@@ -181,6 +183,15 @@ describe('billableRateToMaxPriceUsdPerMillion', () => {
 
   it('rejects a negative billable rate', () => {
     expect(() => billableRateToMaxPriceUsdPerMillion(-1n)).toThrow(/negative/);
+  });
+});
+
+describe('billableRatesToMaxPrice', () => {
+  it('un-bakes the input rate as the prompt cap and the output rate as the completion cap', () => {
+    expect(billableRatesToMaxPrice({ input: nanoUSD(8625n), output: nanoUSD(32_344n) })).toEqual({
+      prompt: '7.500000',
+      completion: '28.125217',
+    });
   });
 });
 

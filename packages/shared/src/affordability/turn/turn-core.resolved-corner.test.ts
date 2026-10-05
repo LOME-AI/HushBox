@@ -73,6 +73,7 @@ function autoTurn(model: PriceableModel, spendable: bigint): OptionSet {
     modality: 'text',
     pinned: {},
     webSearch: false,
+    effortAuto: true,
   };
   return getTurnOptions(fundingOf(spendable), BASIS, selection, { models: [model], nowMs: NOW_MS })
     .admissible;

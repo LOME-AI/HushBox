@@ -1,7 +1,7 @@
-import { eq, inArray } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { LOCAL_NEON_DEV_CONFIG, createDb, modelCatalog } from '@hushbox/db';
-import { OLD_RELEASE_SECONDS, TEST_DAY_START } from '@hushbox/shared/test-time';
+import { DAY_MS, OLD_RELEASE_SECONDS, TEST_DAY_START } from '@hushbox/shared/test-time';
 import { auditCatalogHealth, listModels } from './list-models.js';
 import type { SafeLogFields, Telemetry } from '../../../../lib/telemetry/index.js';
 
@@ -66,13 +66,17 @@ async function seedUnprojectable(modelId: string): Promise<void> {
       descriptor: {
         id: modelId,
         provider: RUN_PREFIX,
-        version: '3',
+        version: '4',
         inputs: ['text'],
         outputs: ['text'],
         parameters: {},
         behaviors: [],
         limits: {},
-        pricing: { kind: 'tokens', anchor: { base: { input: '100', output: '200' }, tiers: [] } },
+        pricing: {
+          kind: 'tokens',
+          anchorContextTokens: 1_000_000,
+          anchor: { base: { input: '100', output: '200' }, tiers: [] },
+        },
         zdrReachable: true,
         releasedAt: OLD_RELEASE_SECONDS,
         fetchedAt: 0,
@@ -160,7 +164,7 @@ describe('auditCatalogHealth', () => {
           descriptor: {
             id: modelId,
             provider: RUN_PREFIX,
-            version: '3',
+            version: '4',
             inputs: ['text'],
             outputs: ['audio'],
             parameters: {},
@@ -189,11 +193,21 @@ describe('auditCatalogHealth', () => {
   });
 
   it('stays quiet when the catalog read itself refuses', async () => {
-    // A v1 row makes the whole read fail fast (its PRE-fee rates would price
-    // turns below billable). That condition already answers every product read
-    // with a 503, so the audit adds nothing by repeating it — and it must not
-    // turn a telemetry read into a refresh failure.
+    // A v1 row in view with no exposable current-version row beside it makes
+    // the read refuse (the v1 row's PRE-fee rates would price turns below
+    // billable). That condition already answers every product read with a 503,
+    // so the audit adds nothing by repeating it — and it must not turn a
+    // telemetry read into a refresh failure. No concurrent file shares this
+    // table, because each vitest worker slot clones its own database, but rows
+    // this file's other tests and earlier files in the slot left behind were
+    // sighted more than a staleness window before this read's instant, and a
+    // file that sights rows at that instant removes them before its next test
+    // runs, so the staleness window leaves only this test's rows in view: the
+    // v1 row, and a corrupt current-version row the audit would report were the
+    // read served.
+    const readAtMs = TEST_DAY_START + 3650 * DAY_MS;
     const poison = freshModelId('audit-unbaked-v1');
+    const corrupt = freshModelId('audit-beside-unbaked-v1');
     await db
       .insert(modelCatalog)
       .values({
@@ -207,22 +221,31 @@ describe('auditCatalogHealth', () => {
           parameters: {},
           behaviors: [],
           limits: { contextLength: 128_000 },
-          pricing: { kind: 'tokens', anchor: { base: { input: '100', output: '200' }, tiers: [] } },
+          pricing: {
+            kind: 'tokens',
+            anchorContextTokens: 1_000_000,
+            anchor: { base: { input: '100', output: '200' }, tiers: [] },
+          },
           zdrReachable: true,
           releasedAt: OLD_RELEASE_SECONDS,
           fetchedAt: 0,
         },
+        lastSeenAt: new Date(readAtMs),
       })
+      .onConflictDoNothing();
+    await db
+      .insert(modelCatalog)
+      .values({ modelId: corrupt, descriptor: { version: '4' }, lastSeenAt: new Date(readAtMs) })
       .onConflictDoNothing();
     const recorder = recordingTelemetry();
     try {
-      await auditCatalogHealth({ db, telemetry: recorder.telemetry }, TEST_DAY_START);
+      await auditCatalogHealth({ db, telemetry: recorder.telemetry }, readAtMs);
       expect(recorder.errors).toEqual([]);
       expect(recorder.captures).toEqual([]);
     } finally {
-      // Remove the poison row so no later whole-table read in this file trips
-      // over it.
-      await db.delete(modelCatalog).where(eq(modelCatalog.modelId, poison));
+      // Remove both rows so no later whole-table read in this file trips over
+      // them.
+      await db.delete(modelCatalog).where(inArray(modelCatalog.modelId, [poison, corrupt]));
     }
   });
 
@@ -237,13 +260,17 @@ describe('auditCatalogHealth', () => {
         descriptor: {
           id: modelId,
           provider: RUN_PREFIX,
-          version: '3',
+          version: '4',
           inputs: ['text'],
           outputs: ['text'],
           parameters: {},
           behaviors: [],
           limits: { contextLength: 128_000 },
-          pricing: { kind: 'tokens', anchor: { base: { input: '100', output: '200' }, tiers: [] } },
+          pricing: {
+            kind: 'tokens',
+            anchorContextTokens: 1_000_000,
+            anchor: { base: { input: '100', output: '200' }, tiers: [] },
+          },
           zdrReachable: true,
           releasedAt: OLD_RELEASE_SECONDS,
           fetchedAt: 0,

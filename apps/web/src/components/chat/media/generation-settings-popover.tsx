@@ -11,6 +11,9 @@ import {
   MediaCostLine,
   MediaFundingNotice,
   useImageAspectRatio,
+  VideoAspectRatioControl,
+  VideoDurationControl,
+  VideoResolutionControl,
 } from '@/components/chat/media/modality-config-panel';
 import { AUTO_ASPECT_RATIO, RatioShape, ratioLabel } from '@/components/chat/media/ratio-chip';
 import type { MediaDimensionAvailability, NoticeReason } from '@hushbox/shared';
@@ -204,8 +207,34 @@ function ImageRatioAxis({
   );
 }
 
+/**
+ * The video turn's three axes, each under its own heading. From 768 they share one box that
+ * scrolls inside the capped popover; below 768 the sheet's own body scrolls instead, so no
+ * inner edge can part a heading from its control.
+ */
+function VideoAxes({ dimensions, sendRefusal }: Readonly<MediaVerdictProps>): React.JSX.Element {
+  return (
+    <div className="-m-0.5 flex min-h-0 shrink flex-col gap-4 overflow-y-auto p-0.5 max-md:overflow-visible">
+      <VideoAspectRatioControl
+        heading="Aspect ratio"
+        dimensions={dimensions}
+        sendRefusal={sendRefusal}
+      />
+      <VideoResolutionControl
+        heading="Resolution"
+        dimensions={dimensions}
+        sendRefusal={sendRefusal}
+      />
+      <VideoDurationControl heading="Duration" dimensions={dimensions} sendRefusal={sendRefusal} />
+    </div>
+  );
+}
+
+/** Each turn's settings title: the popover's name, and its sheet's head below 768. */
+const SETTINGS_TITLE = { image: 'Aspect ratio', video: 'Video settings' } as const;
+
 interface GenerationSettingsPopoverProps extends MediaVerdictProps {
-  readonly modality: 'image';
+  readonly modality: 'image' | 'video';
   /** The control it opens from; it is told whether the popover is open. */
   readonly trigger: React.ReactElement<{ expanded?: boolean; ref?: React.Ref<HTMLElement> }>;
   /** The composer it hangs below; until that is mounted it hangs from its chip. */
@@ -213,12 +242,14 @@ interface GenerationSettingsPopoverProps extends MediaVerdictProps {
 }
 
 /**
- * A media turn's settings, opened from one composer chip: for an image, the
- * "Aspect ratio" grid and the turn's estimated cost. From 768 it hangs below the
+ * A media turn's settings, opened from one composer chip, with the turn's
+ * estimated cost: for an image, the "Aspect ratio" grid; for a video, its ratio,
+ * resolution and duration under "Video settings". From 768 it hangs below the
  * composer inside the main column, flipping up only when short; below 768 it is
- * a sheet titled "Aspect ratio".
+ * a sheet under that title.
  */
 export function GenerationSettingsPopover({
+  modality,
   trigger,
   anchor,
   dimensions,
@@ -242,7 +273,7 @@ export function GenerationSettingsPopover({
   return (
     <Popover
       trigger={React.cloneElement(trigger, { expanded: open, ref: setTriggerElement })}
-      title="Aspect ratio"
+      title={SETTINGS_TITLE[modality]}
       width="lg"
       align="start"
       anchor={hangFrom}
@@ -253,14 +284,24 @@ export function GenerationSettingsPopover({
       {/* The anchored popover is a column whose children keep their height unless they opt in:
           this body does, so the grid inside it is what scrolls. [&] outranks the column's
           *:shrink-0, which sorts after a plain utility. */}
-      <div className="flex min-h-0 flex-col gap-3 [&]:shrink">
+      <div
+        className={cn(
+          'flex min-h-0 flex-col gap-3 [&]:shrink',
+          // A video sheet keeps its full height, so the sheet's body is what scrolls.
+          modality === 'video' && 'max-md:[&]:shrink-0'
+        )}
+      >
         {/* The sheet's head carries the title below 768. */}
-        <h2 className="text-base font-normal max-md:hidden">Aspect ratio</h2>
+        <h2 className="text-base font-normal max-md:hidden">{SETTINGS_TITLE[modality]}</h2>
         <MediaFundingNotice sendRefusal={sendRefusal} />
-        <ImageRatioAxis dimensions={dimensions} sendRefusal={sendRefusal} />
+        {modality === 'image' ? (
+          <ImageRatioAxis dimensions={dimensions} sendRefusal={sendRefusal} />
+        ) : (
+          <VideoAxes dimensions={dimensions} sendRefusal={sendRefusal} />
+        )}
         <div className="text-ui-sm text-muted-foreground flex items-baseline justify-between gap-4 pt-1">
           <span>Cost</span>
-          <MediaCostLine modality="image" />
+          <MediaCostLine modality={modality} />
         </div>
       </div>
     </Popover>

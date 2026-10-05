@@ -7,9 +7,6 @@ export {
   charStorageDollars,
   CHARACTERS_PER_KILOBYTE,
   CREDIT_CARD_FEE_RATE,
-  ESTIMATED_AUDIO_BYTES_PER_SECOND,
-  ESTIMATED_IMAGE_BYTES,
-  ESTIMATED_VIDEO_BYTES_PER_SECOND,
   EXPENSIVE_MODEL_THRESHOLD_PER_1K,
   HUSHBOX_FEE_RATE,
   KILOBYTES_PER_GIGABYTE,
@@ -142,7 +139,6 @@ export {
   getEffectiveBalanceNano,
   isExpensiveModelNano,
   MEDIA_STORAGE_COST_PER_BYTE_NANO,
-  mediaOutputBytes,
   mediaStorageNanoUsd,
   nanoPricePer1k,
   nanoPriceRangePer1k,
@@ -332,6 +328,7 @@ export { MODALITIES, Modality } from './affordability/model/modality.ts';
 // cross-package application seams; the vendored fee-seams lint rule confines
 // who may import them (seam list in fee-seams.config.mjs).
 export {
+  DECIMAL_USD_PATTERN,
   MARKUP_BASIS_POINTS,
   applyMarkup,
   applyMarkupCeil,
@@ -437,7 +434,10 @@ export {
   InferenceRequest,
   InputPart,
   MediaRef,
+  promptUtf8Bytes,
   ProviderMetadata,
+  sentSystemPromptOf,
+  sentTextsOf,
   TOOL_ERROR_REASONS,
   ToolCall,
   ToolErrorReason,
@@ -448,6 +448,7 @@ export type { FilePartMapper, FilePartMediaEvents } from './workflow/inference.t
 export { toWireInferenceEvent, WireInferenceEvent } from './workflow/wire-inference-event.ts';
 export {
   AdmissionHookName,
+  CATALOG_GENERATION_HEX_LENGTH,
   candidateAnsweringAt,
   consumedProducerIds,
   DEADLINE_CLASS_MS,
@@ -495,6 +496,7 @@ export type {
   SettlementCharge,
   TrialRunIdentity,
   SettlementHook,
+  SettlementReceipt,
   SettlementRequest,
 } from './workflow/flow-executor.ts';
 export { mockDirectivesSchema } from './testing/mock-directives.ts';

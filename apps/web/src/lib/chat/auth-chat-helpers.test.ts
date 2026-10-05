@@ -22,6 +22,7 @@ import {
   isReadLoading,
   computePruneIds,
   mergeMessages,
+  placeTurnNotice,
   requestedMediaAspectRatio,
   pendingMediaInFlight,
   buildModalityConfigPayload,
@@ -41,6 +42,8 @@ import { turnNoticeForCode, turnNoticeText } from './turn-notice';
 import type { ReactNode } from 'react';
 import type { ImageConfig, VideoConfig, AudioConfig } from '@hushbox/shared';
 import type { EpochVerdict } from '@/lib/crypto/epoch-key-cache';
+import type { Message } from '@/lib/api/api';
+import type { FailedTurn } from '@/stores/chat/error';
 
 const getEpochKeyMock = vi.mocked(getEpochKey);
 const getEpochVerdictMock = vi.mocked(getEpochVerdict);
@@ -312,6 +315,223 @@ describe('mergeMessages', () => {
     const err = result.find((m) => m.id === 'err-1');
     expect(err?.turnNotice).toBe(notice);
     expect(err?.content).toBe(turnNoticeText(notice));
+  });
+
+  describe('a failed turn', () => {
+    const notice = turnNoticeForCode('CHAT_STREAM_FAILED');
+
+    const failedSend = (question: Message): FailedTurn => ({
+      retry: {
+        kind: 'send',
+        request: {
+          conversationId: 'conv-1',
+          models: ['m'],
+          userMessage: { content: question.content },
+          messagesForInference: [{ role: 'user', content: question.content }],
+          fundingSource: 'personal_balance',
+        },
+        turn: {},
+        question,
+      },
+      storedIds: [question.id],
+    });
+
+    const failedRegenerate = (
+      targetMessageId: string,
+      action: 'retry' | 'edit',
+      question: Message | null
+    ): FailedTurn => ({
+      retry: {
+        kind: 'regenerate',
+        request: {
+          conversationId: 'conv-1',
+          targetMessageId,
+          action,
+          models: ['m'],
+          userMessage: { content: question?.content ?? 'msg-u1' },
+          messagesForInference: [],
+          fundingSource: 'personal_balance',
+        },
+        turn: {},
+        question,
+      },
+      storedIds: ['regen-1'],
+    });
+
+    const merged = (
+      stored: Message[],
+      failedTurn: FailedTurn,
+      localMessages: Message[] = []
+    ): string[] =>
+      mergeMessages({
+        isCreateMode: false,
+        realConversationId: 'conv-1',
+        localMessages,
+        decryptedApiMessages: stored,
+        optimisticMessages: [],
+        chatError: { id: 'err-1', notice, failedTurn },
+        primaryModelId: 'm',
+      }).map((m) => m.id);
+
+    it("draws a failed send's question directly above its notice", () => {
+      const question = makeMessage('q1');
+
+      expect(
+        merged([makeMessage('u1'), makeMessage('a1', 'assistant')], failedSend(question))
+      ).toEqual(['u1', 'a1', 'q1', 'err-1']);
+    });
+
+    it("draws the failed send's question as the question it asked", () => {
+      const question = makeMessage('q1');
+      const result = mergeMessages({
+        isCreateMode: false,
+        realConversationId: 'conv-1',
+        localMessages: [],
+        decryptedApiMessages: [],
+        optimisticMessages: [],
+        chatError: { id: 'err-1', notice, failedTurn: failedSend(question) },
+        primaryModelId: 'm',
+      });
+
+      expect(result[0]).toMatchObject({ id: 'q1', role: 'user', content: 'msg-q1' });
+    });
+
+    it('marks the drawn question as one that was never saved', () => {
+      const result = mergeMessages({
+        isCreateMode: false,
+        realConversationId: 'conv-1',
+        localMessages: [],
+        decryptedApiMessages: [],
+        optimisticMessages: [],
+        chatError: { id: 'err-1', notice, failedTurn: failedSend(makeMessage('q1')) },
+        primaryModelId: 'm',
+      });
+
+      expect(result[0]?.unsavedQuestion).toBe(true);
+    });
+
+    it('draws no question a row already shows', () => {
+      const firstTurn = makeMessage('l1');
+
+      expect(merged([], failedSend(firstTurn), [firstTurn])).toEqual(['l1', 'err-1']);
+    });
+
+    it("places a failed regenerate's notice directly after its own turn's last reply", () => {
+      const stored = [
+        makeMessage('u1'),
+        makeMessage('a1', 'assistant'),
+        makeMessage('b1', 'assistant'),
+        makeMessage('u2'),
+        makeMessage('a2', 'assistant'),
+      ];
+
+      expect(merged(stored, failedRegenerate('u1', 'retry', null))).toEqual([
+        'u1',
+        'a1',
+        'b1',
+        'err-1',
+        'u2',
+        'a2',
+      ]);
+    });
+
+    it("draws a failed edit's question above its notice, after its own turn", () => {
+      const stored = [
+        makeMessage('u1'),
+        makeMessage('a1', 'assistant'),
+        makeMessage('u2'),
+        makeMessage('a2', 'assistant'),
+      ];
+
+      expect(merged(stored, failedRegenerate('u1', 'edit', makeMessage('e1')))).toEqual([
+        'u1',
+        'a1',
+        'e1',
+        'err-1',
+        'u2',
+        'a2',
+      ]);
+    });
+
+    it("appends a failed regenerate's notice when its turn is not in view", () => {
+      expect(
+        merged(
+          [makeMessage('u2'), makeMessage('a2', 'assistant')],
+          failedRegenerate('u1', 'retry', null)
+        )
+      ).toEqual(['u2', 'a2', 'err-1']);
+    });
+  });
+});
+
+describe('placeTurnNotice', () => {
+  const notice: Message = {
+    ...makeMessage('err-1', 'assistant'),
+    turnNotice: turnNoticeForCode('CHAT_STREAM_FAILED'),
+  };
+  const thread: Message[] = [
+    makeMessage('u1'),
+    makeMessage('a1', 'assistant'),
+    makeMessage('u2'),
+    makeMessage('a2', 'assistant'),
+  ];
+  const ids = (messages: Message[]): string[] => messages.map((m) => m.id);
+
+  it("places the notice after its anchor's turn, before the next question", () => {
+    expect(ids(placeTurnNotice(thread, notice, null, 'u1'))).toEqual([
+      'u1',
+      'a1',
+      'err-1',
+      'u2',
+      'a2',
+    ]);
+  });
+
+  it('places the notice at the end when there is no anchor', () => {
+    expect(ids(placeTurnNotice(thread, notice, null, null))).toEqual([
+      'u1',
+      'a1',
+      'u2',
+      'a2',
+      'err-1',
+    ]);
+  });
+
+  it('places the notice at the end when its anchor is not in the thread', () => {
+    expect(ids(placeTurnNotice(thread, notice, null, 'gone'))).toEqual([
+      'u1',
+      'a1',
+      'u2',
+      'a2',
+      'err-1',
+    ]);
+  });
+
+  it('draws the failed question directly above the notice', () => {
+    expect(ids(placeTurnNotice(thread, notice, makeMessage('e1'), 'u1'))).toEqual([
+      'u1',
+      'a1',
+      'e1',
+      'err-1',
+      'u2',
+      'a2',
+    ]);
+  });
+
+  it('marks the drawn question as one that was never saved', () => {
+    const placed = placeTurnNotice(thread, notice, makeMessage('e1'), 'u1');
+
+    expect(placed.find((m) => m.id === 'e1')?.unsavedQuestion).toBe(true);
+  });
+
+  it('draws no question a row already shows', () => {
+    expect(ids(placeTurnNotice(thread, notice, makeMessage('u2'), null))).toEqual([
+      'u1',
+      'a1',
+      'u2',
+      'a2',
+      'err-1',
+    ]);
   });
 });
 

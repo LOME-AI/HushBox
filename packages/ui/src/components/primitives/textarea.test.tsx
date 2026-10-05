@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   Textarea,
   TEXTAREA_MIRROR_CLASSES,
+  TEXTAREA_NATIVE_WRAP_CLASSES,
   TEXTAREA_TYPE_SCALE_CLASSES,
   TEXTAREA_WRAP_CLASSES,
 } from './textarea';
@@ -148,6 +149,13 @@ describe('Textarea', () => {
     const { container } = render(<Textarea value="hello" onChange={vi.fn()} />);
     const replica = container.querySelector('[aria-hidden="true"]');
     expect(replica).toHaveClass('wrap-anywhere');
+  });
+
+  it('publishes the wrap a textarea computes natively, pre-wrap with break-word', () => {
+    expect(TEXTAREA_NATIVE_WRAP_CLASSES.split(' ')).toEqual([
+      'whitespace-pre-wrap',
+      'wrap-break-word',
+    ]);
   });
 
   it('gives the replica a caller-supplied className so a min/max-height override sizes it too', () => {

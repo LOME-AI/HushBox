@@ -187,10 +187,11 @@ export function createBillingManifest(deps: BillingRouteDeps) {
       // admission gate itself when the payer is the caller; an owner-funded
       // figure prices the owner dimension through the same spendable-funds seam
       // every other dimension uses, cushion included, so it refuses nothing
-      // admission would accept (BILLING §Affordability 8). It can still exceed
-      // what admission admits, because the owner wallet's own holds elsewhere
-      // are not subtracted — a divergence the spec settles as a hard refusal at
-      // admission (§Group Funding 7(b); see `FundingSnapshot.spendableNanoUsd`).
+      // admission would accept (BILLING §Affordability 8). That dimension is
+      // also net of every active hold on the owner's wallet, in any
+      // conversation, as admission reads it; a hold placed after this read can
+      // still make admission refuse outright (§Group Funding 7(b); see
+      // `FundingSnapshot.spendableNanoUsd`).
       // Deliberately separate from `/balance`: this read's answer needs Redis
       // — the holds it nets out live there — so a store outage leaves it
       // nothing to answer with and it fails CLOSED, 503, like admission. That

@@ -15,11 +15,17 @@ import type { ModelReasoning } from '@hushbox/shared';
 
 /**
  * OpenRouter catalog discovery. Four public endpoints (no API key):
- *   `/models`         — language + multimodal models (modalities, pricing,
- *                       flat supported_parameters, deprecation).
- *   `/endpoints/zdr`  — the authoritative, endpoint-granular ZDR set;
- *                       `zdrReachable` is membership by `model_id`.
- *   `/images/models`  — image models; per-model pricing is fetched N+1 from
+ *   `/models`         — language + multimodal models (modalities, caps, flat
+ *                       supported_parameters, deprecation). Its price is one
+ *                       top provider's and is not read: a language model's
+ *                       rates come from its ZDR endpoints.
+ *   `/endpoints/zdr`  — the authoritative, endpoint-granular ZDR set: each
+ *                       endpoint's price, caps, tag and parameters, keyed by
+ *                       `model_id`. Membership is necessary for `zdrReachable`;
+ *                       a language model is reachable only with an eligible
+ *                       standard-tier endpoint among its rows.
+ *   `/images/models`  — image models; each endpoint's pricing and
+ *                       `provider_tag` are fetched N+1 from
  *                       `/images/models/{id}/endpoints`.
  *   `/videos/models`  — video models; pricing lives in a heterogeneous
  *                       `pricing_skus` dict (see the normalizer's interpreter).
@@ -46,12 +52,6 @@ const listLinksSchema = z.unknown().optional();
 
 // --- /models (language + multimodal) ---------------------------------------
 
-const modelsPricingSchema = z.looseObject({
-  prompt: z.string().optional(),
-  completion: z.string().optional(),
-  input_cache_read: z.string().optional(),
-});
-
 const modelsEntrySchema = z.looseObject({
   id: z.string().min(1),
   name: z.string().optional(),
@@ -66,7 +66,6 @@ const modelsEntrySchema = z.looseObject({
       output_modalities: z.array(z.string()).nullish(),
     })
     .nullish(),
-  pricing: modelsPricingSchema.nullish(),
   supported_parameters: z.array(z.string()).nullish(),
   // Top-level per-model reasoning metadata (211/342 models). Effort strings
   // stay raw — unknown upstream levels are carried, never a parse failure.
@@ -98,9 +97,49 @@ const modelsResponseSchema = z.looseObject({
 
 // --- /endpoints/zdr (authoritative ZDR membership) -------------------------
 
+/**
+ * Only `model_id` is required: it is the membership, and an id that cannot be
+ * read is a body this catalog does not understand. Every other field is read
+ * per field by {@link zdrEndpointOf}, so one endpoint's odd field never fails
+ * the list and never drops its model's ZDR membership.
+ */
+const zdrRowSchema = z.looseObject({ model_id: z.string().min(1) });
+
 const zdrResponseSchema = z.looseObject({
-  data: z.array(z.looseObject({ model_id: z.string().min(1) })),
+  data: z.array(zdrRowSchema),
   links: listLinksSchema,
+});
+
+/**
+ * A stated token limit: a whole positive count, absent when the row states
+ * none (missing or null), and `'unreadable'` for any other value. A malformed
+ * limit is not an unstated one: read as unbounded, it would cover any cap.
+ */
+function statedCount(value: unknown): number | 'unreadable' | undefined {
+  if (value === undefined || value === null) return undefined;
+  return z.number().int().positive().safeParse(value).data ?? 'unreadable';
+}
+
+const priceValueSchema = z.union([z.string(), z.number()]);
+
+/**
+ * An endpoint's price as listed: every top-level key a string or a number
+ * (`discount` is a number on the live listing), and `overrides` a list of
+ * objects. Any other shape is a price this catalog cannot read; whether a
+ * string is a decimal rate is the price schedule's question.
+ */
+const endpointPricingSchema = z.record(z.string(), z.unknown()).transform((pricing, context) => {
+  const { overrides, ...rates } = pricing;
+  const parsedRates = z.record(z.string(), priceValueSchema).safeParse(rates);
+  const parsedOverrides = z
+    .array(z.record(z.string(), z.unknown()))
+    .optional()
+    .safeParse(overrides);
+  if (!parsedRates.success || !parsedOverrides.success) {
+    context.addIssue({ code: 'custom', message: 'unreadable endpoint price' });
+    return z.NEVER;
+  }
+  return { rates: parsedRates.data, overrides: parsedOverrides.data ?? [] };
 });
 
 // --- /images/models --------------------------------------------------------
@@ -163,10 +202,13 @@ const imagesResponseSchema = z.looseObject({
   links: listLinksSchema,
 });
 
-/** N+1 per-image-model endpoint detail carrying the pricing rows. The body is
- * `{id, endpoints:[{…, pricing:[…]}]}`; pricing rows carry `billable` as a
- * semantic role string (`output_image`, `input_image`, …), `unit` (image /
- * token / megapixel), and a numeric `cost_usd`. */
+/** N+1 per-image-model endpoint detail carrying each endpoint's tag and pricing
+ * rows. The body is `{id, endpoints:[{…, provider_tag, pricing:[…]}]}`; pricing
+ * rows carry `billable` as a semantic role string (`output_image`,
+ * `input_image`, …), `unit` (image / token / megapixel), and a numeric
+ * `cost_usd`. `provider_tag` is read per field by {@link imageEndpointsOf}, so an
+ * odd tag never fails the detail read; it reads as `null`, and normalization then
+ * excludes the model because its pin cannot name that endpoint. */
 const imagePricingRowSchema = z.looseObject({
   billable: z.string().nullish(),
   unit: z.string(),
@@ -204,11 +246,32 @@ const videosResponseSchema = z.looseObject({
 
 // --- typed catalog seam ----------------------------------------------------
 
-/** Language token rates as decimal USD strings, exactly as OpenRouter reports. */
+/** A language endpoint's two token rates, as decimal USD strings exactly as OpenRouter lists them. */
 export interface LanguageTokenPricing {
-  readonly prompt?: string | undefined;
-  readonly completion?: string | undefined;
-  readonly cacheRead?: string | undefined;
+  readonly prompt: string;
+  readonly completion: string;
+}
+
+/** An endpoint's top-level price keys as listed: decimal USD strings, or a number (`discount`). */
+export type EndpointPricing = Readonly<Record<string, string | number>>;
+
+/** One `pricing.overrides` entry as listed: its condition fields and rates, unvalidated. */
+export type RawOverride = Readonly<Record<string, unknown>>;
+
+/** One ZDR endpoint of a model, as `/endpoints/zdr` lists it. */
+export interface ZdrEndpoint {
+  readonly providerName: string;
+  /** The endpoint's slug; a variant after the first `/` names its service tier or region. */
+  readonly tag: string;
+  /** `'unreadable'` when the row states a value that is not a whole positive count. */
+  readonly maxCompletionTokens?: number | 'unreadable';
+  /** `'unreadable'` when the row states a value that is not a whole positive count. */
+  readonly contextLength?: number | 'unreadable';
+  /** `'unreadable'` when the row's list is absent, null, or not a list of strings. */
+  readonly supportedParameters: readonly string[] | 'unreadable';
+  readonly implicitCaching: boolean;
+  readonly pricing: EndpointPricing | 'unreadable';
+  readonly overrides: readonly RawOverride[];
 }
 
 export interface ImagePricingEntry {
@@ -217,6 +280,13 @@ export interface ImagePricingEntry {
   readonly billable: string | undefined;
   readonly unit: string;
   readonly costUsd: string;
+}
+
+/** One endpoint that can serve an image model, as `/images/models/{id}/endpoints` lists it. */
+interface ImageEndpoint {
+  /** The slug `provider.only` pins; `null` when the listing names none or an unreadable one. */
+  readonly providerTag: string | null;
+  readonly pricing: readonly ImagePricingEntry[];
 }
 
 export interface ImageSupportedParameters {
@@ -240,7 +310,6 @@ export interface LanguageMetadata {
   /** Output-token ceiling from the gateway's `top_provider.max_completion_tokens`;
    * absent when the gateway reports none (null or missing). */
   readonly maxCompletionTokens?: number | undefined;
-  readonly pricing: LanguageTokenPricing | undefined;
   /** Top-level per-model reasoning metadata, camelCased into the shared
    * descriptor shape; absent when the entry carries no reasoning object. */
   readonly reasoning?: ModelReasoning | undefined;
@@ -265,7 +334,7 @@ export interface ImageMetadata {
   readonly provider: string;
   readonly inputModalities: readonly string[];
   readonly supportedParameters: ImageSupportedParameters;
-  readonly endpointPricing: readonly ImagePricingEntry[];
+  readonly endpoints: readonly ImageEndpoint[];
   /** Release timestamp, UNIX SECONDS (the gateway's `created`). */
   readonly releasedAt: number | undefined;
 }
@@ -326,15 +395,17 @@ export interface GatewayCatalog {
   /** Models the gateway listed that this refresh could not read the detail for;
    * empty when every listed model was cataloged. See {@link ModelExclusion}. */
   readonly excludedModels: readonly ModelExclusion[];
-  /** Authoritative endpoint-granular ZDR membership, keyed by model id. */
+  /** Every ZDR endpoint the gateway lists, keyed by model id, in listing order. */
+  readonly zdrEndpoints: ReadonlyMap<string, readonly ZdrEndpoint[]>;
+  /** Authoritative endpoint-granular ZDR membership: the key set of {@link GatewayCatalog.zdrEndpoints}. */
   readonly zdrModelIds: ReadonlySet<string>;
   /** Present only when the language model list was walked short — see
    * {@link ListWalkCutoff}. */
   readonly modelsWalkCutoff?: ListWalkCutoff;
   /**
    * Present only when the ZDR list was walked short. The loudest of the four:
-   * `zdrModelIds` is read as plain membership and an id missing from it is
-   * treated as not ZDR-reachable, so a short ZDR list does not degrade a
+   * a model missing from `zdrEndpoints` is treated as not ZDR-reachable, so a
+   * short ZDR list does not degrade a
    * ranking — it hides models fail-closed, and nothing downstream can tell
    * that apart from a model the gateway genuinely does not offer ZDR for.
    */
@@ -405,17 +476,6 @@ function fetchJson(
   });
 }
 
-function languageTokenPricingOf(
-  pricing: z.infer<typeof modelsEntrySchema>['pricing']
-): LanguageTokenPricing | undefined {
-  if (pricing === undefined || pricing === null) return undefined;
-  return {
-    prompt: pricing.prompt,
-    completion: pricing.completion,
-    cacheRead: pricing.input_cache_read,
-  };
-}
-
 /** Gateway snake_case reasoning → the shared camelCase shape. Null scalar
  * sub-fields collapse to absent; a null `supported_efforts` is kept (the
  * upstream all-accepted marker, distinct from absent). */
@@ -458,7 +518,6 @@ function languageMetadata(
     supportedParameters: entry.supported_parameters ?? [],
     contextLength: entry.context_length ?? undefined,
     maxCompletionTokens: maxCompletionTokensOf(entry.top_provider),
-    pricing: languageTokenPricingOf(entry.pricing),
     reasoning: reasoningOf(entry.reasoning),
     releasedAt: entry.created ?? undefined,
     deprecated: typeof entry.expiration_date === 'string' && entry.expiration_date.length > 0,
@@ -491,13 +550,15 @@ function decimalCostString(value: number | string): string {
   return Number(fixed) === 0 ? plain : fixed;
 }
 
-function imagePricingEntries(body: unknown): ImagePricingEntry[] {
+function imageEndpointsOf(body: unknown): ImageEndpoint[] {
   const parsed = imageEndpointsResponseSchema.parse(body);
-  const rows = (parsed.endpoints ?? []).flatMap((endpoint) => endpoint.pricing ?? []);
-  return rows.map((row) => ({
-    billable: row.billable ?? undefined,
-    unit: row.unit,
-    costUsd: decimalCostString(row.cost_usd),
+  return (parsed.endpoints ?? []).map((endpoint) => ({
+    providerTag: z.string().min(1).safeParse(endpoint['provider_tag']).data ?? null,
+    pricing: (endpoint.pricing ?? []).map((row) => ({
+      billable: row.billable ?? undefined,
+      unit: row.unit,
+      costUsd: decimalCostString(row.cost_usd),
+    })),
   }));
 }
 
@@ -721,13 +782,38 @@ function fetchLanguageModels(
   );
 }
 
-function fetchZdrModelIds(
+function zdrEndpointOf(row: z.infer<typeof zdrRowSchema>): ZdrEndpoint {
+  const pricing = endpointPricingSchema.safeParse(row['pricing']);
+  const maxCompletionTokens = statedCount(row['max_completion_tokens']);
+  const contextLength = statedCount(row['context_length']);
+  return {
+    providerName: z.string().safeParse(row['provider_name']).data ?? '',
+    tag: z.string().safeParse(row['tag']).data ?? '',
+    ...(maxCompletionTokens === undefined ? {} : { maxCompletionTokens }),
+    ...(contextLength === undefined ? {} : { contextLength }),
+    supportedParameters:
+      z.array(z.string()).safeParse(row['supported_parameters']).data ?? 'unreadable',
+    implicitCaching: row['supports_implicit_caching'] === true,
+    pricing: pricing.success ? pricing.data.rates : 'unreadable',
+    overrides: pricing.success ? pricing.data.overrides : [],
+  };
+}
+
+function fetchZdrEndpoints(
   options: FetchGatewayCatalogOptions
-): ResultAsync<Walked<ReadonlySet<string>>, DomainError> {
-  return walkList(options, ZDR_LIST, `${options.baseUrl}/endpoints/zdr`).map((walk) => ({
-    result: new Set(walk.result.map((row) => row.model_id)),
-    ...(walk.cutoff === undefined ? {} : { cutoff: walk.cutoff }),
-  }));
+): ResultAsync<Walked<ReadonlyMap<string, readonly ZdrEndpoint[]>>, DomainError> {
+  return walkList(options, ZDR_LIST, `${options.baseUrl}/endpoints/zdr`).map((walk) => {
+    const endpoints = new Map<string, ZdrEndpoint[]>();
+    for (const row of walk.result) {
+      const listed = endpoints.get(row.model_id) ?? [];
+      listed.push(zdrEndpointOf(row));
+      endpoints.set(row.model_id, listed);
+    }
+    return {
+      result: endpoints,
+      ...(walk.cutoff === undefined ? {} : { cutoff: walk.cutoff }),
+    };
+  });
 }
 
 function fetchImageModel(
@@ -745,7 +831,7 @@ function fetchImageModel(
         description: entry.description ?? undefined,
         inputModalities: entry.architecture?.input_modalities ?? ['text'],
         supportedParameters: imageSupportedParameters(entry.supported_parameters),
-        endpointPricing: imagePricingEntries(body),
+        endpoints: imageEndpointsOf(body),
         releasedAt: entry.created ?? undefined,
       });
     } catch (error) {
@@ -840,11 +926,12 @@ export function fetchGatewayCatalog(
     fetchLanguageModels(options),
     fetchImageModels(options),
     fetchVideoModels(options),
-    fetchZdrModelIds(options),
+    fetchZdrEndpoints(options),
   ]).map(([language, image, video, zdr]) => ({
     models: [...language.result, ...image.result, ...video.result],
     excludedModels: image.excluded,
-    zdrModelIds: zdr.result,
+    zdrEndpoints: zdr.result,
+    zdrModelIds: new Set(zdr.result.keys()),
     // Four independent walks, four independent cutoffs: one field cannot say
     // which list was cut, and which list it is decides what the truncation
     // costs.

@@ -10,7 +10,7 @@ import { execa } from 'execa';
 import { StepFailure } from './step.js';
 
 /** The overlay's git directory, at the root of the checkout it shares. */
-export const OVERLAY_DIRECTORY = '.records.git';
+const OVERLAY_DIRECTORY = '.records.git';
 
 const REPOSITORY_VARIABLES: ReadonlySet<string> = new Set([
   'GIT_DIR',

@@ -55,6 +55,8 @@ function descriptor(overrides: { outputs: readonly string[] } & Record<string, u
     limits: {},
     pricing: { kind: 'perImage', anchor: '1', dearest: '1' },
     zdrReachable: true,
+    // Read only on an image row, which is exposed only with a pin.
+    zdrPin: ['test-provider'],
     releasedAt: FIXTURE_STAMP_SECONDS,
     fetchedAt: FIXTURE_STAMP_SECONDS,
     ...overrides,
@@ -72,7 +74,11 @@ const OUTPUTS_BY_BUCKET = { text: ['text'], image: ['image'], video: ['video'] }
  * Media buckets carry none of it — neither leg reaches them.
  */
 const SELECTABLE_TEXT_FIELDS = {
-  pricing: { kind: 'tokens', anchor: { base: { input: '1', output: '1' }, tiers: [] } },
+  pricing: {
+    kind: 'tokens',
+    anchorContextTokens: 1_000_000,
+    anchor: { base: { input: '1', output: '1' }, tiers: [] },
+  },
   limits: { contextLength: 100_000 },
   reasoning: { supportedEfforts: ['high', 'low'] },
   releasedAt: OLD_RELEASE_SECONDS,
@@ -112,7 +118,11 @@ function presenceOnlyRows(): FixtureRow[] {
  * pool members other cases push in, so adding it moves no premium verdict.
  */
 const HOLD_PROBE_FIELDS = {
-  pricing: { kind: 'tokens', anchor: { base: { input: '1', output: '1999' }, tiers: [] } },
+  pricing: {
+    kind: 'tokens',
+    anchorContextTokens: 1_000_000,
+    anchor: { base: { input: '1', output: '1999' }, tiers: [] },
+  },
   limits: { contextLength: 1_000_000 },
   reasoning: { mandatory: true },
   releasedAt: OLD_RELEASE_SECONDS,
@@ -135,7 +145,11 @@ const HOLD_PROBE_FIELDS = {
  * short.
  */
 const UNDERSIZED_HOLD_PROBE = {
-  pricing: { kind: 'tokens', anchor: { base: { input: '1', output: '1' }, tiers: [] } },
+  pricing: {
+    kind: 'tokens',
+    anchorContextTokens: 1_000_000,
+    anchor: { base: { input: '1', output: '1' }, tiers: [] },
+  },
   limits: { contextLength: 100_000 },
 } as const;
 
@@ -175,7 +189,11 @@ function validRows(): FixtureRow[] {
  * allowance, so no arrangement the producer prices at them fits it.
  */
 const UNAFFORDABLE_RATES = {
-  pricing: { kind: 'tokens', anchor: { base: { input: '1000000', output: '1000000' }, tiers: [] } },
+  pricing: {
+    kind: 'tokens',
+    anchorContextTokens: 1_000_000,
+    anchor: { base: { input: '1000000', output: '1000000' }, tiers: [] },
+  },
 } as const;
 
 /** The declared text ids, which are the rows carrying per-token rates. */
@@ -558,7 +576,11 @@ describe('assertE2eModelsPresent', () => {
     // The other premium leg: an old model can still be premium on price alone.
     // Dear pool members put the threshold at the dear rate, so the declared id
     // matching it is premium and the cheap declared id is not.
-    const dear = { kind: 'tokens', anchor: { base: { input: '1000', output: '1000' }, tiers: [] } };
+    const dear = {
+      kind: 'tokens',
+      anchorContextTokens: 1_000_000,
+      anchor: { base: { input: '1000', output: '1000' }, tiers: [] },
+    };
     const rows = textRows({ pricing: dear });
     rows.push(
       ...[0, 1, 2].map((index) => ({
@@ -584,7 +606,11 @@ describe('assertE2eModelsPresent', () => {
     // dearer pool members hold the percentile above its combined rate, so no
     // other premium leg can account for the refusal.
     const rows = textRows({
-      pricing: { kind: 'tokens', anchor: { base: { input: '1', output: '6000' }, tiers: [] } },
+      pricing: {
+        kind: 'tokens',
+        anchorContextTokens: 1_000_000,
+        anchor: { base: { input: '1', output: '6000' }, tiers: [] },
+      },
     });
     rows.push(
       ...[0, 1, 2].map((index) => ({
@@ -595,6 +621,7 @@ describe('assertE2eModelsPresent', () => {
           ...SELECTABLE_TEXT_FIELDS,
           pricing: {
             kind: 'tokens',
+            anchorContextTokens: 1_000_000,
             anchor: { base: { input: '500000', output: '500000' }, tiers: [] },
           },
         }),
@@ -626,7 +653,11 @@ describe('assertE2eModelsPresent', () => {
     // threshold at the declared model's own combined rate, so counting them
     // would mark it premium and the guard would refuse.
     const rows = textRows({
-      pricing: { kind: 'tokens', anchor: { base: { input: '1000', output: '1000' }, tiers: [] } },
+      pricing: {
+        kind: 'tokens',
+        anchorContextTokens: 1_000_000,
+        anchor: { base: { input: '1000', output: '1000' }, tiers: [] },
+      },
     });
     rows.push(
       ...[0, 1, 2].map((index) => ({
@@ -637,6 +668,7 @@ describe('assertE2eModelsPresent', () => {
           ...SELECTABLE_TEXT_FIELDS,
           pricing: {
             kind: 'tokens',
+            anchorContextTokens: 1_000_000,
             anchor: { base: { input: '1000', output: '1000' }, tiers: [] },
           },
         }),
@@ -657,15 +689,17 @@ describe('assertE2eModelsPresent', () => {
   });
 
   it('refuses the whole catalog when the product declines to read it', async () => {
-    // A row stamped with a descriptor version the product will not price makes
-    // its catalog read refuse outright. Nothing can be graded against a catalog
-    // that never resolved, so the guard says which read refused rather than
-    // reporting every declared id as ungraded.
-    const rows = validRows();
-    rows.push({
-      modelId: 'pool/prior-version',
-      descriptor: descriptor({ id: 'pool/prior-version', outputs: ['text'], version: 'prior' }),
-    });
+    // A catalog whose every row carries a descriptor version the product will
+    // not price exposes nothing current, so its catalog read refuses outright.
+    // Nothing can be graded against a catalog that never resolved, so the guard
+    // says which read refused rather than reporting every declared id as
+    // ungraded.
+    const rows: FixtureRow[] = [
+      {
+        modelId: 'pool/prior-version',
+        descriptor: descriptor({ id: 'pool/prior-version', outputs: ['text'], version: 'prior' }),
+      },
+    ];
     await expect(assertE2eModelsPresent(fakeDb(rows), NO_LIVE_EXCLUSIONS)).rejects.toThrow(
       "the product's catalog read refused this catalog"
     );
@@ -802,7 +836,11 @@ describe('assertE2eModelsPresent', () => {
     // text ids basic: the premium leg fires for this row and the guard admits
     // it anyway. No site naming one of these ids selects it as a payer at a
     // zero purchased balance, which is the only payer a premium row refuses.
-    const dear = { kind: 'tokens', anchor: { base: { input: '1000', output: '1000' }, tiers: [] } };
+    const dear = {
+      kind: 'tokens',
+      anchorContextTokens: 1_000_000,
+      anchor: { base: { input: '1000', output: '1000' }, tiers: [] },
+    };
     await expect(
       assertE2eModelsPresent(
         fakeDb(presenceRows({ ...SELECTABLE_TEXT_FIELDS, pricing: dear })),

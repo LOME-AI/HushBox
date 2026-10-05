@@ -8,6 +8,7 @@ import { chartColourCheck } from './colour-chart.js';
 import { gateResult } from './gate.js';
 import { signalLag } from './lag.js';
 
+import type { BinaryFinding, BinaryVerdict } from '@hushbox/scripts/lib/privacy/binary/scan';
 import type { StereoBuffer } from '../audio/dsp/index.js';
 import type { ColourScore } from './colour.js';
 import type { GateFailure, GateResult } from './gate.js';
@@ -47,6 +48,8 @@ export interface FinalFileEvidence {
   colour: readonly ColourScore[];
   /** The colour chart's block-mean PSNR against itself through the delivery's encode and the decode as tagged. */
   chartPsnr: number;
+  /** The repo privacy gate's binary classification of the file's bytes. */
+  privacy: { verdict: BinaryVerdict; findings: readonly BinaryFinding[] };
 }
 
 type Fail = (rule: string, at: string, detail: string) => GateFailure;
@@ -259,6 +262,14 @@ function syncFailures(
   return { failures, lag };
 }
 
+/** Each disclosure the privacy gate's binary classifier finds in the file, where it sits. */
+function privacyFailures({ privacy }: FinalFileEvidence, fail: Fail): GateFailure[] {
+  if (privacy.verdict === 'clean') return [];
+  return privacy.findings.map(({ location, rule, shape }) =>
+    fail('privacy', location === '' ? 'file' : location, `${rule}: ${shape}`)
+  );
+}
+
 /**
  * The delivered-loudness rule: the delivered audio's integrated loudness within
  * 0.5 LU of the master's. A loudness that is not a number fails.
@@ -296,8 +307,8 @@ function loudnessFailures(
  * or not a reader honours edit lists; every sample one frame period, or one AAC
  * frame; the audio late by exactly the lead, so each percussive onset on a cue
  * presents with its own frame; its loudness within 0.5 LU of the master's; its
- * colour against the stills; and its matrix, read on the colour chart, which no
- * film's frames can hide.
+ * colour against the stills; its matrix, read on the colour chart, which no
+ * film's frames can hide; and nothing in its bytes the repo privacy gate flags.
  */
 export function finalFileGate(filmId: string, evidence: FinalFileEvidence): GateResult {
   const fail: Fail = (rule, at, detail) => ({ filmId, rule, at, detail });
@@ -315,6 +326,7 @@ export function finalFileGate(filmId: string, evidence: FinalFileEvidence): Gate
       ...loudness.failures,
       ...colour.failures,
       ...chart.failures,
+      ...privacyFailures(evidence, fail),
     ],
     [
       `${String(evidence.stream.decodedFrames)} delivered frames (${String(evidence.durationInFrames)} plus a ${String(LEAD_FRAMES)}-frame lead), ${String(evidence.stream.width)}×${String(evidence.stream.height)} ${evidence.stream.pixFmt}`,
@@ -322,6 +334,7 @@ export function finalFileGate(filmId: string, evidence: FinalFileEvidence): Gate
       loudness.measured,
       ...colour.measured,
       ...chart.measured,
+      `the repo privacy gate's binary classifier reads the file ${evidence.privacy.verdict}`,
     ]
   );
 }

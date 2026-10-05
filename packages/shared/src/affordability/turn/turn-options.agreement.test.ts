@@ -183,12 +183,13 @@ const selections: fc.Arbitrary<Selection> = fc
       modality: 'text',
       pinned: pin === undefined ? {} : { effort: pin },
       webSearch,
+      effortAuto: pin === undefined,
     };
   });
 
 /** The same selection with one rung pinned — the turn the send gate would judge. */
 function pinnedTo(selection: Selection, optionId: OptionId): Selection {
-  return { ...selection, pinned: { ...selection.pinned, effort: optionId } };
+  return { ...selection, pinned: { ...selection.pinned, effort: optionId }, effortAuto: false };
 }
 
 /**

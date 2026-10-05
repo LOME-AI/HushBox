@@ -24,7 +24,7 @@ export interface LookSurface<K extends LookCanvas = LookCanvas> {
 }
 
 /** A part of the brand mark, as a look fills it. */
-export interface LookLogoPart extends LogoPart {
+interface LookLogoPart extends LogoPart {
   /** The outline as a path a 2D context fills, strokes or clips to. */
   path: Path2D;
 }
@@ -102,7 +102,7 @@ export interface LookContext<K extends LookCanvas = LookCanvas> {
  * not shown, or not shown and handed to `renderFrame` as `ctx.ui`. Every
  * placement is over the look's own canvas.
  */
-export const UI_PLACEMENTS = ['behind', 'front', 'hidden', 'texture'] as const;
+const UI_PLACEMENTS = ['behind', 'front', 'hidden', 'texture'] as const;
 
 /** One of {@link UI_PLACEMENTS}. */
 export type UiPlacement = (typeof UI_PLACEMENTS)[number];

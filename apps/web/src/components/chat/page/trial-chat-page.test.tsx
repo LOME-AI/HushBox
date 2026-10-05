@@ -10,7 +10,7 @@ import { createModelStoreStub } from '@/test-utils/model-store-mock';
 import { TrialChatPage } from '@/components/chat/page/trial-chat-page';
 import type { FormFactor } from '@hushbox/ui/platform';
 import type { Message } from '@/lib/api/api';
-import type { TrialMessage } from '@/stores/chat/trial-chat';
+import type { TrialMessage, useTrialChatStore } from '@/stores/chat/trial-chat';
 
 vi.mock('@/lib/api/api', () => ({
   getApiUrl: () => 'http://localhost:8787',
@@ -158,6 +158,7 @@ const mockTrialChatStore = {
   setRateLimited: vi.fn(),
   removeMessagesAfter: vi.fn(),
   removeMessage: vi.fn(),
+  setMessages: vi.fn(),
   setMessageSmartModelResolved: vi.fn(),
 };
 
@@ -171,6 +172,7 @@ interface TrialChatStoreMock {
   setRateLimited: ReturnType<typeof vi.fn>;
   removeMessagesAfter: ReturnType<typeof vi.fn>;
   removeMessage: ReturnType<typeof vi.fn>;
+  setMessages: ReturnType<typeof vi.fn>;
   setMessageSmartModelResolved: ReturnType<typeof vi.fn>;
 }
 
@@ -180,8 +182,19 @@ vi.mock('@/hooks/chat/use-reasoning-effort', () => ({
   useReasoningEffort: () => ({ effective: mockReasoningEffective }),
 }));
 
+type TrialChatState = ReturnType<typeof useTrialChatStore.getState>;
+
+// The store's current rows, as `getState()` reads them: the add and remove doubles write
+// here, while the hook keeps returning the rows it was rendered with.
+let liveTrialMessages: TrialMessage[] = [];
+
 vi.mock('@/stores/chat/trial-chat', () => ({
-  useTrialChatStore: (): TrialChatStoreMock => mockUseTrialChatStore(),
+  useTrialChatStore: Object.assign((): TrialChatStoreMock => mockUseTrialChatStore(), {
+    getState: (): Pick<TrialChatState, 'messages' | 'updateMessageContent'> => ({
+      messages: liveTrialMessages,
+      updateMessageContent: mockTrialChatStore.updateMessageContent,
+    }),
+  }),
 }));
 
 const mockOpenSignupModal = vi.fn();
@@ -286,6 +299,14 @@ describe('TrialChatPage', () => {
       startStream: mockStartStream,
     });
 
+    liveTrialMessages = [...config.messages];
+    mockTrialChatStore.addMessage.mockImplementation((message: TrialMessage) => {
+      liveTrialMessages = [...liveTrialMessages, message];
+    });
+    mockTrialChatStore.removeMessage.mockImplementation((messageId: string) => {
+      liveTrialMessages = liveTrialMessages.filter((m) => m.id !== messageId);
+    });
+
     mockUseTrialChatStore.mockReturnValue({
       messages: config.messages,
       pendingMessage: config.pendingMessage,
@@ -296,6 +317,7 @@ describe('TrialChatPage', () => {
       setRateLimited: mockTrialChatStore.setRateLimited,
       removeMessagesAfter: mockTrialChatStore.removeMessagesAfter,
       removeMessage: mockTrialChatStore.removeMessage,
+      setMessages: mockTrialChatStore.setMessages,
       setMessageSmartModelResolved: mockTrialChatStore.setMessageSmartModelResolved,
     });
 
@@ -715,6 +737,69 @@ describe('TrialChatPage', () => {
         expect.objectContaining({ notice: turnNoticeForCode('INTERNAL') })
       );
       expect(mockStopStreaming).toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("keeps a failed first turn's own text", async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(vi.fn());
+      mockStartStream.mockRejectedValue(new Error('Network error'));
+      setupMocks({ pendingMessage: 'First question' });
+
+      render(<TrialChatPage />);
+
+      await waitFor(() => {
+        expect(mockSetError).toHaveBeenCalledWith(
+          'main',
+          expect.objectContaining({
+            failedUserMessage: expect.objectContaining({ content: 'First question' }),
+          })
+        );
+      });
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("keeps a refused later turn's own text", async () => {
+      const user = userEvent.setup();
+      mockStartStream.mockRejectedValue(new ChatRequestError('TRIAL_MESSAGE_TOO_EXPENSIVE'));
+      setupMocks({
+        messages: [
+          { id: 'm1', conversationId: 'trial', role: 'user', content: 'First', createdAt: '' },
+          { id: 'm2', conversationId: 'trial', role: 'assistant', content: 'Reply', createdAt: '' },
+        ],
+        inputValue: 'Second question',
+      });
+
+      render(<TrialChatPage />);
+      await user.click(screen.getByTestId('submit'));
+
+      await waitFor(() => {
+        expect(mockSetError).toHaveBeenCalledWith(
+          'main',
+          expect.objectContaining({
+            failedUserMessage: expect.objectContaining({ content: 'Second question' }),
+          })
+        );
+      });
+    });
+
+    it('keeps no text when the thread was cleared before the failure landed', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(vi.fn());
+      mockStartStream.mockImplementation(() => {
+        liveTrialMessages = [];
+        return Promise.reject(new Error('Network error'));
+      });
+      setupMocks({ pendingMessage: 'First question' });
+
+      render(<TrialChatPage />);
+
+      await waitFor(() => {
+        expect(mockSetError).toHaveBeenCalledWith(
+          'main',
+          expect.objectContaining({
+            failedUserMessage: expect.objectContaining({ content: '' }),
+          })
+        );
+      });
       consoleErrorSpy.mockRestore();
     });
 

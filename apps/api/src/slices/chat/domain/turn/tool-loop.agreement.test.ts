@@ -146,7 +146,7 @@ function browserHold(
   const options = getTurnOptions(
     funding,
     BASIS,
-    { answerSources, modality: 'text', pinned: {}, webSearch: true },
+    { answerSources, modality: 'text', pinned: {}, webSearch: true, effortAuto: true },
     { models: rows.map((row) => priceableOf(row)), nowMs: NOW_MS }
   );
   if (options.holdNanoUsd === undefined) throw new Error('expected a sendable searching turn');
@@ -289,7 +289,7 @@ function browserOptions(
       payer: 'self',
     },
     BASIS,
-    { ...turn, modality: 'text', webSearch: true },
+    { ...turn, modality: 'text', webSearch: true, effortAuto: turn.pinned.effort === undefined },
     { models: rows.map((row) => priceableOf(row)), nowMs: NOW_MS }
   );
 }
@@ -925,6 +925,7 @@ function generatedBrowserHold(shape: TurnShape): bigint | undefined {
       modality: 'text',
       pinned: shape.rung === undefined ? {} : { effort: shape.rung },
       webSearch: shape.webSearch,
+      effortAuto: shape.rung === undefined,
     },
     { models: shape.rows.map((row) => priceableOf(row)), nowMs: NOW_MS }
   );

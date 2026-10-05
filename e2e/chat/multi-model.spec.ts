@@ -2,6 +2,7 @@ import {
   ERROR_CODES,
   REASONING_EFFORT_LABELS,
   SMART_MODEL_ID,
+  TEST_ID_BUILDERS,
   TEST_IDS,
   friendlyErrorMessage,
 } from '@hushbox/shared';
@@ -25,7 +26,7 @@ import { nextTurnRequest } from '../helpers/turn-request.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 import { E2E_MODELS, E2E_TEXT_PINNED_EFFORT } from '../../scripts/lib/playwright/model-ids.js';
 import type { ReasoningEffortSelection, ResolvedReasoningEffort } from '@hushbox/shared';
-import type { APIRequestContext, Request } from '../fixtures.js';
+import type { APIRequestContext, Locator, Request } from '../fixtures.js';
 
 const SPEC_MATRIX = matrix({ engine: 'engine-matrix', formFactor: 'either' });
 
@@ -140,6 +141,25 @@ const MONEY_ARITHMETIC_MATRIX = matrix({
   reason:
     'These assert arithmetic over numbers the server already computed, which no renderer can change. Cost-badge RENDERING stays on the full engine matrix in the sibling display tests.',
 });
+
+/**
+ * The column of the newest compare turn whose reply matches `holding`, brought into view:
+ * where the turn shows its replies as tabs, that reply's tab is selected.
+ */
+async function showReplyHolding(
+  chatPage: ChatPage,
+  holding: { hasText: string } | { has: Locator },
+  timeout: number
+): Promise<Locator> {
+  const column = chatPage.messageList
+    .getByTestId(TEST_IDS.compareGroup)
+    .last()
+    .getByRole('tabpanel', { includeHidden: true })
+    .filter({ ...holding });
+  await expect(column).toBeAttached({ timeout });
+  await chatPage.showCompareReply(column);
+  return column;
+}
 
 const PICKER_VERDICT_MATRIX = matrix({
   engine: 'engine-any',
@@ -590,9 +610,11 @@ test.describe('Multi-Model Chat', SPEC_MATRIX, () => {
         });
 
         await test.step('both answers tag their nameplate with that level', async () => {
-          const assistantMessages = chatPage.messagesByRole('assistant');
+          const group = chatPage.messageList.getByTestId(TEST_IDS.compareGroup).last();
           for (const index of [0, 1]) {
-            const tag = assistantMessages.nth(index).getByTestId(TEST_IDS.effortTag);
+            const column = group.getByTestId(TEST_ID_BUILDERS.compareColumn(index));
+            await chatPage.showCompareReply(column);
+            const tag = column.getByTestId(TEST_IDS.effortTag);
             await expect(tag).toBeVisible();
             await expect(tag).toHaveText(`${REASONING_EFFORT_LABELS[CLASSIFIER_EFFORT]} effort`);
           }
@@ -710,8 +732,12 @@ test.describe('Multi-Model Chat', SPEC_MATRIX, () => {
         await chatPage.sendNewChatMessage(`Partial failure test ${String(Date.now())}`);
         await chatPage.waitForConversation();
 
-        const successResponse = chatPage.messagesByRole('assistant').filter({ hasText: 'Echo:' });
-        await expect(successResponse.first()).toBeVisible({ timeout: TIMEOUTS.STREAM_SATURATED });
+        const successResponse = await showReplyHolding(
+          chatPage,
+          { hasText: 'Echo:' },
+          TIMEOUTS.STREAM_SATURATED
+        );
+        await expect(successResponse).toBeVisible({ timeout: TIMEOUTS.STREAM_SATURATED });
 
         // Gate on the server-side settle before the persistence read below: the
         // success token is visible in the DOM before saveChatTurn commits.
@@ -719,7 +745,12 @@ test.describe('Multi-Model Chat', SPEC_MATRIX, () => {
 
         // Error renders on an optimistic message after stream ends — opt out of settled
         // to wait for the React re-render without premature failure
-        const errorMessage = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
+        const failedResponse = await showReplyHolding(
+          chatPage,
+          { has: authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage) },
+          TIMEOUTS.ASSERT
+        );
+        const errorMessage = failedResponse.getByTestId(TEST_IDS.modelErrorMessage);
         await expect(errorMessage).toBeVisible({ timeout: TIMEOUTS.ASSERT });
         // A failed sibling's tile carries the stream-error code and renders that
         // code's registered sentence — matched whole, so no other one can pass.

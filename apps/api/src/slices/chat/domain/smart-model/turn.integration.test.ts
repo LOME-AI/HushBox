@@ -55,13 +55,17 @@ async function seedModel(): Promise<void> {
       descriptor: {
         id: MODEL,
         provider: 'p',
-        version: '3',
+        version: '4',
         inputs: ['text'],
         outputs: ['text'],
         parameters: {},
         behaviors: ['streaming'],
         limits: { contextLength: 128_000 },
-        pricing: { kind: 'tokens', anchor: { base: { input: '2', output: '3' }, tiers: [] } },
+        pricing: {
+          kind: 'tokens',
+          anchorContextTokens: 1_000_000,
+          anchor: { base: { input: '2', output: '3' }, tiers: [] },
+        },
         zdrReachable: true,
         releasedAt: OLD_RELEASE_SECONDS,
         fetchedAt: 0,
@@ -79,13 +83,17 @@ async function seedReasoningModel(): Promise<void> {
       descriptor: {
         id: REASONING_MODEL,
         provider: 'p',
-        version: '3',
+        version: '4',
         inputs: ['text'],
         outputs: ['text'],
         parameters: {},
         behaviors: ['streaming'],
         limits: { contextLength: 128_000 },
-        pricing: { kind: 'tokens', anchor: { base: { input: '2', output: '3' }, tiers: [] } },
+        pricing: {
+          kind: 'tokens',
+          anchorContextTokens: 1_000_000,
+          anchor: { base: { input: '2', output: '3' }, tiers: [] },
+        },
         reasoning: { supportedEfforts: null },
         zdrReachable: true,
         releasedAt: OLD_RELEASE_SECONDS,
@@ -349,7 +357,7 @@ async function seedSearchPair(): Promise<void> {
         descriptor: {
           id: modelId,
           provider: 'p',
-          version: '3',
+          version: '4',
           inputs: ['text'],
           outputs: ['text'],
           parameters: {},
@@ -357,6 +365,7 @@ async function seedSearchPair(): Promise<void> {
           limits: { contextLength: 10_000_000 },
           pricing: {
             kind: 'tokens',
+            anchorContextTokens: 1_000_000,
             anchor: { base: { input: inputPerToken, output: outputPerToken }, tiers: [] },
           },
           zdrReachable: true,
@@ -437,7 +446,7 @@ describe('the trial Smart Model gate prices the budget`s own character count', (
         descriptor: {
           id: DEAR_TRIAL_MODEL,
           provider: 'p',
-          version: '3',
+          version: '4',
           inputs: ['text'],
           outputs: ['text'],
           parameters: {},
@@ -445,6 +454,7 @@ describe('the trial Smart Model gate prices the budget`s own character count', (
           limits: { contextLength: 128_000 },
           pricing: {
             kind: 'tokens',
+            anchorContextTokens: 1_000_000,
             anchor: { base: { input: '4000', output: '1000' }, tiers: [] },
           },
           zdrReachable: true,

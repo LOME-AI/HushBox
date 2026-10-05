@@ -121,6 +121,9 @@ export type DeleteAccountOutcome =
   | { readonly kind: 'invalid-totp' }
   | { readonly kind: 'totp-not-configured' }
   | { readonly kind: 'totp-stranded' }
+  // The consecutive-failure ceiling refused the code. It carries no wait: the
+  // remedy it points to is a recovery-phrase reset.
+  | { readonly kind: 'totp-frozen' }
   | { readonly kind: 'forfeit-unacknowledged'; readonly purchasedBalanceNanoUsd: bigint }
   | AccountDeletionResult;
 
@@ -348,10 +351,11 @@ function gateTotpThenExecute(
     }).andThen((verdict) => {
       if (verdict.kind === 'ok') return executeAndClear(args);
       if (verdict.kind === 'locked') {
-        return okAsync<DeleteAccountOutcome, DomainError>({
-          kind: 'locked',
-          retryAfterSeconds: verdict.retryAfterSeconds,
-        });
+        return okAsync<DeleteAccountOutcome, DomainError>(
+          verdict.gate === 'ceiling'
+            ? { kind: 'totp-frozen' }
+            : { kind: 'locked', retryAfterSeconds: verdict.retryAfterSeconds }
+        );
       }
       if (verdict.kind === 'not-configured') {
         return okAsync<DeleteAccountOutcome, DomainError>({ kind: 'totp-not-configured' });

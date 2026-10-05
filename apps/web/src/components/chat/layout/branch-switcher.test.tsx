@@ -27,16 +27,54 @@ const TWO_BRANCHES: readonly BranchSummary[] = [
   },
 ];
 
-function renderSwitcher(overrides: Partial<BranchSwitcherProps> = {}): BranchSwitcherProps {
-  const props: BranchSwitcherProps = {
+type OwnedSwitcherProps = Omit<BranchSwitcherProps, 'open'> & {
+  /** Draws a control outside the switcher that opens it, as the thread's fork mark does. */
+  readonly threadOpener?: boolean;
+};
+
+/** The switcher with an owner holding its open state, as the chat layout holds it. */
+function OwnedSwitcher({
+  onOpenChange,
+  threadOpener = false,
+  ...props
+}: Readonly<OwnedSwitcherProps>): React.JSX.Element {
+  const [open, setOpen] = React.useState(false);
+  const change = (next: boolean): void => {
+    onOpenChange(next);
+    setOpen(next);
+  };
+  return (
+    <>
+      {threadOpener && (
+        <button
+          type="button"
+          onClick={() => {
+            change(true);
+          }}
+        >
+          Open from the thread
+        </button>
+      )}
+      <BranchSwitcher {...props} open={open} onOpenChange={change} />
+    </>
+  );
+}
+
+function renderSwitcher(overrides: Partial<OwnedSwitcherProps> = {}): OwnedSwitcherProps {
+  const props: OwnedSwitcherProps = {
     branches: TWO_BRANCHES,
     currentForkId: 'f1',
+    forks: [
+      { id: 'main', name: 'Main' },
+      { id: 'f1', name: 'SQL version' },
+    ],
     onSelect: vi.fn<(forkId: string) => void>(),
     onRename: vi.fn<(forkId: string, currentName: string) => void>(),
     onDelete: vi.fn<(forkId: string) => void>(),
+    onOpenChange: vi.fn<(open: boolean) => void>(),
     ...overrides,
   };
-  render(<BranchSwitcher {...props} />);
+  render(<OwnedSwitcher {...props} />);
   return props;
 }
 
@@ -62,15 +100,20 @@ function fork(id: string, name: string, tipMessageId: string): BranchFork {
 }
 
 /** The page's dialogs, wired as the conversation page wires them to the switcher. */
-function SwitcherWithDialogs(): React.JSX.Element {
+function SwitcherWithDialogs({
+  threadOpener = false,
+}: Readonly<{ threadOpener?: boolean }>): React.JSX.Element {
   const [renaming, setRenaming] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState<string | null>(null);
   const [value, setValue] = React.useState('');
   return (
     <>
-      <BranchSwitcher
+      <OwnedSwitcher
+        threadOpener={threadOpener}
         branches={TWO_BRANCHES}
         currentForkId="f1"
+        forks={[{ id: 'main', name: 'Main' }]}
+        onOpenChange={vi.fn<(open: boolean) => void>()}
         onSelect={vi.fn<(forkId: string) => void>()}
         onRename={(forkId, name) => {
           setRenaming(forkId);
@@ -329,6 +372,52 @@ describe('BranchSwitcher', () => {
     });
   });
 
+  describe('focus on close', () => {
+    it('returns to whatever opened it', async () => {
+      const user = userEvent.setup();
+      renderSwitcher({ threadOpener: true });
+      screen.getByRole('button', { name: 'Open from the thread' }).focus();
+      await user.keyboard('{Enter}');
+      await screen.findByTestId(TEST_IDS.branchSwitcherMenu);
+      await user.keyboard('{Escape}');
+      await waitFor(() => {
+        expect(screen.queryByTestId(TEST_IDS.branchSwitcherMenu)).not.toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: 'Open from the thread' })).toHaveFocus();
+    });
+
+    it('returns to its trigger when its trigger opened it', async () => {
+      const user = userEvent.setup();
+      renderSwitcher({ threadOpener: true });
+      screen.getByTestId(TEST_IDS.branchSwitcher).focus();
+      await user.keyboard('{Enter}');
+      await screen.findByTestId(TEST_IDS.branchSwitcherMenu);
+      await user.keyboard('{Escape}');
+      await waitFor(() => {
+        expect(screen.queryByTestId(TEST_IDS.branchSwitcherMenu)).not.toBeInTheDocument();
+      });
+      expect(screen.getByTestId(TEST_IDS.branchSwitcher)).toHaveFocus();
+    });
+
+    it('hands a dialog back to its trigger, whatever opened it', async () => {
+      const user = userEvent.setup();
+      render(<SwitcherWithDialogs threadOpener />);
+      screen.getByRole('button', { name: 'Open from the thread' }).focus();
+      await user.keyboard('{Enter}');
+      const panel = await screen.findByTestId(TEST_IDS.branchSwitcherMenu);
+      within(panel).getByTestId(TEST_ID_BUILDERS.branchRename('main')).focus();
+      await user.keyboard('{Enter}');
+      await screen.findByText('Rename conversation');
+      await user.keyboard('{Escape}');
+      await waitFor(() => {
+        expect(screen.queryByText('Rename conversation')).not.toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId(TEST_IDS.branchSwitcher)).toHaveFocus();
+      });
+    });
+  });
+
   describe('focus after the dialogs', () => {
     async function openWithKeyboard(
       user: ReturnType<typeof userEvent.setup>
@@ -435,6 +524,87 @@ describe('BranchSwitcher', () => {
       await waitFor(() => {
         expect(screen.queryByTestId(TEST_IDS.branchSwitcherMenu)).not.toBeInTheDocument();
       });
+    });
+  });
+
+  describe('its owner', () => {
+    it('opens when its owner holds it open', () => {
+      render(
+        <BranchSwitcher
+          branches={TWO_BRANCHES}
+          currentForkId="f1"
+          forks={[{ id: 'main', name: 'Main' }]}
+          open
+          onOpenChange={vi.fn<(open: boolean) => void>()}
+          onSelect={vi.fn<(forkId: string) => void>()}
+          onRename={vi.fn<(forkId: string, currentName: string) => void>()}
+          onDelete={vi.fn<(forkId: string) => void>()}
+        />
+      );
+      expect(screen.getByTestId(TEST_IDS.branchSwitcherMenu)).toBeInTheDocument();
+    });
+
+    it('asks its owner to open when the trigger is pressed', async () => {
+      const props = renderSwitcher();
+      await openSwitcher();
+      expect(props.onOpenChange).toHaveBeenCalledWith(true);
+    });
+  });
+
+  describe('the way back to the first branch', () => {
+    it('leads the switcher on any other branch', async () => {
+      renderSwitcher();
+      const panel = await openSwitcher();
+      expect(nth(within(panel).getAllByRole('button'), 0)).toHaveAccessibleName('Back to Main');
+    });
+
+    it('names the first branch as it is named now', async () => {
+      renderSwitcher({ forks: [{ id: 'main', name: 'Original' }] });
+      const panel = await openSwitcher();
+      expect(within(panel).getByRole('button', { name: 'Back to Original' })).toBeInTheDocument();
+    });
+
+    it('is absent on the first branch', async () => {
+      renderSwitcher({ currentForkId: 'main' });
+      const panel = await openSwitcher();
+      expect(within(panel).queryByRole('button', { name: /^Back to / })).not.toBeInTheDocument();
+    });
+
+    it('is absent while no forks are known', async () => {
+      renderSwitcher({ forks: undefined });
+      const panel = await openSwitcher();
+      expect(within(panel).queryByRole('button', { name: /^Back to / })).not.toBeInTheDocument();
+    });
+
+    it('switches to the first branch', async () => {
+      const props = renderSwitcher();
+      const panel = await openSwitcher();
+      await userEvent.setup().click(within(panel).getByRole('button', { name: 'Back to Main' }));
+      expect(props.onSelect).toHaveBeenCalledWith('main');
+    });
+
+    it('closes the switcher', async () => {
+      renderSwitcher();
+      const panel = await openSwitcher();
+      await userEvent.setup().click(within(panel).getByRole('button', { name: 'Back to Main' }));
+      await waitFor(() => {
+        expect(screen.queryByTestId(TEST_IDS.branchSwitcherMenu)).not.toBeInTheDocument();
+      });
+    });
+
+    it('draws the undo icon', async () => {
+      renderSwitcher();
+      const panel = await openSwitcher();
+      const back = within(panel).getByRole('button', { name: 'Back to Main' });
+      expect(back.querySelector('svg')).toHaveClass('lucide-undo-2');
+    });
+
+    it('is set apart from the branches by a separator', async () => {
+      renderSwitcher();
+      const panel = await openSwitcher();
+      expect(within(panel).getByRole('separator').previousElementSibling).toBe(
+        within(panel).getByRole('button', { name: 'Back to Main' })
+      );
     });
   });
 });

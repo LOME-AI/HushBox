@@ -21,7 +21,7 @@ import { smartModel } from '../builder/smart-model.js';
 import { subWorkflow } from '../builder/sub-workflow.js';
 import { workflowInputs } from '../builder/workflow-inputs.js';
 import { buildWorkflow } from '../builder/build-workflow.js';
-import { InferenceError } from '../../../models/index.js';
+import { callMaxPrice, InferenceError } from '../../../models/index.js';
 import { createWorkflowExecutor } from './interpreter.js';
 import { createLiveExecutionRegistry } from './live-execution-registry.js';
 import { portsAccepting } from './model-ports.js';
@@ -87,6 +87,8 @@ const binding: ModelBinding = {
   descriptor,
   ports: { in: [textTag()], out: textTag() },
   price: () => ok(5n),
+  reserveMedia: () => ok(5n),
+  maxPrice: (bound) => callMaxPrice(descriptor.pricing, bound),
 };
 
 /** The authoritative inline provider cost each live branch reports (USD). */
@@ -247,7 +249,7 @@ function startLive(
       admission: () => Promise.resolve(grant(1_000_000n)),
       settlement: (request) => {
         settlements.push(request);
-        return Promise.resolve();
+        return Promise.resolve({ billed: [] });
       },
     },
     runKey: RUN_KEY,
@@ -265,6 +267,8 @@ function bindingFor(id: string): ModelBinding {
     descriptor: { ...descriptor, id },
     ports: { in: [textTag()], out: textTag() },
     price: () => ok(5n),
+    reserveMedia: () => ok(5n),
+    maxPrice: (bound) => callMaxPrice(descriptor.pricing, bound),
   };
 }
 
@@ -381,7 +385,7 @@ function startSmartLive(history?: readonly ChatHistoryMessage[]): {
       admission: () => Promise.resolve(grant(1_000_000n)),
       settlement: (request) => {
         settlements.push(request);
-        return Promise.resolve();
+        return Promise.resolve({ billed: [] });
       },
     },
     runKey: RUN_KEY,
@@ -581,7 +585,7 @@ function startSiblingsLive(models: readonly string[]): {
     inputs: { prompt: { kind: 'text', text: 'go' } },
     hooks: {
       admission: () => Promise.resolve(grant(1_000_000n)),
-      settlement: () => Promise.resolve(),
+      settlement: () => Promise.resolve({ billed: [] }),
     },
     runKey: RUN_KEY,
     emit: (event) => {
@@ -635,6 +639,8 @@ const REASONING_BINDING: ModelBinding = {
   },
   ports: { in: [textTag()], out: textTag() },
   price: () => ok(5n),
+  reserveMedia: () => ok(5n),
+  maxPrice: (bound) => callMaxPrice(descriptor.pricing, bound),
 };
 
 /**
@@ -750,7 +756,7 @@ function startEffortLive(pinned?: { readonly level: 'low'; readonly cap: number 
       admission: () => Promise.resolve(grant(1_000_000n)),
       settlement: (request) => {
         settlements.push(request);
-        return Promise.resolve();
+        return Promise.resolve({ billed: [] });
       },
     },
     runKey: RUN_KEY,

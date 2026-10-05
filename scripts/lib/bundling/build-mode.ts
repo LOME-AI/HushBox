@@ -2,10 +2,13 @@
  * The mode a frontend build resolves, and the file that mode names.
  *
  * Both bundlers resolve a mode and load the generated frontend env file named
- * after it. Nothing prefixed reaches a build's process any more, so that file
- * is a build's sole supply: a mode naming a file that is not there bakes
+ * after it. Under turbo nothing prefixed reaches a build's process, so that
+ * file is the build's sole supply: a mode naming a file that is not there bakes
  * nothing at all and still exits zero, which is invisible until a user meets
- * the bundle. {@link frontendEnvFilePlugin} is what makes it loud.
+ * the bundle. {@link frontendEnvFilePlugin} is what makes it loud. A build that
+ * runs the bundler directly, as the OTA loop and the native web builds do, also
+ * bakes every prefixed variable its step's environment holds, ranked above the
+ * file; the bundle verifier holds what such a build baked against the file.
  *
  * Reachable from a Vite configuration, which constrains what it may import: the
  * env wrapper reaches an untyped native dependency, so it is not imported here.

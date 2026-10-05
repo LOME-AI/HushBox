@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { CI_IDENTIFIERS, CI_SECRETS } from './ci-secrets.ts';
+import { CI_IDENTIFIER_DECLARATIONS, CI_IDENTIFIERS, CI_SECRETS } from './ci-secrets.ts';
 import { envConfig, Mode, isSecret, resolveRaw, type VariableConfig } from './env.config.ts';
 import {
   CREDENTIAL_FAMILIES,
@@ -131,6 +131,23 @@ describe('CI_IDENTIFIERS', () => {
 
   it('lists each name once', () => {
     expect(new Set(CI_IDENTIFIERS).size).toBe(CI_IDENTIFIERS.length);
+  });
+
+  it('names every declared identifier', () => {
+    expect(CI_IDENTIFIERS).toEqual(Object.keys(CI_IDENTIFIER_DECLARATIONS));
+  });
+
+  it.each(['APPLE_TEAM_ID', 'ANDROID_CERT_SHA256_FINGERPRINT'])(
+    'declares %s as shipping in the deep-link association files',
+    (name) => {
+      expect(CI_IDENTIFIER_DECLARATIONS[name]?.shipsIn).toBe(
+        'the deep-link association files the web origin serves'
+      );
+    }
+  );
+
+  it('declares an identifier no artifact carries without a shipping marker', () => {
+    expect(CI_IDENTIFIER_DECLARATIONS['MATCH_GIT_URL']?.shipsIn).toBeUndefined();
   });
 });
 

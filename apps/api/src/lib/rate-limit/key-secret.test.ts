@@ -28,52 +28,15 @@ describe('the rate-limit identifier key', () => {
     expect(keyed.hmacRateLimitId('carol@hushbox.ai')).toBe(hmacSha256Hex(KEY, 'carol@hushbox.ai'));
   });
 
-  it('refuses to key before anything has configured it', async () => {
-    const keyed = await freshModule();
-    expect(() => keyed.hmacRateLimitId('carol@hushbox.ai')).toThrow(/not configured/);
-  });
-
-  it('accepts a repeat of the key already in force', async () => {
-    const keyed = await freshModule();
-    keyed.configureRateLimitKeySecret({ RATE_LIMIT_KEY_SECRET: KEY });
-    keyed.configureRateLimitKeySecret({ RATE_LIMIT_KEY_SECRET: KEY });
-    expect(keyed.hmacRateLimitId('a')).toBe(hmacSha256Hex(KEY, 'a'));
-  });
-
-  it('refuses a second key that disagrees with the one in force', async () => {
-    const keyed = await freshModule();
-    keyed.configureRateLimitKeySecret({ RATE_LIMIT_KEY_SECRET: KEY });
-    expect(() => {
-      keyed.configureRateLimitKeySecret({ RATE_LIMIT_KEY_SECRET: `${KEY}-other` });
-    }).toThrow(/disagrees/);
-  });
-
-  it('names neither key when two disagree', async () => {
-    const keyed = await freshModule();
-    keyed.configureRateLimitKeySecret({ RATE_LIMIT_KEY_SECRET: KEY });
-    expect(() => {
-      keyed.configureRateLimitKeySecret({ RATE_LIMIT_KEY_SECRET: `${KEY}-other` });
-    }).toThrow(expect.objectContaining({ message: expect.not.stringContaining(KEY) }));
-  });
-
-  it('takes no key from an env that carries no entry', async () => {
-    const keyed = await freshModule();
-    keyed.configureRateLimitKeySecret({ RATE_LIMIT_KEY_SECRET: KEY });
-    keyed.configureRateLimitKeySecret({});
-    expect(keyed.hmacRateLimitId('a')).toBe(hmacSha256Hex(KEY, 'a'));
-  });
-
-  it('fails fast when the registry entry is absent', async () => {
+  it('reads its key from the RATE_LIMIT_KEY_SECRET entry', async () => {
     const keyed = await freshModule();
     expect(() => {
       keyed.configureRateLimitKeySecret({});
-    }).toThrow(/RATE_LIMIT_KEY_SECRET/);
+    }).toThrow(/RATE_LIMIT_KEY_SECRET is missing/);
   });
 
-  it('fails fast when the registry entry is empty', async () => {
+  it('names its configurer when nothing has configured the key', async () => {
     const keyed = await freshModule();
-    expect(() => {
-      keyed.configureRateLimitKeySecret({ RATE_LIMIT_KEY_SECRET: '' });
-    }).toThrow(/RATE_LIMIT_KEY_SECRET/);
+    expect(() => keyed.hmacRateLimitId('carol@hushbox.ai')).toThrow(/configureRateLimitKeySecret/);
   });
 });

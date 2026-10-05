@@ -1,7 +1,8 @@
 import * as React from 'react';
+import { flushSync } from 'react-dom';
 import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { Button, IconButton } from '@hushbox/ui/button';
-import { Check, ChevronDown, GitBranch, Pencil, Trash2 } from '@hushbox/ui/icons';
+import { Check, ChevronDown, GitBranch, Pencil, Trash2, Undo2 } from '@hushbox/ui/icons';
 import { Popover } from '@hushbox/ui/popover';
 import { cn } from '@hushbox/ui';
 import type { BranchSummary } from '@/lib/chat/branch-summary';
@@ -14,6 +15,11 @@ export interface BranchSwitcherProps {
   readonly onDelete: (forkId: string) => void;
   /** From 768, the switcher stays inside this element's box. */
   readonly boundary?: HTMLElement | null | undefined;
+  /** The conversation's forks in creation order; "Back to" returns to the first. */
+  readonly forks?: readonly { readonly id: string; readonly name: string }[] | undefined;
+  /** Held by the owner, so the thread's fork mark can open the switcher too. */
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
 }
 
 const ORDINAL_WORDS = [
@@ -79,10 +85,14 @@ function BranchRow({
   const nameId = `${id}-name`;
   const descriptionId = `${id}-description`;
   const hasDescription = branch.firstMessage !== '';
+  // Under 16rem of list width (a popover held narrow at large text) the row's fixed parts tighten
+  // so the name keeps its first word: gaps, the check's margins, and the buttons' squares. On a
+  // coarse pointer the buttons keep their touch size and wrap to a line of their own under the
+  // name, the first aligning its icon with the name's text.
   return (
     <div
       data-testid={TEST_ID_BUILDERS.branchRow(branch.forkId)}
-      className="hover:bg-accent flex items-center gap-0.5 rounded-sm pr-0.5"
+      className="hover:bg-accent flex items-center gap-0.5 rounded-sm pr-0.5 @max-[16rem]/branches:gap-0 @max-[16rem]/branches:pointer-coarse:flex-wrap"
     >
       <button
         type="button"
@@ -90,7 +100,7 @@ function BranchRow({
         aria-describedby={hasDescription ? descriptionId : undefined}
         aria-current={isCurrent ? 'true' : undefined}
         onClick={onPick}
-        className="text-foreground flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm py-1.5 pr-0 pl-2 text-start"
+        className="text-foreground flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm py-1.5 pr-0 pl-2 text-start @max-[16rem]/branches:gap-0.5 @max-[16rem]/branches:pl-1 @max-[16rem]/branches:pointer-coarse:basis-full"
       >
         <GitBranch
           aria-hidden="true"
@@ -116,7 +126,7 @@ function BranchRow({
           <Check
             aria-hidden="true"
             data-branch-check=""
-            className="text-primary ms-5 me-2 size-4 shrink-0 pointer-coarse:ms-8 pointer-coarse:me-3.5"
+            className="text-primary ms-5 me-2 size-4 shrink-0 @max-[16rem]/branches:ms-1 @max-[16rem]/branches:me-0 pointer-coarse:ms-8 pointer-coarse:me-3.5 @max-[16rem]/branches:pointer-coarse:ms-1 @max-[16rem]/branches:pointer-coarse:me-0"
           />
         )}
       </button>
@@ -125,7 +135,7 @@ function BranchRow({
         size="sm"
         aria-label={`Rename ${branch.name}`}
         data-testid={TEST_ID_BUILDERS.branchRename(branch.forkId)}
-        className="text-muted-foreground hover:text-foreground"
+        className="text-muted-foreground hover:text-foreground @max-[16rem]/branches:size-6 @max-[16rem]/branches:pointer-coarse:ms-2 @max-[16rem]/branches:pointer-coarse:size-11"
         onClick={onRename}
       />
       <IconButton
@@ -133,7 +143,7 @@ function BranchRow({
         size="sm"
         aria-label={`Delete ${branch.name}`}
         data-testid={TEST_ID_BUILDERS.branchDelete(branch.forkId)}
-        className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+        className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 @max-[16rem]/branches:size-6 @max-[16rem]/branches:pointer-coarse:size-11"
         onClick={onDelete}
       />
     </div>
@@ -168,21 +178,47 @@ export function BranchSwitcher({
   onRename,
   onDelete,
   boundary,
+  forks,
+  open,
+  onOpenChange,
 }: Readonly<BranchSwitcherProps>): React.JSX.Element | null {
-  const [open, setOpen] = React.useState(false);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
+  // What opened the switcher when it was not its own trigger, such as the thread's fork mark;
+  // read before the popover moves focus inside, as the shared overlay reads its opener.
+  const openerRef = React.useRef<HTMLElement | null>(null);
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    const focused = document.activeElement;
+    openerRef.current =
+      focused instanceof HTMLElement && triggerRef.current?.contains(focused) !== true
+        ? focused
+        : null;
+  }, [open]);
+  const returnToOpener = React.useCallback((event: Event): void => {
+    const opener = openerRef.current;
+    if (!opener?.isConnected) return;
+    event.preventDefault();
+    opener.focus();
+  }, []);
   if (branches.length < 2) return null;
 
   const current = branches.find((b) => b.forkId === currentForkId);
+  const firstFork = forks?.[0];
   const count = new Set(branches.map((b) => b.forkId)).size;
   const close = (): void => {
-    setOpen(false);
+    onOpenChange(false);
   };
   // A dialog returns focus to whatever held it when it opened; the row's control is gone by
-  // then, so the trigger takes focus first and the dialog hands it back there.
-  const closeToTrigger = (): void => {
-    close();
-    triggerRef.current?.focus();
+  // then, so the trigger takes focus first, or below 768, where the trigger is not drawn and
+  // takes none, whatever opened the switcher, and the dialog hands it back there. The close
+  // commits first, so a sheet's focus trap has let go before focus leaves it.
+  const closeForDialog = (): void => {
+    const opener = openerRef.current;
+    openerRef.current = null;
+    flushSync(close);
+    const trigger = triggerRef.current;
+    trigger?.focus();
+    if (document.activeElement !== trigger) opener?.focus();
   };
 
   return (
@@ -192,7 +228,8 @@ export function BranchSwitcher({
       align="start"
       boundary={boundary ?? null}
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={onOpenChange}
+      onCloseAutoFocus={returnToOpener}
       data-testid={TEST_IDS.branchSwitcherMenu}
       trigger={
         <Button
@@ -220,6 +257,22 @@ export function BranchSwitcher({
       }
     >
       <div className="@container/branches flex flex-col gap-1">
+        {firstFork !== undefined && firstFork.id !== currentForkId && (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                close();
+                onSelect(firstFork.id);
+              }}
+              className="text-foreground hover:bg-accent flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-start pointer-coarse:min-h-11"
+            >
+              <Undo2 aria-hidden="true" className="text-muted-foreground size-4 shrink-0" />
+              Back to {firstFork.name}
+            </button>
+            <hr className="border-border -mx-1 my-1" />
+          </>
+        )}
         {groupByForkPoint(branches).map((group) => (
           <ForkPointSection key={group.id ?? 'unknown'} group={group}>
             {group.branches.map((branch) => (
@@ -232,11 +285,11 @@ export function BranchSwitcher({
                   if (branch.forkId !== currentForkId) onSelect(branch.forkId);
                 }}
                 onRename={() => {
-                  closeToTrigger();
+                  closeForDialog();
                   onRename(branch.forkId, branch.name);
                 }}
                 onDelete={() => {
-                  closeToTrigger();
+                  closeForDialog();
                   onDelete(branch.forkId);
                 }}
               />

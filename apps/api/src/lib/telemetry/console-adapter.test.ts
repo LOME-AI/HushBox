@@ -317,4 +317,16 @@ describe('createConsoleTelemetry cron monitor check-in', () => {
       msg: 'cron monitor check-in finished',
     });
   });
+
+  it('logs the closing check-in of a failed cron pass as a failure', () => {
+    const { sink, lines } = createRecordingSink();
+
+    createConsoleTelemetry(sink).checkIn('error');
+
+    expect(lines.map((entry) => entry.method)).toEqual(['error']);
+    expect(JSON.parse(lines[0]?.line ?? '')).toEqual({
+      level: 'error',
+      msg: 'cron monitor check-in failed',
+    });
+  });
 });

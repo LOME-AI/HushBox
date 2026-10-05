@@ -1,5 +1,5 @@
 import { Destination, Mode, envConfig, getDestinations } from './env.config.ts';
-import type { SecretStore, VariableConfig } from './env-types.ts';
+import type { LeakImpact, SecretStore, VariableConfig } from './env-types.ts';
 
 /**
  * Which registry entries a client build may carry, and the rule every one of
@@ -25,6 +25,20 @@ const CLIENT_PREFIX = 'VITE_';
  */
 const SHIPPABLE_STORES: ReadonlySet<SecretStore> = new Set(['github:repository', 'worker-only']);
 
+/** Leak impacts no client artifact may carry, whichever build bakes it in. */
+const UNSHIPPABLE_IMPACTS: ReadonlySet<LeakImpact> = new Set(['companyEnding', 'severe']);
+
+function entriesRoutedTo(
+  registry: Registry,
+  destination: Destination
+): ReadonlyMap<string, VariableConfig> {
+  return new Map(
+    Object.entries(registry).filter(([, config]) =>
+      Object.values(Mode).some((mode) => getDestinations(config, mode).includes(destination))
+    )
+  );
+}
+
 /**
  * Every entry routed to the frontend in any mode — the entries a client build
  * may carry. {@link frontendRoutingRefusals} is the rule each must pass.
@@ -32,13 +46,18 @@ const SHIPPABLE_STORES: ReadonlySet<SecretStore> = new Set(['github:repository',
 export function shippableEntries(
   registry: Registry = envConfig
 ): ReadonlyMap<string, VariableConfig> {
-  return new Map(
-    Object.entries(registry).filter(([, config]) =>
-      Object.values(Mode).some((mode) =>
-        getDestinations(config, mode).includes(Destination.Frontend)
-      )
-    )
-  );
+  return entriesRoutedTo(registry, Destination.Frontend);
+}
+
+/**
+ * Every entry routed into the native app build in any mode: values a native
+ * build compiles into the application outside the web bundle, so they reach
+ * every device that installs it.
+ */
+export function nativeBakedEntries(
+  registry: Registry = envConfig
+): ReadonlyMap<string, VariableConfig> {
+  return entriesRoutedTo(registry, Destination.Native);
 }
 
 function refusalsOf(name: string, config: VariableConfig): string[] {
@@ -50,7 +69,7 @@ function refusalsOf(name: string, config: VariableConfig): string[] {
   }
   const credential = config.credential;
   if (credential === undefined) return refusals;
-  if (credential.leakImpact === 'companyEnding' || credential.leakImpact === 'severe') {
+  if (UNSHIPPABLE_IMPACTS.has(credential.leakImpact)) {
     refusals.push(`${name}: a ${credential.leakImpact} credential is routed to the frontend`);
   }
   if (!SHIPPABLE_STORES.has(credential.store)) {
@@ -72,4 +91,16 @@ function refusalsOf(name: string, config: VariableConfig): string[] {
  */
 export function frontendRoutingRefusals(registry: Registry = envConfig): string[] {
   return [...shippableEntries(registry)].flatMap(([name, config]) => refusalsOf(name, config));
+}
+
+/**
+ * Each native-routed entry carrying a credential no device may hold: the native
+ * build compiles the value into an app anyone can unpack.
+ */
+export function nativeRoutingRefusals(registry: Registry = envConfig): string[] {
+  return [...nativeBakedEntries(registry)].flatMap(([name, { credential }]) =>
+    credential !== undefined && UNSHIPPABLE_IMPACTS.has(credential.leakImpact)
+      ? [`${name}: a ${credential.leakImpact} credential is routed into the native build`]
+      : []
+  );
 }

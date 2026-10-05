@@ -3,6 +3,7 @@ import { CLASSIFIER_SYSTEM_PROMPT_MARKER, utcDayKey } from '@hushbox/shared';
 import { TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
 import { tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
 import { resolveModelProvider } from './resolve-model-provider.js';
+import { callMaxPrice, maxPriceReachesAnchor } from '../domain/pricing/call-routing.js';
 import type { Cassette, CassetteStore } from './cassette/cassette-store.js';
 import type { CreateModelProviderOptions } from './dispatch.js';
 import type { ModelProvider } from '../ports/index.js';
@@ -12,6 +13,11 @@ import type { InferenceEvent, InferenceRequest, ModelDescriptor } from '@hushbox
 /** An inert fixture stamp: nothing in this file reads it against a clock. */
 const FIXTURE_STAMP_SECONDS = secondsAt(TEST_DAY_START);
 const FIXTURE_UTC_DAY = utcDayKey(new Date(TEST_DAY_START));
+
+/** The cap a 1-nano anchor's language call routes under, from the call routing itself. */
+const TEST_ROUTING: NonNullable<InferenceRequest['routing']> = {
+  maxPrice: callMaxPrice(tokenPricingFixture({ input: 1n, output: 1n }), 0),
+};
 
 function languageDescriptor(id: string): ModelDescriptor {
   return {
@@ -37,6 +43,7 @@ function textRequest(model: string, text: string): InferenceRequest {
     parameters: {},
     outputs: ['text'],
     utcDay: FIXTURE_UTC_DAY,
+    routing: TEST_ROUTING,
   };
 }
 
@@ -148,10 +155,54 @@ describe('resolveModelProvider — mock path', () => {
       apiKey: '',
       isCI: false,
       db,
+      maxPriceReachesAnchor,
       mockDirectives: { classifierResolution: 'model-A' },
     });
     expect(await drainText(provider, classifierRequest('base/model'))).toBe('model: model-A');
     expect(insert).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveModelProvider — the mock path refuses by the injected price comparison', () => {
+  function mockUnder(
+    maxPriceReachesAnchor: (maxPrice: unknown, pricing: unknown) => boolean
+  ): ModelProvider {
+    return resolveModelProvider({
+      useMock: true,
+      apiKey: '',
+      isCI: false,
+      db: spyingDb().db,
+      maxPriceReachesAnchor,
+    });
+  }
+
+  it('refuses a call the injected comparison says no endpoint can serve', async () => {
+    await expect(
+      drainText(
+        mockUnder(() => false),
+        textRequest('base/model', 'hi')
+      )
+    ).rejects.toMatchObject({ name: 'InferenceError', code: 'no_providers_available' });
+  });
+
+  it('serves a call the injected comparison admits', async () => {
+    expect(
+      await drainText(
+        mockUnder(() => true),
+        textRequest('base/model', 'hi')
+      )
+    ).toContain('hi');
+  });
+
+  it('hands the comparison the call’s cap and the model’s price', async () => {
+    const seen: unknown[] = [];
+    const provider = mockUnder((maxPrice, pricing) => {
+      seen.push(maxPrice, pricing);
+      return true;
+    });
+
+    await drainText(provider, textRequest('base/model', 'hi'));
+    expect(seen).toEqual([TEST_ROUTING.maxPrice, languageDescriptor('base/model').pricing]);
   });
 });
 
@@ -170,6 +221,7 @@ describe('resolveModelProvider — dev-server delay defaults at the composition 
       apiKey: '',
       isCI: false,
       db,
+      maxPriceReachesAnchor,
       mockDirectives: {},
       isDevServer: true,
     });
@@ -198,6 +250,7 @@ describe('resolveModelProvider — dev-server delay defaults at the composition 
       apiKey: '',
       isCI: false,
       db,
+      maxPriceReachesAnchor,
       mockDirectives: {},
       isDevServer: false,
     });
@@ -211,7 +264,7 @@ describe('resolveModelProvider — production path', () => {
     const { db, insert } = spyingDb();
     let captured: CreateModelProviderOptions | undefined;
     const provider = resolveModelProvider(
-      { useMock: false, apiKey: 'real-key', isCI: false, db },
+      { useMock: false, apiKey: 'real-key', isCI: false, db, maxPriceReachesAnchor },
       {
         createProvider: (options) => {
           captured = options;
@@ -228,7 +281,7 @@ describe('resolveModelProvider — production path', () => {
     const { db } = spyingDb();
     let captured: CreateModelProviderOptions | undefined;
     resolveModelProvider(
-      { useMock: false, apiKey: 'real-key', isCI: false, db },
+      { useMock: false, apiKey: 'real-key', isCI: false, db, maxPriceReachesAnchor },
       {
         createProvider: (options) => {
           captured = options;
@@ -245,7 +298,7 @@ describe('resolveModelProvider — CI-vitest path', () => {
     const { db, insert } = spyingDb();
     let captured: CreateModelProviderOptions | undefined;
     const provider = resolveModelProvider(
-      { useMock: false, apiKey: 'real-key', isCI: true, db },
+      { useMock: false, apiKey: 'real-key', isCI: true, db, maxPriceReachesAnchor },
       {
         createProvider: (options) => {
           captured = options;
@@ -263,7 +316,7 @@ describe('resolveModelProvider — CI-vitest path', () => {
     const { db } = spyingDb();
     let captured: CreateModelProviderOptions | undefined;
     resolveModelProvider(
-      { useMock: false, apiKey: 'real-key', isCI: true, db },
+      { useMock: false, apiKey: 'real-key', isCI: true, db, maxPriceReachesAnchor },
       {
         createProvider: (options) => {
           captured = options;
@@ -281,7 +334,7 @@ describe('resolveModelProvider — CI-vitest path', () => {
     const { db } = spyingDb();
     let captured: CreateModelProviderOptions | undefined;
     resolveModelProvider(
-      { useMock: false, apiKey: 'real-key', isCI: true, db },
+      { useMock: false, apiKey: 'real-key', isCI: true, db, maxPriceReachesAnchor },
       {
         createProvider: (options) => {
           captured = options;
@@ -296,7 +349,7 @@ describe('resolveModelProvider — CI-vitest path', () => {
   it('records no evidence when the stream errors before any event', async () => {
     const { db, insert } = spyingDb();
     const provider = resolveModelProvider(
-      { useMock: false, apiKey: 'real-key', isCI: true, db },
+      { useMock: false, apiKey: 'real-key', isCI: true, db, maxPriceReachesAnchor },
       { createProvider: () => throwingProvider() }
     );
     await expect(drainAll(provider.infer(REAL_REQUEST, DESCRIPTOR))).rejects.toThrow(
@@ -309,21 +362,33 @@ describe('resolveModelProvider — CI-vitest path', () => {
 describe('resolveModelProvider — fail-fast', () => {
   it('throws on the real path when the API key is empty', () => {
     const { db } = spyingDb();
-    expect(() => resolveModelProvider({ useMock: false, apiKey: '', isCI: false, db })).toThrow(
-      /OPENROUTER_API_KEY/
-    );
+    expect(() =>
+      resolveModelProvider({ useMock: false, apiKey: '', isCI: false, db, maxPriceReachesAnchor })
+    ).toThrow(/OPENROUTER_API_KEY/);
   });
 
   it('throws on the CI-vitest path when the key is the dev mock literal', () => {
     const { db } = spyingDb();
     expect(() =>
-      resolveModelProvider({ useMock: false, apiKey: 'mock-openrouter-key', isCI: true, db })
+      resolveModelProvider({
+        useMock: false,
+        apiKey: 'mock-openrouter-key',
+        isCI: true,
+        db,
+        maxPriceReachesAnchor,
+      })
     ).toThrow(/mock/i);
   });
 
   it('throws on the CI-vitest path when no db is supplied for evidence', () => {
     expect(() =>
-      resolveModelProvider({ useMock: false, apiKey: 'real-key', isCI: true, db: undefined })
+      resolveModelProvider({
+        useMock: false,
+        apiKey: 'real-key',
+        isCI: true,
+        db: undefined,
+        maxPriceReachesAnchor,
+      })
     ).toThrow(/db/i);
   });
 });

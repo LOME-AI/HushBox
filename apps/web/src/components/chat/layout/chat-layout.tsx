@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
 import { ChatColumn } from '@/components/chat/layout/chat-column';
+import { InputDock } from '@/components/chat/layout/input-dock';
 import { ChatHeader } from '@/components/chat/layout/chat-header';
 import { BranchSwitcher } from '@/components/chat/layout/branch-switcher';
 import { ModelSelectorButton } from '@/components/chat/model-selector/model-selector-button';
@@ -107,10 +108,23 @@ export interface ChatLayoutProps {
   readonly onEdit?: ((messageId: string, content: string) => void) | undefined;
   readonly onFork?: ((messageId: string) => void) | undefined;
   readonly isLinkGuest?: boolean | undefined;
+  /** The thread is one message shared by link; its reader may only copy it. */
+  readonly isMessageLink?: boolean | undefined;
+  /** Seats in the conversation, read before its member list arrives. */
+  readonly memberCount?: number | undefined;
   readonly isEditing?: boolean | undefined;
   readonly onCancelEdit?: (() => void) | undefined;
   /** See MessageList docs — parent-derived signal that messages reflect final data. */
   readonly messagesReady?: boolean | undefined;
+  /** Content at the top of the thread, scrolling with it. Pass a memoised element: a fresh one
+   * on each render re-renders the memoised message list. */
+  readonly threadHeader?: React.ReactNode;
+  /** Content under the thread's last row, scrolling with it. Pass a memoised element, as for
+   * `threadHeader`. */
+  readonly threadFooter?: React.ReactNode;
+  /** The input container's content. Nullish draws the queued pills and the composer; `false`
+   * draws no input container at all; any other node draws inside the container in their place. */
+  readonly composerSlot?: React.ReactNode;
 }
 
 interface LayoutModals {
@@ -125,9 +139,6 @@ interface LayoutModals {
   inviteLinkModalOpen: boolean;
   shareMessageModalOpen: boolean;
   shareMessageId: string | null;
-  toggleMemberSidebar: () => void;
-  mobileMemberSidebarOpen: boolean;
-  setMobileMemberSidebarOpen: (open: boolean) => void;
   closeAddMemberModal: () => void;
   openAddMemberModal: () => void;
   closeBudgetSettingsModal: () => void;
@@ -152,9 +163,6 @@ function useLayoutModals(): LayoutModals {
       inviteLinkModalOpen: s.inviteLinkModalOpen,
       shareMessageModalOpen: s.shareMessageModalOpen,
       shareMessageId: s.shareMessageId,
-      toggleMemberSidebar: s.toggleMemberSidebar,
-      mobileMemberSidebarOpen: s.mobileMemberSidebarOpen,
-      setMobileMemberSidebarOpen: s.setMobileMemberSidebarOpen,
       closeAddMemberModal: s.closeAddMemberModal,
       openAddMemberModal: s.openAddMemberModal,
       closeBudgetSettingsModal: s.closeBudgetSettingsModal,
@@ -176,6 +184,15 @@ function renderQueuedPills(
 ): React.JSX.Element | null {
   if (queuedMessages === undefined || onCancelQueued === undefined) return null;
   return <QueuedMessages queued={queuedMessages} onCancel={onCancelQueued} className="mb-2" />;
+}
+
+/** A page's replacement for the composer, or the composer when it gives none (kept out of
+ * ChatLayout to hold its cyclomatic complexity down). */
+function renderComposerArea(
+  composerSlot: React.ReactNode,
+  renderComposer: () => React.JSX.Element
+): React.ReactNode {
+  return composerSlot ?? renderComposer();
 }
 
 /** The conversation the picker prices against — it names the payer. */
@@ -221,9 +238,14 @@ export function ChatLayout({
   onEdit,
   onFork,
   isLinkGuest,
+  isMessageLink,
+  memberCount,
   isEditing,
   onCancelEdit,
   messagesReady,
+  threadHeader,
+  threadFooter,
+  composerSlot,
 }: ChatLayoutProps): React.JSX.Element {
   const viewportHeight = useVisualViewportHeight();
   const isMobile = useIsMobile();
@@ -268,30 +290,17 @@ export function ChatLayout({
   const modals = useLayoutModals();
   const {
     shareMessageId,
-    toggleMemberSidebar,
-    mobileMemberSidebarOpen,
-    setMobileMemberSidebarOpen,
     openAddMemberModal,
     openBudgetSettingsModal,
     openInviteLinkModal,
     openShareMessageModal,
   } = modals;
 
-  const derived = resolveChatLayoutDerivedState({
+  const { premiumIds, sharedMessage } = resolveChatLayoutDerivedState({
     premiumIds: modelPremiumIds,
     shareMessageId,
     messages,
   });
-  const {
-    premiumIds,
-    sharedMessageContent,
-    sharedMessageEpochNumber,
-    sharedMessageWrappedContentKey,
-    sharedMessageMediaItems,
-    sharedMessageSenderId,
-    sharedMessageReasoningTokens,
-    sharedMessageReasoningEffort,
-  } = derived;
 
   const handleSubmit = React.useCallback(
     (fundingSource: FundingSource): void => {
@@ -314,14 +323,6 @@ export function ChatLayout({
     useDocumentStore.getState().closePanel();
   }, [conversationId]);
 
-  const handleFacepileClick = React.useCallback((): void => {
-    if (isMobile) {
-      setMobileMemberSidebarOpen(!mobileMemberSidebarOpen);
-    } else {
-      toggleMemberSidebar();
-    }
-  }, [isMobile, mobileMemberSidebarOpen, setMobileMemberSidebarOpen, toggleMemberSidebar]);
-
   const handleShareMessage = React.useCallback(
     (messageId: string): void => {
       openShareMessageModal(messageId);
@@ -336,6 +337,10 @@ export function ChatLayout({
     () => branchSummaries(branchMessages ?? messages, forks ?? []),
     [branchMessages, messages, forks]
   );
+  const [branchesOpen, setBranchesOpen] = React.useState(false);
+  const openBranches = React.useCallback((): void => {
+    setBranchesOpen(true);
+  }, []);
 
   const inputStyle = getMobileInputStyle({ isMobile, keyboardOffset, isKeyboardVisible });
   const { wsConnected, wsReady } = getWebSocketAttributes(groupChat?.ws);
@@ -353,11 +358,16 @@ export function ChatLayout({
           title={title}
           showNewChat={isAuthenticated && isLinkGuest !== true}
           isAuthenticated={isAuthenticated}
-          {...buildChatHeaderGroupProps(groupChat, handleFacepileClick)}
+          {...buildChatHeaderGroupProps(groupChat)}
+          memberCount={memberCount}
+          isLinkGuest={isLinkGuest === true}
           branchSwitcher={
             <BranchSwitcher
               branches={branches}
               boundary={column}
+              forks={forks}
+              open={branchesOpen}
+              onOpenChange={setBranchesOpen}
               {...resolveBranchSwitcherHandlers({
                 activeForkId,
                 onForkSelect,
@@ -387,10 +397,15 @@ export function ChatLayout({
           virtuosoRef={virtuosoRef}
           isAuthenticated={isAuthenticated}
           isLinkGuest={isLinkGuest ?? false}
+          isMessageLink={isMessageLink}
           callerPrivilege={callerPrivilege}
           conversationId={conversationId}
           activeForkId={activeForkId}
           messagesReady={messagesReady}
+          branches={branches}
+          onOpenBranches={openBranches}
+          threadHeader={threadHeader}
+          threadFooter={threadFooter}
         />
         <React.Suspense fallback={null}>
           <DocumentPanel />
@@ -406,56 +421,56 @@ export function ChatLayout({
           />
         )}
       </div>
-      <div
-        ref={inputContainerRef}
-        data-chat-input
-        data-chrome=""
-        className="bg-background flex-shrink-0 border-t py-4"
-        style={inputStyle}
-      >
-        <ChatColumn>
-          {renderQueuedPills(queuedMessages, onCancelQueued)}
-          <ChatPromptInput
-            promptInputRef={promptInputRef}
-            inputValue={inputValue}
-            onInputChange={onInputChange}
-            handleSubmit={handleSubmit}
-            historyCharacters={historyCharacters}
-            inputDisabled={inputDisabled}
-            isProcessing={isProcessing}
-            onStop={onStop}
-            onQueue={onQueue}
-            queueCount={queueCount}
-            queueFull={queueFull}
-            isMobile={isMobile}
-            conversationId={conversationId}
-            groupChat={groupChat}
-            callerPrivilege={callerPrivilege}
-            handleSubmitUserOnly={handleSubmitUserOnly}
-            handleTypingChange={handleTypingChange}
-            searchProps={searchProps}
-            isAuthenticated={isAuthenticated}
-            isEditing={isEditing}
-            onCancelEdit={onCancelEdit}
-            activeModality={activeModality}
-            onSelectModality={selectModality}
-            predictor={promptPredictor(0)}
-            modelControl={
-              <ModelSelectorButton
-                models={models}
-                selectedModels={selectedModels}
-                onSelect={handleModelSelect}
-                premiumIds={premiumIds}
-                isAuthenticated={isAuthenticated}
-                isLinkGuest={isLinkGuest ?? false}
-                onPremiumClick={handlePremiumClick}
-                activeModality={activeModality}
-                floorGroup={buildFloorGroup(groupChat)}
-              />
-            }
-          />
-        </ChatColumn>
-      </div>
+      {composerSlot !== false && (
+        <InputDock ref={inputContainerRef} data-chat-input data-chrome="" style={inputStyle}>
+          <ChatColumn>
+            {renderComposerArea(composerSlot, () => (
+              <>
+                {renderQueuedPills(queuedMessages, onCancelQueued)}
+                <ChatPromptInput
+                  promptInputRef={promptInputRef}
+                  inputValue={inputValue}
+                  onInputChange={onInputChange}
+                  handleSubmit={handleSubmit}
+                  historyCharacters={historyCharacters}
+                  inputDisabled={inputDisabled}
+                  isProcessing={isProcessing}
+                  onStop={onStop}
+                  onQueue={onQueue}
+                  queueCount={queueCount}
+                  queueFull={queueFull}
+                  isMobile={isMobile}
+                  conversationId={conversationId}
+                  groupChat={groupChat}
+                  callerPrivilege={callerPrivilege}
+                  handleSubmitUserOnly={handleSubmitUserOnly}
+                  handleTypingChange={handleTypingChange}
+                  searchProps={searchProps}
+                  isAuthenticated={isAuthenticated}
+                  isEditing={isEditing}
+                  onCancelEdit={onCancelEdit}
+                  activeModality={activeModality}
+                  onSelectModality={selectModality}
+                  predictor={promptPredictor(0)}
+                  modelControl={
+                    <ModelSelectorButton
+                      models={models}
+                      selectedModels={selectedModels}
+                      onSelect={handleModelSelect}
+                      premiumIds={premiumIds}
+                      isAuthenticated={isAuthenticated}
+                      isLinkGuest={isLinkGuest ?? false}
+                      onPremiumClick={handlePremiumClick}
+                      activeModality={activeModality}
+                      floorGroup={buildFloorGroup(groupChat)}
+                    />
+                  }
+                />
+              </>
+            ))}
+          </ChatColumn>
+        </InputDock>
+      )}
       <ChatLayoutModals
         signupModalOpen={modals.signupModalOpen}
         setSignupModalOpen={modals.setSignupModalOpen}
@@ -465,15 +480,8 @@ export function ChatLayout({
         refusalReason={modals.refusalReason}
         shareMessageModalOpen={modals.shareMessageModalOpen}
         closeShareMessageModal={modals.closeShareMessageModal}
-        shareMessageId={modals.shareMessageId}
         shareMessageConversationId={conversationIdOrNull}
-        sharedMessageContent={sharedMessageContent}
-        sharedMessageEpochNumber={sharedMessageEpochNumber}
-        sharedMessageWrappedContentKey={sharedMessageWrappedContentKey}
-        sharedMessageMediaItems={sharedMessageMediaItems}
-        sharedMessageSenderId={sharedMessageSenderId}
-        sharedMessageReasoningTokens={sharedMessageReasoningTokens}
-        sharedMessageReasoningEffort={sharedMessageReasoningEffort}
+        sharedMessage={sharedMessage}
         groupChat={groupChat}
         title={title}
         addMemberModalOpen={modals.addMemberModalOpen}

@@ -15,7 +15,7 @@ import {
 import {
   buildSmartModelCandidates,
   buildTrialSmartModelCandidates,
-  listDescriptors,
+  readExposedCatalog,
   snapshotResolver,
 } from '../../../models/index.js';
 import { readBalance } from '../../../billing/index.js';
@@ -41,6 +41,7 @@ import {
   turnClassifier,
   turnModelPricings,
   turnSiblingNodes,
+  withBuildCatalogGeneration,
   withStorageStamp,
 } from '../turn/definition.js';
 import { classifierStage, turnClassifies, turnEffortPlan } from '../turn/classifier.js';
@@ -589,15 +590,17 @@ export function buildSmartModelTurnDefinition(
   }
 ): ResultAsync<SmartModelTurnBuild, DomainError> {
   return readBalance(deps.billing, deps.db, args.userId, args.now).andThen((balance) =>
-    listDescriptors({ db: deps.db, telemetry: deps.telemetry }).andThen((catalog) =>
-      compileSmartModelSend(catalog, {
+    readExposedCatalog({ db: deps.db, telemetry: deps.telemetry }).andThen((read) =>
+      compileSmartModelSend(read.descriptors, {
         ...args,
         // The frozen spendable figure — the SAME one admission and the client
         // gate on — never a figure re-derived here (see
         // `smartModelEffectiveBalanceNanoUsd`).
         balanceNanoUsd: smartModelEffectiveBalanceNanoUsd(args.budget, balance.purchasedNanoUsd),
         nowMs: args.now.getTime(),
-      })
+      }).map((build) =>
+        build.buildable ? withBuildCatalogGeneration(build, read.generation) : build
+      )
     )
   );
 }
@@ -874,9 +877,15 @@ export type AutoEffortTurnBuild =
 export function compileAutoEffortTurn(
   catalog: readonly ModelDescriptor[],
   model: string,
-  turn: { readonly budget: TurnBudget; readonly hooks: PolicyHooks; readonly now: Date }
+  turn: {
+    readonly budget: TurnBudget;
+    readonly hooks: PolicyHooks;
+    readonly now: Date;
+    /** The generation of the catalog read `catalog` came from, stamped on a built turn. */
+    readonly catalogGeneration: string;
+  }
 ): Result<AutoEffortTurnBuild, DomainError> {
-  const { budget, hooks, now } = turn;
+  const { budget, hooks, now, catalogGeneration } = turn;
   const resolve = snapshotResolver(catalog);
   const target = catalog.find((descriptor) => descriptor.id === model);
   if (target === undefined || !turnClassifies([model], resolve)) return ok({ kind: 'fallback' });
@@ -889,27 +898,33 @@ export function compileAutoEffortTurn(
     webSearch: false,
     funding: autoMenuFunding(budget, hooks),
     nowMs: now.getTime(),
-  }).andThen((plan): Result<AutoEffortTurnBuild, DomainError> => {
-    const pricings = turnModelPricings([model], resolve);
-    if (pricings === undefined) return ok({ kind: 'fallback' });
-    const room = sharedAnswerCeiling(budget, pricings);
-    /* v8 ignore next -- `pricings` is a one-element list here, so a room always resolves */
-    if (room === undefined) return ok({ kind: 'fallback' });
-    if (plan.kind === 'unaffordable') return ok({ kind: 'unaffordable' });
-    if (plan.settled !== undefined) {
-      // One available rung settles the axis: the turn runs it as a pin there,
-      // buys no call, and sizes its answer without the reserve the menu set aside.
-      return compileFittedSingleTurn(resolve, model, {
-        budget,
-        hooks,
-        reasoningEffort: plan.settled.effort,
-        setAsideNanoUsd: plan.settled.setAsideNanoUsd,
-      }).map((fitted) => fundedAutoEffortTurn(fitted, {}));
-    }
-    /* v8 ignore next -- a funded classifying plan names its classifier whenever it settles nothing */
-    if (plan.classifier === null) return ok({ kind: 'fallback' });
-    return ok(classifiedAutoEffortTurn(catalog, target, plan.classifier, { budget, hooks, room }));
-  });
+  })
+    .andThen((plan): Result<AutoEffortTurnBuild, DomainError> => {
+      const pricings = turnModelPricings([model], resolve);
+      if (pricings === undefined) return ok({ kind: 'fallback' });
+      const room = sharedAnswerCeiling(budget, pricings);
+      /* v8 ignore next -- `pricings` is a one-element list here, so a room always resolves */
+      if (room === undefined) return ok({ kind: 'fallback' });
+      if (plan.kind === 'unaffordable') return ok({ kind: 'unaffordable' });
+      if (plan.settled !== undefined) {
+        // One available rung settles the axis: the turn runs it as a pin there,
+        // buys no call, and sizes its answer without the reserve the menu set aside.
+        return compileFittedSingleTurn(resolve, model, {
+          budget,
+          hooks,
+          reasoningEffort: plan.settled.effort,
+          setAsideNanoUsd: plan.settled.setAsideNanoUsd,
+        }).map((fitted) => fundedAutoEffortTurn(fitted, {}));
+      }
+      /* v8 ignore next -- a funded classifying plan names its classifier whenever it settles nothing */
+      if (plan.classifier === null) return ok({ kind: 'fallback' });
+      return ok(
+        classifiedAutoEffortTurn(catalog, target, plan.classifier, { budget, hooks, room })
+      );
+    })
+    .map((build) =>
+      build.kind === 'built' ? withBuildCatalogGeneration(build, catalogGeneration) : build
+    );
 }
 
 /**
@@ -996,8 +1011,8 @@ export function buildAutoEffortTurnDefinition(
   model: string,
   args: { readonly budget: TurnBudget; readonly hooks: PolicyHooks; readonly now: Date }
 ): ResultAsync<AutoEffortTurnBuild, DomainError> {
-  return listDescriptors({ db: deps.db, telemetry: deps.telemetry }).andThen((catalog) =>
-    compileAutoEffortTurn(catalog, model, args)
+  return readExposedCatalog({ db: deps.db, telemetry: deps.telemetry }).andThen((read) =>
+    compileAutoEffortTurn(read.descriptors, model, { ...args, catalogGeneration: read.generation })
   );
 }
 
@@ -1041,7 +1056,8 @@ export function buildTrialSmartModelTurnDefinition(
     readonly pinnedEffort?: CanonicalReasoningEffort;
   }
 ): ResultAsync<SmartModelTurnBuild, DomainError> {
-  return listDescriptors({ db: deps.db, telemetry: deps.telemetry }).andThen((catalog) => {
+  return readExposedCatalog({ db: deps.db, telemetry: deps.telemetry }).andThen((read) => {
+    const catalog = read.descriptors;
     // The candidate gate prices the SAME character count the definition is
     // compiled against, forwarded from the budget rather than recounted here, so
     // the two cannot measure different prompts. Recounting locally is what let a
@@ -1063,6 +1079,8 @@ export function buildTrialSmartModelTurnDefinition(
       ...(classify === undefined ? {} : { classify }),
       ...(args.reasoningOff === true ? { reasoningOff: true } : {}),
       ...(args.pinnedEffort === undefined ? {} : { pinnedEffort: args.pinnedEffort }),
-    });
+    }).map((build) =>
+      build.buildable ? withBuildCatalogGeneration(build, read.generation) : build
+    );
   });
 }

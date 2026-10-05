@@ -163,7 +163,7 @@ describe('resetAuthRateLimits', () => {
     );
   });
 
-  it('clears the named account’s first-trip TOTP email latch', async () => {
+  it('clears the named account’s once-per-run TOTP email latch', async () => {
     const { redis, deleted } = stubSweepRedis();
 
     await resetAuthRateLimits(redis, CALLER_IP_ID, [NAMED]);

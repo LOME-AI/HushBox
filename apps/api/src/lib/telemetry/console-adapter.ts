@@ -1,6 +1,6 @@
 import { sanitizeErrorName, stackFrameLines } from './error-scrub.js';
 import { pickSafeLogFields } from './safe-log-fields.js';
-import type { ScheduleCheckIn } from './check-in.js';
+import type { CheckInStatus, ScheduleCheckIn } from './check-in.js';
 import type { Telemetry } from './port.js';
 import type { SafeLogFields } from './safe-log-fields.js';
 
@@ -57,12 +57,13 @@ export function createConsoleTelemetry(sink: ConsoleSink = console): Telemetry &
     };
 
   const info = logAt('info');
+  const logError = logAt('error');
 
   return {
     debug: logAt('debug'),
     info,
     warn: logAt('warn'),
-    error: logAt('error'),
+    error: logError,
     captureError(error: Error, errorCode: string): void {
       emit('error', () => ({
         msg: 'error.captured',
@@ -71,9 +72,13 @@ export function createConsoleTelemetry(sink: ConsoleSink = console): Telemetry &
         stack: stackFrameLines(error).join('\n'),
       }));
     },
-    checkIn(status: 'in_progress' | 'ok'): void {
+    checkIn(status: CheckInStatus): void {
       if (status === 'in_progress') {
         info('cron monitor check-in started');
+        return;
+      }
+      if (status === 'error') {
+        logError('cron monitor check-in failed');
         return;
       }
       info('cron monitor check-in finished');

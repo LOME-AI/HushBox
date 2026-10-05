@@ -8,11 +8,12 @@ import { useChatErrorStore, MAIN_FORK_KEY } from '@/stores/chat/error';
 import { ChatRunFailedError } from '@/hooks/chat/use-chat-stream';
 import { useTurnStreamCallbacks } from '@/hooks/chat/use-turn-stream-callbacks';
 import { useCreateConversationFlow } from '@/hooks/chat/use-create-conversation-flow';
+import { chatKeys } from '@/hooks/chat/chat';
 import type { Dispatch, SetStateAction } from 'react';
 import type { useNavigate } from '@tanstack/react-router';
 import type { useChatPageState } from '@/hooks/chat/use-chat-page';
 import type { useChatStream } from '@/hooks/chat/use-chat-stream';
-import type { useCreateConversation } from '@/hooks/chat/chat';
+import type { ConversationDetailResponse, useCreateConversation } from '@/hooks/chat/chat';
 import type { useOptimisticMessages } from '@/hooks/chat/use-optimistic-messages';
 import type { Message } from '@/lib/api/api';
 
@@ -51,15 +52,18 @@ function createOptimistic(): ReturnType<typeof useOptimisticMessages> {
   };
 }
 
-/** Records every value passed through `setLocalMessages`, applying updaters in order. */
-function createLocalMessagesRecorder(): {
+/**
+ * Records every value passed through `setLocalMessages`, applying updaters in
+ * order. `alongside` rows stand beside every list the flow sets whole.
+ */
+function createLocalMessagesRecorder(alongside: Message[] = []): {
   setLocalMessages: Dispatch<SetStateAction<Message[]>>;
   lastState: () => Message[];
 } {
   let current: Message[] = [];
   return {
     setLocalMessages: (action) => {
-      current = typeof action === 'function' ? action(current) : action;
+      current = typeof action === 'function' ? action(current) : [...action, ...alongside];
     },
     lastState: () => current,
   };
@@ -89,7 +93,7 @@ const startStreamThatFailsAfterStart = vi.fn<StartStream>((_request, options) =>
   return Promise.reject(new ChatRunFailedError('UNAVAILABLE'));
 });
 
-function renderCreateFlow(setLocalMessages: Dispatch<SetStateAction<Message[]>>): void {
+function renderCreateFlow(setLocalMessages: Dispatch<SetStateAction<Message[]>>): QueryClient {
   const store = useModelStore.getState();
   const state = createPageState();
   const conversationIdRef = { current: '' };
@@ -138,6 +142,7 @@ function renderCreateFlow(setLocalMessages: Dispatch<SetStateAction<Message[]>>)
       addOptimisticMessage: vi.fn(),
     });
   });
+  return queryClient;
 }
 
 describe('useCreateConversationFlow first-turn failure', () => {
@@ -175,5 +180,49 @@ describe('useCreateConversationFlow first-turn failure', () => {
     expect(recorder.lastState().map((m) => ({ role: m.role, content: m.content }))).toEqual([
       { role: 'user', content: 'Hello' },
     ]);
+  });
+
+  it('marks the failed question as one that was never saved', async () => {
+    const recorder = createLocalMessagesRecorder();
+
+    renderCreateFlow(recorder.setLocalMessages);
+
+    await waitFor(() => {
+      expect(useChatErrorStore.getState().getError(MAIN_FORK_KEY)).not.toBeNull();
+    });
+    expect(recorder.lastState()[0]?.unsavedQuestion).toBe(true);
+  });
+
+  it('marks no other local row as unsaved', async () => {
+    const other: Message = {
+      id: 'other-row',
+      conversationId: 'conv-1',
+      role: 'assistant',
+      content: 'kept',
+      createdAt: isoAt(TEST_DAY_START),
+    };
+    const recorder = createLocalMessagesRecorder([other]);
+
+    renderCreateFlow(recorder.setLocalMessages);
+
+    await waitFor(() => {
+      expect(useChatErrorStore.getState().getError(MAIN_FORK_KEY)).not.toBeNull();
+    });
+    expect(recorder.lastState().find((m) => m.id === 'other-row')).toEqual(other);
+  });
+
+  it('seeds the new conversation read with its owner as the one member', async () => {
+    const recorder = createLocalMessagesRecorder();
+
+    const queryClient = renderCreateFlow(recorder.setLocalMessages);
+
+    await waitFor(() => {
+      expect(useChatErrorStore.getState().getError(MAIN_FORK_KEY)).not.toBeNull();
+    });
+    const createdId = createConversation.mock.calls.at(-1)?.[0].id ?? '';
+    const seeded = queryClient.getQueryData<ConversationDetailResponse>(
+      chatKeys.conversation(createdId)
+    );
+    expect(seeded?.memberCount).toBe(1);
   });
 });

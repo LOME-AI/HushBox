@@ -1,4 +1,4 @@
-import { listDescriptors } from '../catalog/list-descriptors.js';
+import { readExposedCatalog } from '../catalog/list-descriptors.js';
 import type { ModelDescriptor } from '@hushbox/shared';
 import type { ListDescriptorsDeps } from '../catalog/list-descriptors.js';
 import type { ModelPricingResolver } from './estimate-run.js';
@@ -24,18 +24,24 @@ export function snapshotResolver(descriptors: readonly ModelDescriptor[]): Model
   return (modelId) => byId.get(modelId);
 }
 
+/** A snapshot resolver that names the generation of the catalog read it closes over. */
+export type CatalogPricingResolver = ModelPricingResolver & { readonly generation: string };
+
 /**
  * Produces a sync pricing/descriptor resolver from a catalog snapshot read ONCE
  * at construction. Freshness model: the returned resolver closes over that
- * snapshot and never re-reads — staleness is bounded by the catalog's hourly
- * cron refresh, and a caller wanting fresher data reconstructs the resolver.
+ * snapshot and never re-reads; a caller wanting fresher data reconstructs the
+ * resolver, and its `generation` tells a holder whether the catalog it was
+ * built from is the one another read saw.
  * Only exposed models (ZDR-reachable, priced, dispatchable) are resolvable: the
- * snapshot is `listDescriptors`' already-filtered set, so an unexposed or
+ * snapshot is `readExposedCatalog`'s already-filtered set, so an unexposed or
  * unknown id returns `undefined` — the same fail-closed source the async read
  * uses, never a second catalog-read path.
  */
 export function createModelPricingResolver(
   deps: ListDescriptorsDeps
-): ResultAsync<ModelPricingResolver, DomainError> {
-  return listDescriptors(deps).map((descriptors) => snapshotResolver(descriptors));
+): ResultAsync<CatalogPricingResolver, DomainError> {
+  return readExposedCatalog(deps).map((read) =>
+    Object.assign(snapshotResolver(read.descriptors), { generation: read.generation })
+  );
 }

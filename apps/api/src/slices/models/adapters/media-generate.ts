@@ -9,10 +9,11 @@ import type { FilePartMapper, InferenceEvent, InferenceRequest, Usage } from '@h
  * plus the terminal finish. The FilePartMapper decides where bytes rest.
  *
  * OpenRouter's video model surfaces `providerMetadata.openrouter.generationId`
- * and the authoritative inline `providerMetadata.openrouter.cost`; its image
- * model (a dedicated images API) surfaces neither — image finishes carry no
- * generation id and no cost, so settlement falls back to the deterministic
- * estimate. Both are best-effort: a missing id is not a failure.
+ * and the authoritative inline `providerMetadata.openrouter.cost`. Its image
+ * model (a dedicated images API) surfaces neither, so image finishes carry no
+ * generation id, and the image adapter reads the cost off the response itself.
+ * A missing id is not a failure; a missing cost leaves settlement on the
+ * deterministic estimate.
  */
 
 /** The result surface shared by the SDK's generated image/video files. */
@@ -41,8 +42,9 @@ export function extractMediaGenerationId(metadata?: unknown): string | undefined
 
 /**
  * Pull the authoritative inline `openrouter.cost` (USD) from a media result's
- * provider metadata. Present for video; absent for image (no inline cost) and
- * on the pathological missing-cost path — settlement estimates in those cases.
+ * provider metadata, where the video path carries it; the image path reads its
+ * cost off the response instead. Absent on the pathological missing-cost path,
+ * where settlement estimates.
  */
 export function extractMediaCostUsd(metadata?: unknown): number | undefined {
   if (metadata === undefined || metadata === null) return undefined;
@@ -94,7 +96,7 @@ export function mediaOutputEvents(
 
 /**
  * Build the terminal finish for a media generation. The generation id (video
- * only) and the provider cost (video's inline cost; omitted for image) are both
+ * only) and the provider cost (the inline cost either family returns) are both
  * optional — a media call with neither still finishes successfully, and
  * settlement estimates when no cost is present.
  */

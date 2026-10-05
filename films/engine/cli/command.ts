@@ -15,7 +15,7 @@ export const USAGE = [
   '',
 ].join('\n');
 
-export type Command =
+type Command =
   | { verb: 'score'; filmId: string }
   | { verb: 'stills'; filmId: string; frames: number[] | null; gl: string }
   | { verb: 'render'; filmId: string; draft: boolean; gl: string }

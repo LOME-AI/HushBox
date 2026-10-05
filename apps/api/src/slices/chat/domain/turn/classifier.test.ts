@@ -34,7 +34,7 @@ import {
 import { createModelCallExecution } from '../../../workflows/domain/nodes/model-call-execution.js';
 import { createValueStore } from '../../../workflows/domain/engine/value-store.js';
 import { ok } from '../../../../lib/result/index.js';
-import { createEstimateRun, pickEffortClassifier } from '../../../models/index.js';
+import { callMaxPrice, createEstimateRun, pickEffortClassifier } from '../../../models/index.js';
 import { CHAT_CLASSIFIER_INPUT, CHAT_DECISION_DOMAIN_INPUT, CHAT_TURN_INPUT } from '../index.js';
 import { CHAT_TURN_HOOKS } from '../constants.js';
 import { compileAutoEffortTurn } from '../smart-model/turn.js';
@@ -349,6 +349,7 @@ function menuRungs(
       modality: 'text',
       pinned: {},
       webSearch: false,
+      effortAuto: true,
     },
     { models: smartModelPool(catalog), nowMs: TEST_DAY_START }
   );
@@ -595,6 +596,7 @@ describe('the freeze reserve bounds what admission holds for the classifier', ()
   function pinnedAutoDefinition(catalog: readonly ModelDescriptor[]): WorkflowDefinition {
     const build = compileAutoEffortTurn(catalog, REASONER.id, {
       budget: BUDGET,
+      catalogGeneration: '0123456789abcdef',
       hooks: CHAT_TURN_HOOKS,
       now: new Date(TEST_DAY_START),
     })._unsafeUnwrap();
@@ -729,6 +731,8 @@ describe('the decision reaches the siblings', () => {
         descriptor: REASONER,
         ports: { in: [textTag()], out: textTag() },
         price: () => ok(0n),
+        reserveMedia: () => ok(0n),
+        maxPrice: (bound) => callMaxPrice(REASONER.pricing, bound),
       },
       usdToBillableNanoUsd: () => 0n,
       schemas: {
@@ -740,6 +744,8 @@ describe('the decision reaches the siblings', () => {
       clock: { now: () => 0 },
       rng: { random: () => 0.5 },
       signal: new AbortController().signal,
+      spend: { isOpen: () => true, report: () => undefined },
+      runId: undefined,
     });
     const sent = requests[0];
     if (sent === undefined) throw new Error('the sibling sent no request');

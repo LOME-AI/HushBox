@@ -91,6 +91,7 @@ function conversation(linkId: string | null): ConversationDetailResponse {
       linkId,
     },
     forks: [],
+    memberCount: 1,
   };
 }
 

@@ -352,6 +352,7 @@ describe('useConversation', () => {
         linkId: null,
       },
       forks: [],
+      memberCount: 1,
     };
     mockFetchJson.mockResolvedValueOnce(detail);
 
@@ -386,6 +387,7 @@ describe('useConversation', () => {
         linkId: 'link-1',
       },
       forks: [],
+      memberCount: 1,
     };
     mockFetchJson.mockResolvedValueOnce(detail);
 
@@ -411,6 +413,7 @@ describe('useConversation', () => {
         linkId: 'link-1',
       },
       forks: [],
+      memberCount: 1,
     };
     mockFetchJson.mockResolvedValueOnce(detail);
 
@@ -438,6 +441,7 @@ describe('useConversation', () => {
         linkId: null,
       },
       forks: [],
+      memberCount: 1,
     };
     mockFetchJson.mockResolvedValueOnce(detail);
 

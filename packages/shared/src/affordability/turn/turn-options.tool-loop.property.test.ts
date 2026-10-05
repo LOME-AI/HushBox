@@ -170,6 +170,7 @@ function slotSelection(models: readonly string[], pin?: OptionId): Selection {
     modality: 'text',
     pinned: pin === undefined ? {} : { effort: pin },
     webSearch: true,
+    effortAuto: pin === undefined,
   };
 }
 
@@ -180,6 +181,7 @@ function nonSlotSelection(models: readonly string[], pin?: OptionId): Selection 
     modality: 'text',
     pinned: pin === undefined ? {} : { effort: pin },
     webSearch: true,
+    effortAuto: pin === undefined,
   };
 }
 
@@ -333,6 +335,7 @@ const risingSearchingTurns: fc.Arbitrary<RisingTurn> = fc
       modality: 'text',
       pinned: {},
       webSearch: true,
+      effortAuto: true,
     };
     return { selection, basis, tier, lower: a, higher: a + rise * 1_000_000n };
   });

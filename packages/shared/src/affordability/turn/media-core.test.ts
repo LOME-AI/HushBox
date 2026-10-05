@@ -14,17 +14,19 @@ const SECOND_720P = 100_000_000n;
 const SECOND_1080P = 200_000_000n;
 const PER_IMAGE = 40_000_000n;
 
-/** One generated image's stored bytes at the media byte rate: 8,000,000 × 18. */
-const IMAGE_STORAGE = 144_000_000n;
-/** One generated second's stored bytes at the same rate: 5,000,000 × 18. */
-const SECOND_STORAGE = 90_000_000n;
+/** A media turn's stored bytes, reserved once: the value-store budget, 20,971,520 × 18. */
+const RUN_STORAGE = 377_487_360n;
 
-/** Four seconds at 720p, generation plus storage — {@link videoModel}'s cheapest turn. */
-const VIDEO_FLOOR = 4n * (SECOND_720P + SECOND_STORAGE);
+/** Four seconds at 720p, generation only. */
+const FOUR_SECONDS_720P = 4n * SECOND_720P;
+/** Four seconds at 720p plus the run storage — {@link videoModel}'s cheapest turn. */
+const VIDEO_FLOOR = FOUR_SECONDS_720P + RUN_STORAGE;
 /** Eight seconds at 720p, the same turn at the model's other duration. */
-const VIDEO_EIGHT_SECONDS = 8n * (SECOND_720P + SECOND_STORAGE);
-/** One image, generation plus storage. */
-const IMAGE_TURN = PER_IMAGE + IMAGE_STORAGE;
+const VIDEO_EIGHT_SECONDS = 8n * SECOND_720P + RUN_STORAGE;
+/** Two models at four seconds of 720p: both generate, and the run stores once. */
+const TWO_MODEL_VIDEO_FLOOR = 2n * FOUR_SECONDS_720P + RUN_STORAGE;
+/** One image, generation plus the run storage. */
+const IMAGE_TURN = PER_IMAGE + RUN_STORAGE;
 
 /** What one video model declares on each of the three media axes. */
 interface VideoDomains {
@@ -228,9 +230,10 @@ describe('evaluateMediaTurn', () => {
     });
   });
 
-  it('prices a generation at its provider cost plus the bytes its output is stored at', () => {
-    // 40,000,000 to generate the image; 144,000,000 to keep it. A verdict on the
-    // provider leg alone would send this turn at a quarter of what it costs.
+  it('prices a generation at its provider cost plus the run storage', () => {
+    // 40,000,000 to generate the image; 377,487,360 to keep what the run can
+    // store. A verdict on the provider leg alone would send this turn far below
+    // what admission holds.
     const funded = evaluateMediaTurn({
       fundingNanoUsd: IMAGE_TURN,
       basis: EMPTY_PROMPT_BASIS,
@@ -244,13 +247,13 @@ describe('evaluateMediaTurn', () => {
       selection: selectionOf('image', ['vendor/imagen']),
     });
 
-    expect(IMAGE_TURN).toBe(184_000_000n);
+    expect(IMAGE_TURN).toBe(417_487_360n);
     expect([funded.sendable, oneNanoShort.sendable]).toEqual([true, false]);
   });
 
-  it('stores more bytes for a longer generation', () => {
-    // Eight seconds costs twice four seconds on BOTH legs, so the flip point
-    // moves by the storage of the extra four seconds as well as their rate.
+  it('reserves the same run storage however long the generation', () => {
+    // Eight seconds costs twice four seconds to generate, and the storage term is
+    // the run's bound at either length, so the flip point moves by the rate alone.
     const funded = evaluateMediaTurn({
       fundingNanoUsd: VIDEO_EIGHT_SECONDS,
       basis: EMPTY_PROMPT_BASIS,
@@ -264,7 +267,7 @@ describe('evaluateMediaTurn', () => {
       selection: selectionOf('video', ['vendor/veo'], { resolution: '720p', durationSeconds: '8' }),
     });
 
-    expect(VIDEO_EIGHT_SECONDS - VIDEO_FLOOR).toBe(4n * (SECOND_720P + SECOND_STORAGE));
+    expect(VIDEO_EIGHT_SECONDS - VIDEO_FLOOR).toBe(4n * SECOND_720P);
     expect([funded.sendable, oneNanoShort.sendable]).toEqual([true, false]);
   });
 
@@ -289,13 +292,35 @@ describe('evaluateMediaTurn', () => {
   it('charges the prompt storage once for the turn, not once per generating model', () => {
     const promptStorage = 300_000n;
     const twoModels = evaluateMediaTurn({
-      fundingNanoUsd: 2n * IMAGE_TURN + promptStorage,
+      fundingNanoUsd: 2n * PER_IMAGE + RUN_STORAGE + promptStorage,
       basis: { ...EMPTY_PROMPT_BASIS, inputChars: 1000 },
       catalog: [imageModel('vendor/imagen'), imageModel('vendor/flux')],
       selection: selectionOf('image', ['vendor/imagen', 'vendor/flux']),
     });
 
     expect(twoModels.sendable).toBe(true);
+  });
+
+  it('charges the run storage once for the turn, not once per generating model', () => {
+    // The hold reserves what the run's value store can admit, and that budget is
+    // the run's, shared by every sibling's output.
+    const twoImages = 2n * PER_IMAGE + RUN_STORAGE;
+    const catalog = [imageModel('vendor/imagen'), imageModel('vendor/flux')];
+    const selection = selectionOf('image', ['vendor/imagen', 'vendor/flux']);
+    const funded = evaluateMediaTurn({
+      fundingNanoUsd: twoImages,
+      basis: EMPTY_PROMPT_BASIS,
+      catalog,
+      selection,
+    });
+    const oneNanoShort = evaluateMediaTurn({
+      fundingNanoUsd: twoImages - 1n,
+      basis: EMPTY_PROMPT_BASIS,
+      catalog,
+      selection,
+    });
+
+    expect([funded.sendable, oneNanoShort.sendable]).toEqual([true, false]);
   });
 
   it('prices an unconstrained axis at the duration the request will carry', () => {
@@ -346,7 +371,7 @@ describe('evaluateMediaTurn', () => {
     // `vendor/veo` offers 8 seconds and the unconstrained sibling declares no
     // durations at all — it can still run 8, so the option is a money question
     // rather than an unoffered one, and both siblings are charged for it.
-    const eightSecondsBoth = 2n * VIDEO_EIGHT_SECONDS;
+    const eightSecondsBoth = 2n * 8n * SECOND_720P + RUN_STORAGE;
     const set = evaluateMediaTurn({
       fundingNanoUsd: eightSecondsBoth - 1n,
       basis: EMPTY_PROMPT_BASIS,
@@ -366,7 +391,7 @@ describe('evaluateMediaTurn', () => {
 
   it('leaves that same option available once the payer can fund both siblings at it', () => {
     const set = evaluateMediaTurn({
-      fundingNanoUsd: 2n * VIDEO_EIGHT_SECONDS,
+      fundingNanoUsd: 2n * 8n * SECOND_720P + RUN_STORAGE,
       basis: EMPTY_PROMPT_BASIS,
       catalog: [videoModel('vendor/veo'), unconstrainedVideoModel('vendor/anyduration')],
       selection: selectionOf('video', ['vendor/veo', 'vendor/anyduration'], {
@@ -414,8 +439,8 @@ describe('evaluateMediaTurn', () => {
   });
 
   it('prices an open dimension at the option pinned on another dimension', () => {
-    // Eight seconds at the pinned 1080p is 2,320,000,000n; at the cheapest
-    // resolution it would be 1,520,000,000n, which this funding covers exactly.
+    // Eight seconds at the pinned 1080p is 1,977,487,360n; at the cheapest
+    // resolution it would be 1,177,487,360n, which this funding covers exactly.
     const set = evaluateMediaTurn({
       fundingNanoUsd: VIDEO_EIGHT_SECONDS,
       basis: EMPTY_PROMPT_BASIS,
@@ -446,7 +471,7 @@ describe('evaluateMediaTurn', () => {
 
   it('leaves a model row the payer can afford beside what is already selected ungreyed', () => {
     const set = evaluateMediaTurn({
-      fundingNanoUsd: 2n * VIDEO_FLOOR,
+      fundingNanoUsd: TWO_MODEL_VIDEO_FLOOR,
       basis: EMPTY_PROMPT_BASIS,
       catalog: [videoModel('vendor/veo'), videoModel('vendor/sora')],
       selection: selectionOf('video', ['vendor/veo']),
@@ -565,13 +590,13 @@ describe('evaluateMediaTurn', () => {
     ];
     const selection = selectionOf('video', ['vendor/veo', 'vendor/sora'], VIDEO_PINS);
     const funded = evaluateMediaTurn({
-      fundingNanoUsd: 2n * VIDEO_FLOOR,
+      fundingNanoUsd: TWO_MODEL_VIDEO_FLOOR,
       basis: EMPTY_PROMPT_BASIS,
       catalog,
       selection,
     });
     const oneNanoShort = evaluateMediaTurn({
-      fundingNanoUsd: 2n * VIDEO_FLOOR - 1n,
+      fundingNanoUsd: TWO_MODEL_VIDEO_FLOOR - 1n,
       basis: EMPTY_PROMPT_BASIS,
       catalog,
       selection,
@@ -734,7 +759,7 @@ describe('evaluateMediaTurn', () => {
     // Both selected models generate, so a turn costs their sum; grading either
     // one alone would present a turn the payer cannot fund as sendable.
     const set = evaluateMediaTurn({
-      fundingNanoUsd: 2n * VIDEO_FLOOR - 1n,
+      fundingNanoUsd: TWO_MODEL_VIDEO_FLOOR - 1n,
       basis: EMPTY_PROMPT_BASIS,
       catalog: [videoModel('vendor/veo'), videoModel('vendor/sora')],
       selection: selectionOf('video', ['vendor/veo', 'vendor/sora']),

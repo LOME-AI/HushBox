@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Redis } from '@upstash/redis';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   DEADLINE_CLASSES,
   PAID_CUSHION_NANO_USD,
@@ -9,6 +9,8 @@ import {
 } from '@hushbox/shared';
 import { LOCAL_NEON_DEV_CONFIG, createDb, wallets } from '@hushbox/db';
 import { HOUR_MS, TEST_DAY_START } from '@hushbox/shared/test-time';
+import { errAsync, fromPromise, okAsync } from '../../../../lib/result/index.js';
+import { unavailableError } from '../../../../lib/errors/index.js';
 import { sweepLeakedTestWallets } from '../../__tests__/orphan-wallet-sweep.setup.js';
 import { createBillingStores } from '../../adapters/stores.js';
 import { BILLING_KEYS, MAX_HOLD_TTL_SECONDS } from '../keys.js';
@@ -22,6 +24,7 @@ import type {
   BudgetScopeKind,
 } from './admission.js';
 import type { WalletType } from '../../ports/index.js';
+import type { WalletSnapshotRow } from '../../ports/stores.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 const UPSTASH_REDIS_REST_URL = process.env['UPSTASH_REDIS_REST_URL'];
@@ -54,6 +57,18 @@ async function seedWallet(
   return id;
 }
 
+/** The scope read admission takes: the wallet's committed sequence, then `scopes`. */
+function scopesAt(
+  walletId: string,
+  scopes: readonly BudgetScope[] = []
+): AdmissionRequest['readScopes'] {
+  return () =>
+    stores.readWalletSnapshot(db, walletId).map((row) => {
+      if (row === null) throw new Error('scope read: the wallet does not exist');
+      return { scopes, walletSeq: row.ledgerSeq };
+    });
+}
+
 function request(walletId: string, overrides?: Partial<AdmissionRequest>): AdmissionRequest {
   return {
     walletId,
@@ -61,7 +76,7 @@ function request(walletId: string, overrides?: Partial<AdmissionRequest>): Admis
     estimateNanoUsd: 100_000_000n,
     deadlineClass: 'text',
     concurrentRunCap: 10,
-    budgets: [],
+    readScopes: scopesAt(walletId),
     now: NOW,
     ...overrides,
   };
@@ -84,6 +99,56 @@ async function snapshotWritten(
     walletType: 'purchased',
   });
   return result._unsafeUnwrap();
+}
+
+/** The wallet's committed row, read from Postgres. */
+async function committedWallet(walletId: string): Promise<WalletSnapshotRow> {
+  const read = await stores.readWalletSnapshot(db, walletId);
+  const row = read._unsafeUnwrap();
+  if (row === null) throw new Error('the wallet does not exist');
+  return row;
+}
+
+/**
+ * A settlement's commit as admission sees it: the wallet row moves by the charge
+ * and advances its sequence, and the Redis snapshot is left as it was.
+ */
+async function commitCharge(walletId: string, chargeNanoUsd: bigint): Promise<bigint> {
+  const row = await committedWallet(walletId);
+  const ledgerSeq = row.ledgerSeq + 1n;
+  await db
+    .update(wallets)
+    .set({ balanceNanoUsd: row.balanceNanoUsd - chargeNanoUsd, ledgerSeq })
+    .where(eq(wallets.id, walletId));
+  return ledgerSeq;
+}
+
+/** A settlement landing in full: its charge commits and its release writes the snapshot. */
+async function settleCharge(walletId: string, chargeNanoUsd: bigint): Promise<void> {
+  const ledgerSeq = await commitCharge(walletId, chargeNanoUsd);
+  const row = await committedWallet(walletId);
+  await snapshotWritten(walletId, row.balanceNanoUsd, ledgerSeq);
+}
+
+/** A scope read that runs `before` ahead of each read, counting the reads. */
+function scopeReadAfter(
+  walletId: string,
+  before: (read: number) => Promise<void>
+): { readonly readScopes: AdmissionRequest['readScopes']; readonly reads: () => number } {
+  let reads = 0;
+  return {
+    readScopes: () => {
+      reads += 1;
+      return fromPromise(before(reads), (cause) =>
+        unavailableError('test scope read', cause)
+      ).andThen(() => scopesAt(walletId)());
+    },
+    reads: () => reads,
+  };
+}
+
+async function holdPresent(hashKey: string, holdId: string): Promise<boolean> {
+  return (await redis.hexists(hashKey, holdId)) === 1;
 }
 
 beforeAll(async () => {
@@ -159,7 +224,10 @@ describe('admitRun', () => {
       scopeId: `member:${crypto.randomUUID()}:2026-07`,
       remainingNanoUsd: 50_000_000n,
     };
-    const decision = await decide({ redis, db, stores }, request(walletId, { budgets: [scope] }));
+    const decision = await decide(
+      { redis, db, stores },
+      request(walletId, { readScopes: scopesAt(walletId, [scope]) })
+    );
     expect(decision).toEqual({ admitted: false, reason: 'member-budget-exceeded' });
   });
 
@@ -176,7 +244,9 @@ describe('admitRun', () => {
         admitRun(
           deps,
           request(walletId, {
-            budgets: [{ kind: 'member', scopeId, remainingNanoUsd: 250_000_000n }],
+            readScopes: scopesAt(walletId, [
+              { kind: 'member', scopeId, remainingNanoUsd: 250_000_000n },
+            ]),
           })
         )
       )
@@ -276,7 +346,10 @@ describe('the refusal names which budget scope bound', () => {
       scopeId: `${kind}:${unique}`,
       remainingNanoUsd: kind === bound ? ESTIMATE - 1n : GENEROUS,
     }));
-    return decide({ redis, db, stores }, request(walletId, { budgets, estimateNanoUsd: ESTIMATE }));
+    return decide(
+      { redis, db, stores },
+      request(walletId, { readScopes: scopesAt(walletId, budgets), estimateNanoUsd: ESTIMATE })
+    );
   }
 
   it('names the allowance level when the daily allowance bound', async () => {
@@ -319,7 +392,9 @@ describe('free-tier admission (allowance as budget, balance check derived from w
     const decision = await decide(
       { redis, db, stores },
       request(walletId, {
-        budgets: [{ kind: 'allowance', scopeId, remainingNanoUsd: 150_000_000n }],
+        readScopes: scopesAt(walletId, [
+          { kind: 'allowance', scopeId, remainingNanoUsd: 150_000_000n },
+        ]),
       })
     );
     expect(decision.admitted).toBe(true);
@@ -336,7 +411,9 @@ describe('free-tier admission (allowance as budget, balance check derived from w
     const decision = await decide(
       { redis, db, stores },
       request(walletId, {
-        budgets: [{ kind: 'allowance', scopeId, remainingNanoUsd: 150_000_000n }],
+        readScopes: scopesAt(walletId, [
+          { kind: 'allowance', scopeId, remainingNanoUsd: 150_000_000n },
+        ]),
       })
     );
     expect(decision).toEqual({ admitted: false, reason: 'insufficient-balance' });
@@ -442,14 +519,149 @@ describe('admitRun input and defect handling', () => {
   });
 });
 
+describe('admission checks the snapshot sequence it priced from', () => {
+  const BALANCE = 1_000_000_000n;
+  const CHARGE = 800_000_000n;
+  /** Within what the pre-charge balance funds, beyond what the charged one does. */
+  const ESTIMATE = spendableFundsNanoUsd(BALANCE - CHARGE) + 1n;
+
+  it('re-reads when a settlement lands between the snapshot read and the script', async () => {
+    const walletId = await seedWallet(BALANCE);
+    await snapshotWritten(walletId, BALANCE, 0n);
+    const scopeRead = scopeReadAfter(walletId, (read) =>
+      read === 1 ? settleCharge(walletId, CHARGE) : Promise.resolve()
+    );
+    const decision = await decide(
+      { redis, db, stores },
+      request(walletId, { estimateNanoUsd: ESTIMATE, readScopes: scopeRead.readScopes })
+    );
+    expect(decision).toEqual({ admitted: false, reason: 'insufficient-balance' });
+    expect(scopeRead.reads()).toBe(2);
+  });
+
+  it('fails closed as unavailable when the snapshot moves again before the second script', async () => {
+    const walletId = await seedWallet(BALANCE);
+    await snapshotWritten(walletId, BALANCE, 0n);
+    const scopeRead = scopeReadAfter(walletId, () => settleCharge(walletId, 1n));
+    const result = await admitRun(
+      { redis, db, stores },
+      request(walletId, { estimateNanoUsd: 1n, readScopes: scopeRead.readScopes })
+    );
+    expect(result._unsafeUnwrapErr().code).toBe('unavailable');
+    expect(scopeRead.reads()).toBe(2);
+  });
+
+  it('refuses to price against scope rows read before the snapshot sequence', async () => {
+    const walletId = await seedWallet(BALANCE, 5n);
+    await snapshotWritten(walletId, BALANCE, 5n);
+    const olderScopeRead: AdmissionRequest['readScopes'] = () =>
+      okAsync({ scopes: [], walletSeq: 4n });
+    const result = await admitRun(
+      { redis, db, stores },
+      request(walletId, { estimateNanoUsd: 1n, readScopes: olderScopeRead })
+    );
+    expect(result._unsafeUnwrapErr().code).toBe('unavailable');
+  });
+
+  it('re-reads when the snapshot expired between the read and the script', async () => {
+    const walletId = await seedWallet(BALANCE);
+    await snapshotWritten(walletId, BALANCE, 0n);
+    const scopeRead = scopeReadAfter(walletId, async (read) => {
+      if (read === 1) await redis.del(BILLING_KEYS.walletSnapshot.buildKey(walletId));
+    });
+    const decision = await decide(
+      { redis, db, stores },
+      request(walletId, { estimateNanoUsd: 1n, readScopes: scopeRead.readScopes })
+    );
+    expect(decision.admitted).toBe(true);
+    expect(scopeRead.reads()).toBe(2);
+  });
+});
+
 describe('releaseHold', () => {
+  it('writes the committed balance through, so the next admission prices the settled charge', async () => {
+    const balance = 1_000_000_000n;
+    const charge = 800_000_000n;
+    const walletId = await seedWallet(balance);
+    const deps = { redis, db, stores };
+    const first = request(walletId);
+    const admitted = await decide(deps, first);
+    expect(admitted.admitted).toBe(true);
+    await commitCharge(walletId, charge);
+    const released = await releaseHold(deps, { walletId, holdId: first.holdId, scopeIds: [] });
+    released._unsafeUnwrap();
+    // Within what the pre-charge balance funds, beyond what the charged one does.
+    const estimateNanoUsd = spendableFundsNanoUsd(balance - charge) + 1n;
+    expect(estimateNanoUsd).toBeLessThanOrEqual(spendableFundsNanoUsd(balance));
+    const second = await decide(deps, request(walletId, { estimateNanoUsd }));
+    expect(second).toEqual({ admitted: false, reason: 'insufficient-balance' });
+  });
+
+  it('leaves the hold in place when the wallet read fails', async () => {
+    const walletId = await seedWallet(1_000_000_000n);
+    const req = request(walletId);
+    const admitted = await decide({ redis, db, stores }, req);
+    expect(admitted.admitted).toBe(true);
+    const failingStores = {
+      ...stores,
+      readWalletSnapshot: () => errAsync(unavailableError('wallet read failed')),
+    };
+    const released = await releaseHold(
+      { redis, db, stores: failingStores },
+      { walletId, holdId: req.holdId, scopeIds: [] }
+    );
+    expect(released.isErr()).toBe(true);
+    expect(await holdPresent(BILLING_KEYS.walletHolds.buildKey(walletId), req.holdId)).toBe(true);
+  });
+
+  it('leaves the hold in place when the wallet has no row', async () => {
+    const walletId = crypto.randomUUID();
+    const holdsKey = BILLING_KEYS.walletHolds.buildKey(walletId);
+    const holdId = crypto.randomUUID();
+    await redis.hset(holdsKey, { [holdId]: `1:${String(NOW.getTime() + HOUR_MS)}` });
+    const released = await releaseHold({ redis, db, stores }, { walletId, holdId, scopeIds: [] });
+    expect(released.isErr()).toBe(true);
+    expect(await holdPresent(holdsKey, holdId)).toBe(true);
+    await redis.del(holdsKey);
+  });
+
+  it('keeps a stored snapshot newer than the committed one', async () => {
+    const walletId = await seedWallet(700_000_000n, 3n);
+    await snapshotWritten(walletId, 500_000_000n, 9n);
+    const released = await releaseHold(
+      { redis, db, stores },
+      { walletId, holdId: crypto.randomUUID(), scopeIds: [] }
+    );
+    released._unsafeUnwrap();
+    const stored = await redis.get<{ balanceNanoUsd: string; ledgerSeq: number }>(
+      BILLING_KEYS.walletSnapshot.buildKey(walletId)
+    );
+    expect(stored).toMatchObject({ balanceNanoUsd: '500000000', ledgerSeq: 9 });
+  });
+
+  it('removes the hold from every scope hash it was placed in', async () => {
+    const walletId = await seedWallet(1_000_000_000n);
+    const scopeId = `member:${crypto.randomUUID()}`;
+    const scope = { kind: 'member' as const, scopeId, remainingNanoUsd: 1_000_000_000n };
+    const req = request(walletId, { readScopes: scopesAt(walletId, [scope]) });
+    const admitted = await decide({ redis, db, stores }, req);
+    expect(admitted.admitted).toBe(true);
+    const released = await releaseHold(
+      { redis, db, stores },
+      { walletId, holdId: req.holdId, scopeIds: [scopeId] }
+    );
+    released._unsafeUnwrap();
+    expect(await holdPresent(BILLING_KEYS.scopeHolds.buildKey(scopeId), req.holdId)).toBe(false);
+    expect(await holdPresent(BILLING_KEYS.walletHolds.buildKey(walletId), req.holdId)).toBe(false);
+  });
+
   it('frees the reserved capacity for the next run', async () => {
     const walletId = await seedWallet(150_000_000n);
     const deps = { redis, db, stores };
     const req = request(walletId);
     const first = await decide(deps, req);
     expect(first.admitted).toBe(true);
-    const released = await releaseHold(redis, {
+    const released = await releaseHold(deps, {
       walletId,
       holdId: req.holdId,
       scopeIds: [`member:${walletId}:2026-07`],
@@ -480,7 +692,7 @@ describe('writeThroughSnapshot', () => {
   });
 });
 
-describe('refreshWalletSnapshot (post-settlement write-through)', () => {
+describe('refreshWalletSnapshot (Postgres-truth write-through)', () => {
   it('reads the committed wallet and writes the snapshot through', async () => {
     const walletId = await seedWallet(700_000_000n, 3n);
     // A stale cached snapshot from admission time must be superseded.

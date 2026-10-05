@@ -13,6 +13,18 @@ export class ToolCallLimitError extends Error {
 }
 
 /**
+ * A tool call the run's spend gate refused before its `execute` ran. The
+ * adapter emits no `tool-error` for it, so the call stays unanswered as an
+ * aborted run's calls do, and the fixed message reaches no one.
+ */
+export class ToolCallGateClosedError extends Error {
+  constructor() {
+    super('tool call refused: the spend gate is closed');
+    this.name = 'ToolCallGateClosedError';
+  }
+}
+
+/**
  * Why a tool call produced no result, from what the call failed with: the
  * budget refused it, the SDK rejected its arguments or its tool name, or its
  * `execute` threw. A run whose signal has aborted gets no reason at all, so an

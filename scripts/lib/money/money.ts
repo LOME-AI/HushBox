@@ -7,7 +7,6 @@
  *
  *  - the mock provider's declared charge and echo — {@link mockGenerationCharge},
  *    {@link mockTextTurnCharge};
- *  - the served catalog row's billable rate — {@link catalogPerImageCharge};
  *  - the shared estimator's own storage rates — {@link storedTextCharge},
  *    {@link storedMediaCharge};
  *  - the constant that mints a grant — {@link grantedWelcomeCredit},
@@ -26,8 +25,8 @@
  *    literal expectation does not type-check, and arithmetic on two derived
  *    amounts widens back to `bigint`, so composition has to go through
  *    {@link sumOfCharges} and {@link spendOf};
- *  - every input a minter prices FROM — the mock's charge basis, a catalog
- *    pricing row, a money-state reading — is branded FIELD BY FIELD, so neither
+ *  - every input a minter prices FROM — the mock's charge basis, a seed route's
+ *    report, a money-state reading — is branded FIELD BY FIELD, so neither
  *    a hand-written object nor a spread that rewrites one field type-checks;
  *  - nothing exported here returns a branded value from caller-supplied data.
  *    The parsers return plain `bigint`; the validators return bare wire shapes.
@@ -135,7 +134,6 @@ import {
 } from '@hushbox/shared';
 import { noteMoneyComparison } from './money-gate.js';
 import type { MockChargeBasis, SetWalletBalanceResult } from '@hushbox/api/dev-seed';
-import type { WireModelPricing } from '@hushbox/shared';
 
 declare const derivedBrand: unique symbol;
 declare const observedBrand: unique symbol;
@@ -177,9 +175,6 @@ type ServedField<T> = T extends null ? null : T & { readonly [servedBrand]: 'ser
  * persisted text the storage fee is charged on.
  */
 export type ServedChargeBasis = Served<MockChargeBasis>;
-
-/** A catalog row's pricing AS SERVED, branded for the same reason. */
-export type ServedModelPricing = Served<WireModelPricing>;
 
 /** The verdict every comparator returns when the assertion holds. */
 export const MONEY_ASSERTION_HOLDS = 'the money assertion holds';
@@ -290,20 +285,6 @@ export function assertServedChargeBasis(raw: unknown): MockChargeBasis {
   };
 }
 
-/** The named model's pricing out of a served `GET /models` payload. */
-export function pickModelPricing(raw: unknown, modelId: string): WireModelPricing {
-  const what = 'served catalog';
-  const models = asRecord(raw, what)['models'];
-  if (!Array.isArray(models)) {
-    throw new RangeError(`${what}: payload carries no models array`);
-  }
-  const row = models.map((model) => asRecord(model, what)).find((model) => model['id'] === modelId);
-  if (row === undefined) {
-    throw new RangeError(`${what}: no row for model ${modelId}`);
-  }
-  return asRecord(row['pricing'], `${what} row ${modelId}`) as WireModelPricing;
-}
-
 // --- derivation: the mock provider's declared basis -------------------------
 
 /** What a run of `generations` mock calls is billed, before any storage. */
@@ -349,23 +330,6 @@ export function mockTextTurnCharge(basis: ServedChargeBasis, turn: MockTextTurn)
       charStorageNanoUsd(turn.prompt.length) +
       BigInt(turn.answers) * charStorageNanoUsd(echoChars)
   );
-}
-
-// --- derivation: the served catalog row -------------------------------------
-
-/**
- * What `images` images cost at the row's own per-image rate. The served rate is
- * already billable (fees are baked at catalog ingestion), so nothing is applied
- * to it here.
- */
-export function catalogPerImageCharge(pricing: ServedModelPricing, images: number): DerivedNanoUsd {
-  requireReading(pricing, 'catalogPerImageCharge');
-  requirePositiveCount(images, 'images');
-  const perImage = pricing.perImage;
-  if (perImage === undefined) {
-    throw new RangeError('catalogPerImageCharge: the served row carries no perImage rate');
-  }
-  return derived(BigInt(perImage) * BigInt(images));
 }
 
 // --- derivation: the shared storage rates -----------------------------------
@@ -495,7 +459,7 @@ export function spendOf(charge: DerivedNanoUsd): DerivedNanoUsd {
 // --- observation --------------------------------------------------------------
 
 // These PARSE; they do not brand. Nothing this module exports returns an
-// `ObservedNanoUsd`, a `ServedChargeBasis` or a `ServedModelPricing`, so there
+// `ObservedNanoUsd` or any `Served` reading, so there
 // is no exported function a caller can hand a written-out value to and get a
 // reading back. The brand goes on in the read layer, on the line that fetched
 // the payload — see `e2e/helpers/exact-money.ts`.

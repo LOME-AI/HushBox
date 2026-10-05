@@ -3,12 +3,15 @@ import type {
   CompletionTokens,
   ErrorCode,
   FilePartMapper,
+  FlowAbortReason,
   FlowStopReason,
   InferenceEvent,
   MediaGenerationFacts,
   Modality,
   ResolvedReasoningEffort,
+  SettlementCharge,
 } from '@hushbox/shared';
+import type { ReservedCall } from '@hushbox/shared/affordability/price/reservation';
 import type { Result } from '../../../../lib/result/index.js';
 import type { ValueNode } from '../compile/context.js';
 import type { ValueStore } from './value-store.js';
@@ -17,12 +20,9 @@ import type { ValueStore } from './value-store.js';
  * The injectable node-execution seam the interpreter runs against. Concrete
  * node implementations register through this shape (the runtime counterpart
  * of the compile module's `NodeRegistryContext`); tests inject fakes.
- * `NodeRunContext` is closed: a node may touch exactly what `NodeRunContext`
- * enumerates — `values`, `clock`, `rng`, `signal`, `emit` (streaming only),
- * `history` (run-scoped client context), `mapFilePart` (per-node opaque
- * media-forwarding closure), and `spend` (the run's spend gate) — raw
- * `Date.now`/`Math.random` are banned in engine and node code in favor of
- * `ctx.clock`/`ctx.rng`.
+ * `NodeRunContext` is closed: a node may touch exactly the fields
+ * `NodeRunContext` declares. Raw `Date.now`/`Math.random` are banned in engine
+ * and node code in favor of `ctx.clock`/`ctx.rng`.
  */
 
 /** What closed a run's spend gate when no hard abort did. */
@@ -53,7 +53,7 @@ export interface NodeRunContext {
   readonly values: ValueStore;
   readonly clock: EngineClock;
   readonly rng: EngineRng;
-  /** Aborted only by a hard abort: the run's hard stop, or a retry superseding it. */
+  /** Aborted only by a hard abort, one of {@link FlowAbortReason}. */
   readonly signal: AbortSignal;
   /**
    * Present only on streaming executions: the engine allocates the
@@ -106,10 +106,22 @@ export interface NodeRunContext {
    * The run's spend gate. A user stop, the drain instant and the `hold × K` cost
    * circuit each close it. It is how an execution learns the gate has closed,
    * and how it reports its running total so the circuit counts spend before
-   * the node ends. The interpreter always provides it; unit harnesses may omit
-   * it.
+   * the node ends.
    */
-  readonly spend?: SpendGate;
+  readonly spend: SpendGate;
+  /**
+   * The id the caller minted for the run, which a node's own capture carries so
+   * an operator can name the run; `undefined` when the caller minted none (an
+   * in-process executor double). Never the client-supplied run key.
+   */
+  readonly runId: string | undefined;
+  /**
+   * The call the run's hold reserved for this node: the quantities a language
+   * call's `max_price` bound is read from. The interpreter hands every node the
+   * one admission priced; a language call sent without it is refused before it
+   * reaches the gateway.
+   */
+  readonly reservation?: ReservedCall;
 }
 
 /**
@@ -141,6 +153,12 @@ export interface NodeBillingMetadata {
    * showing it.
    */
   readonly reasoningDurationMs?: number;
+  /**
+   * Each provider step's usage and the tool fees inside the charge, present only
+   * when every step reported its usage. Read after commit to name why a bill
+   * exceeded its hold; never written.
+   */
+  readonly observed?: SettlementCharge['observed'];
 }
 
 /**
@@ -164,15 +182,30 @@ export interface NodeGenerationCharge {
 export interface NodeRunSuccess {
   readonly value: unknown;
   /**
-   * The BILLABLE cost this generation is charged: the port-converted inline
-   * provider cost for text/video, or the billable catalog estimate for image
-   * and the pathological missing-cost path. Also accrued toward the `hold × K`
-   * cost circuit. Settlement charges it as-is — no further fee application.
+   * The BILLABLE cost this generation is charged: its model cost plus its tool
+   * calls' charges. The model cost is the port-converted inline provider cost
+   * when it covers every step of the call, is finite and non-negative, and does
+   * not exceed the sanity bound — 10× the generation price the hold reserved for an image
+   * or video call, which refuses every cost when that price is unknown or zero,
+   * and 1000× the estimate for any other, applied when the estimate is known and
+   * positive (`decideCost`); else it is the billable estimate. Only a hard
+   * abort cuts a call short; a user stop and the deadline let it finish and
+   * bill as `decideCost` decides. `settleAbortedPartial` settles a cut call.
+   * One whose abort landed mid-step bills only its completed steps' usable
+   * inline cost, or nothing for the model when there is none, flagged
+   * estimated, since the cut step bills nothing. One whose abort landed
+   * between steps bills its completed steps' usable inline cost, flagged
+   * estimated unless every completed step reported its figure; with no such
+   * cost, a completed media artifact's estimate; else nothing for the model.
+   * Also accrued toward the `hold × K` cost circuit. Settlement charges it
+   * as-is — no further fee application.
    */
   readonly costNanoUsd: bigint;
   /**
-   * True when `costNanoUsd` is the catalog estimate rather than the provider's
-   * inline cost (image by design; text/video only on the missing-cost path).
+   * True when the model cost is not the inline provider figure for the whole
+   * call: an estimate; a cut call's completed steps, when the abort cut a step
+   * mid-flight or a completed step reported no figure; or the nothing a
+   * cut-short call bills when it observed no usable cost.
    * Absent on non-modelCall executions, which carry no billable generation.
    */
   readonly isEstimated?: boolean;
@@ -201,10 +234,10 @@ export interface NodeRunSuccess {
 export interface NodeRunError {
   /**
    * Spend observed before the failure, accrued toward the circuit; the node
-   * charges none of it. A model-call failure carries the per-call charges of
-   * the tool calls that returned before it, and not the cost of its model
-   * steps, even when a step reported one. Absent when no such spend was
-   * observed.
+   * charges none of it. A model-call failure carries the usable inline cost of
+   * its model steps plus the per-call charges of the tool calls that returned
+   * before it, so it holds everything the running total the node reported
+   * held. Absent when no such spend was observed.
    */
   readonly costNanoUsd?: bigint;
   /**

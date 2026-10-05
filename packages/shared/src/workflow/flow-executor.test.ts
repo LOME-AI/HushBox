@@ -86,7 +86,7 @@ describe('FlowExecutor contract', () => {
         admission: () => Promise.resolve({ admitted: true, holdRef: 'hold-1' }),
         settlement: (request) => {
           settled.push(request.runKey);
-          return Promise.resolve();
+          return Promise.resolve({ billed: [] });
         },
       },
       emit: (event) => events.push(event),
@@ -107,7 +107,7 @@ describe('FlowExecutor contract', () => {
       runKey: 'key-2',
       hooks: {
         admission: () => Promise.resolve(refusal),
-        settlement: () => Promise.resolve(),
+        settlement: () => Promise.resolve({ billed: [] }),
       },
       emit: () => {},
     });
@@ -130,7 +130,7 @@ describe('FlowExecutor contract', () => {
       runKey: 'key-3',
       hooks: {
         admission: () => Promise.resolve({ admitted: true, holdRef: 'run-1', hold }),
-        settlement: () => Promise.resolve(),
+        settlement: () => Promise.resolve({ billed: [] }),
       },
       emit: () => {},
     });

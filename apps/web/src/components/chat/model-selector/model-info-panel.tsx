@@ -2,10 +2,22 @@ import * as React from 'react';
 import { formatNumber, nanoUnitPriceUsd, TEST_IDS } from '@hushbox/shared';
 import { priceDisplayOf } from '@/lib/chat/model-info-facts';
 import type { Model } from '@hushbox/shared';
+import type { ModelPriceDisplay } from '@hushbox/shared/affordability';
 
 interface ModelInfoPanelProps {
   model: Model;
   compact?: boolean;
+}
+
+function PriceReferenceNote(): React.JSX.Element {
+  return (
+    <p
+      className="text-muted-foreground text-xs text-pretty"
+      data-testid={TEST_IDS.modelPriceReference}
+    >
+      Prices are references. The exact rate can vary with where your reply is served.
+    </p>
+  );
 }
 
 function SmartModelPanel({
@@ -44,6 +56,9 @@ function SmartModelPanel({
         </div>
         <div className={valueClass}>{outputRangePer1k ?? 'Varies'}</div>
       </div>
+
+      {/* `Varies` is not a price, so a pool with no served bound carries no note. */}
+      {(inputRangePer1k !== undefined || outputRangePer1k !== undefined) && <PriceReferenceNote />}
 
       <div>
         <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
@@ -91,12 +106,58 @@ function DescriptionRow({ description }: Readonly<{ description: string }>): Rea
   );
 }
 
+function LongContextRate({
+  term,
+  per1k,
+}: Readonly<{ term: string; per1k: string | undefined }>): React.JSX.Element | null {
+  // The display type marks each side optional; a side it carries no figure for is dropped,
+  // never shown as free.
+  if (per1k === undefined) return null;
+  return (
+    <>
+      <dt className="text-muted-foreground">{term}</dt>
+      <dd className="font-medium">{per1k} / 1k</dd>
+    </>
+  );
+}
+
+function LongConversationRates({
+  longContext,
+  compact,
+}: Readonly<{
+  longContext: ModelPriceDisplay['longContext'];
+  compact: boolean;
+}>): React.JSX.Element {
+  return (
+    <div data-testid={TEST_IDS.modelLongContextRates}>
+      <LabeledValue label="Long Conversations">
+        <div className="space-y-3">
+          {longContext.map((entry) => (
+            <div key={entry.abovePromptTokens}>
+              <p className="text-muted-foreground text-sm text-pretty">
+                Once a conversation passes {formatNumber(entry.abovePromptTokens)} tokens, the whole
+                reply is billed at:
+              </p>
+              <dl
+                className={`mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 ${compact ? 'text-sm' : 'text-base'}`}
+              >
+                <LongContextRate term="Input" per1k={entry.inputPer1k} />
+                <LongContextRate term="Output" per1k={entry.outputPer1k} />
+              </dl>
+            </div>
+          ))}
+        </div>
+      </LabeledValue>
+    </div>
+  );
+}
+
 function TextStandardPanel({
   model,
   compact,
 }: Readonly<{ model: Model; compact: boolean }>): React.JSX.Element {
   const valueClass = compact ? 'text-sm font-medium' : 'text-lg font-medium';
-  const { inputPer1k, outputPer1k, expensive } = priceDisplayOf(model);
+  const { inputPer1k, outputPer1k, expensive, longContext } = priceDisplayOf(model);
 
   return (
     <>
@@ -105,13 +166,13 @@ function TextStandardPanel({
       {/* A row the catalog serves no price for is not priced at zero: its rate
           rows are dropped rather than rendering this model as free. */}
       {inputPer1k !== undefined && (
-        <LabeledValue label="Input Price / Token" valueClass={valueClass}>
+        <LabeledValue label="Input Price / 1k Tokens" valueClass={valueClass}>
           {inputPer1k} / 1k
         </LabeledValue>
       )}
 
       {outputPer1k !== undefined && (
-        <LabeledValue label="Output Price / Token" valueClass={valueClass}>
+        <LabeledValue label="Output Price / 1k Tokens" valueClass={valueClass}>
           {outputPer1k} / 1k
         </LabeledValue>
       )}
@@ -124,6 +185,12 @@ function TextStandardPanel({
           Long chats with this model can be costly
         </p>
       )}
+
+      {longContext.length > 0 && (
+        <LongConversationRates longContext={longContext} compact={compact} />
+      )}
+
+      {(inputPer1k !== undefined || outputPer1k !== undefined) && <PriceReferenceNote />}
 
       <LabeledValue label="Capacity Limit" valueClass={valueClass}>
         {formatNumber(model.contextLength)} tokens
@@ -151,6 +218,7 @@ function ImagePanel({
           {nanoUnitPriceUsd(perImage, 3)}/image
         </LabeledValue>
       )}
+      {perImage !== undefined && <PriceReferenceNote />}
       {!compact && <DescriptionRow description={model.description} />}
     </>
   );
@@ -201,6 +269,7 @@ function VideoPanel({
           </table>
         </LabeledValue>
       )}
+      {entries.length > 0 && <PriceReferenceNote />}
       {!compact && <DescriptionRow description={model.description} />}
     </>
   );

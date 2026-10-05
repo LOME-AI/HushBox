@@ -26,7 +26,7 @@ function wireRowFor(overrides: Partial<Model> = {}): Model {
     modality: 'text',
     contextLength: 200_000,
     maxOutputTokens: 64_000,
-    pricing: { inputPerToken: '300', outputPerToken: '1500' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '300', outputPerToken: '1500' },
     description: 'a model',
     supportedParameters: [],
     created: FIXTURE_STAMP_SECONDS,
@@ -51,12 +51,18 @@ describe('poolModelFromWire', () => {
   });
 
   it('leaves an undeclared rate leg absent rather than pricing it as free', () => {
-    expect(poolModelFromWire(wireRowFor({ pricing: { inputPerToken: '300' } }))).toBeUndefined();
+    expect(
+      poolModelFromWire(
+        wireRowFor({ pricing: { anchorContextTokens: 1_000_000, inputPerToken: '300' } })
+      )
+    ).toBeUndefined();
     expect(poolModelFromWire(wireRowFor({ pricing: {} }))).toBeUndefined();
   });
 
   it('drops a row the wire serves a zero rate for — a rate the schedule cannot price', () => {
-    const free = wireRowFor({ pricing: { inputPerToken: '0', outputPerToken: '1500' } });
+    const free = wireRowFor({
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '0', outputPerToken: '1500' },
+    });
     expect(poolModelFromWire(free)).toBeUndefined();
   });
 

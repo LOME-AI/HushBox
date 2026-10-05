@@ -13,9 +13,6 @@ export interface PostSettings {
   flash: number;
 }
 
-/** The chain with every effect off; its highlight roll-off and dither still finish the frame. */
-export const NEUTRAL_POST: PostSettings = { bloom: 0, aberration: 0, vignette: 0, flash: 0 };
-
 /** Refuses a setting no frame can draw, naming it. */
 export function assertPost(post: PostSettings): void {
   for (const key of ['bloom', 'aberration', 'flash'] as const) {

@@ -57,6 +57,10 @@ const PATTERNS: readonly { name: string; re: RegExp }[] = [
     name: 'browser crash',
     re: /Target crashed|Page crashed|browserContext\.newPage|browserType\.launch/i,
   },
+  {
+    name: 'browser resource exhaustion',
+    re: /ERR_INSUFFICIENT_RESOURCES|\bENOSPC\b/i,
+  },
 ];
 
 /**

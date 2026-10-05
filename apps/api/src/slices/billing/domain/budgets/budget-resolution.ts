@@ -10,7 +10,7 @@ import type { BudgetScope } from '../admission/admission.js';
  * The billing-side budget-resolution reader: it turns the spending rows into the
  * `BudgetScope[]` admission consumes. It is read-only — it computes a run's
  * remaining headroom per requested scope. The engine's admission hook (chat's
- * `runtime.ts`) calls this to build `AdmissionRequest.budgets`, and the admission
+ * `runtime.ts`) calls this inside `AdmissionRequest.readScopes`, and the admission
  * Lua gates the run against the `Math.min` of every scope's remaining (plus the
  * owner wallet balance, gated separately by the caller). The served funding
  * snapshot resolves its free-tier figure through this same function rather than

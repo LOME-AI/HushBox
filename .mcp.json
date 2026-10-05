@@ -31,12 +31,9 @@
         "--isolated"
       ]
     },
-    "fal-ai": {
+    "sentry": {
       "type": "http",
-      "url": "https://mcp.fal.ai/mcp",
-      "headers": {
-        "Authorization": "Bearer ${FAL_KEY}"
-      }
+      "url": "https://mcp.sentry.dev/mcp"
     }
   }
 }

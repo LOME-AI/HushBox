@@ -9,7 +9,7 @@ function makeModel(overrides: Partial<Model> = {}): Model {
     provider: 'Test',
     modality: 'text' as const,
     contextLength: 128_000,
-    pricing: { inputPerToken: '1000', outputPerToken: '2000' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1000', outputPerToken: '2000' },
     description: 'A test model',
     supportedParameters: ['temperature'],
     ...overrides,
@@ -28,12 +28,16 @@ describe('calculateMonthlyCost', () => {
       makeModel({
         id: 'expensive/model',
         name: 'Expensive',
-        pricing: { inputPerToken: '10000000', outputPerToken: '30000000' },
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: '10000000',
+          outputPerToken: '30000000',
+        },
       }),
       makeModel({
         id: 'cheap/model',
         name: 'Cheap',
-        pricing: { inputPerToken: '1000', outputPerToken: '2000' },
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1000', outputPerToken: '2000' },
       }),
     ];
     const result = calculateMonthlyCost(models);
@@ -53,13 +57,15 @@ describe('calculateMonthlyCost', () => {
     // system prompt and a 200-char message) are 234 tokens, and the 400-char
     // reply is 134. Per message: 234 × 10,000 + 134 × 20,000 + 1,100 × 300 =
     // 5,350,000 nano; over 1,500 messages a month, $8.025.
-    const model = makeModel({ pricing: { inputPerToken: '10000', outputPerToken: '20000' } });
+    const model = makeModel({
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000', outputPerToken: '20000' },
+    });
     expect(calculateMonthlyCost([model]).monthlyCost).toBe(8.025);
   });
 
   it('returns cost for 50 messages per day over 30 days', () => {
     const model = makeModel({
-      pricing: { inputPerToken: '10000', outputPerToken: '10000' },
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000', outputPerToken: '10000' },
     });
     const result = calculateMonthlyCost([model]);
     expect(result.messagesPerDay).toBe(50);
@@ -72,7 +78,7 @@ describe('calculateMonthlyCost', () => {
       makeModel({
         id: 'paid/model',
         name: 'Paid',
-        pricing: { inputPerToken: '1000', outputPerToken: '2000' },
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1000', outputPerToken: '2000' },
       }),
     ];
     const result = calculateMonthlyCost(models);
@@ -87,7 +93,11 @@ describe('calculateMonthlyCost', () => {
 
   it('skips a model serving only an input rate, which prices nothing', () => {
     const models = [
-      makeModel({ id: 'half/model', name: 'Half', pricing: { inputPerToken: '1' } }),
+      makeModel({
+        id: 'half/model',
+        name: 'Half',
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1' },
+      }),
       makeModel({ id: 'paid/model', name: 'Paid' }),
     ];
     expect(calculateMonthlyCost(models).modelName).toBe('Paid');
@@ -106,6 +116,7 @@ describe('calculateMonthlyCost', () => {
     // tier never applies: the figure is the untiered model's, $8.025.
     const tiered = makeModel({
       pricing: {
+        anchorContextTokens: 1_000_000,
         inputPerToken: '10000',
         outputPerToken: '20000',
         longContextRates: [

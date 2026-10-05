@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import { toBase64 } from '@hushbox/shared';
+import { friendlyErrorMessage, toBase64 } from '@hushbox/shared';
 import { expectExposes } from '@hushbox/shared/test-assertions';
 import {
   createAuthServerFixture,
@@ -269,6 +269,23 @@ describe('signIn.email against a real OPAQUE server', () => {
       expect(verified).toEqual({
         success: false,
         error: 'That code is incorrect or has expired. Please try again.',
+        errorCode: 'INVALID_TOTP_CODE',
+      });
+    });
+
+    it('reports a frozen second factor by its code', async () => {
+      const result = await signIn.email(credentials());
+      if (!result.verifyTOTP) throw new Error('Expected a verifyTOTP callback');
+      fixture.serve('/auth/login/2fa/verify', () =>
+        Response.json({ code: 'TWO_FACTOR_FROZEN' }, { status: 429 })
+      );
+
+      const verified = await result.verifyTOTP(fixture.totpCode);
+
+      expect(verified).toEqual({
+        success: false,
+        error: friendlyErrorMessage('TWO_FACTOR_FROZEN'),
+        errorCode: 'TWO_FACTOR_FROZEN',
       });
     });
 

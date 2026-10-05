@@ -394,7 +394,8 @@ describe('respondDomainError: the capture an availability refusal owes', () => {
   it('captures again in the same isolate once its window has elapsed', async () => {
     freezeClock(TEST_DAY_START, { toFake: ['Date'] });
     const { respond } = await freshIsolate();
-    const { DEPENDENCY_REPORT_WINDOW_MS } = await import('./domain-error-status.js');
+    const { REPORT_WINDOW_MS: DEPENDENCY_REPORT_WINDOW_MS } =
+      await import('../telemetry/report-latch.js');
     const recorder = capturingLogger();
     const app = refusingApp(respond, recorder.telemetry, () =>
       Promise.resolve(unavailableError('read failed'))

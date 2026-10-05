@@ -69,7 +69,6 @@ export const MONEY_VOCABULARY = [
   'mockGenerationCharge',
   'mockTextTurnCharge',
   'mockEchoTextFor',
-  'catalogPerImageCharge',
   // Minters that price from a count or a constant: they produce a brand, so a
   // forged quantity becomes a derivation nothing read.
   'storedTextCharge',
@@ -96,7 +95,6 @@ export const MONEY_VOCABULARY = [
   // The reads themselves: a forged request context makes one mint a brand over
   // numbers the running system never served, and nothing downstream can tell.
   'readMockChargeBasis',
-  'readServedModelPricing',
   'readSettledCharge',
   'readMoneyState',
   'readHold',
@@ -130,7 +128,7 @@ export const MONEY_VOCABULARY = [
  */
 export const MONEY_NON_VOCABULARY = {
   /** Handed untrusted input by design; they return it unbranded. */
-  validators: ['assertServedChargeBasis', 'pickModelPricing'],
+  validators: ['assertServedChargeBasis'],
   /** They take a string and hand back a plain bigint. */
   parsers: ['nanoUsdFromWire', 'nanoUsdFromDecimalString'],
   /** The read layer's registrar: generic, so it carries no brand to find. */

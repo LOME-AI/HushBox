@@ -9,6 +9,8 @@ function contextWith(signal: AbortSignal): NodeRunContext {
     clock: { now: () => 0 },
     rng: { random: () => 0.5 },
     signal,
+    spend: { isOpen: () => true, report: () => undefined },
+    runId: undefined,
   };
 }
 

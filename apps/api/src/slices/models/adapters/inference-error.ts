@@ -9,17 +9,19 @@
  * invalid requests — carry no cause. Messages carry codes and shapes, never
  * content.
  *
- * OpenRouter surfaces failures two ways, and NEITHER carries a transport
- * status that reflects the failure:
+ * OpenRouter surfaces most failures two ways whose transport status says
+ * nothing about the failure:
  *   - mid-stream: a `{ type: 'error', error }` stream part (`finishReason:
  *     'error'`), where `error` is the inner OpenRouter error object;
  *   - non-stream: an `APICallError` with `statusCode: 200` wrapping a body
  *     `{ error: { code, message, type, metadata } }` (the parsed inner object
  *     lands on `.data`).
- * So the code is decided by the LOGICAL `error.code` and `error.type`, never by
- * `APICallError.statusCode`. A ZDR miss is a logical 404 ("No endpoints
- * available matching your guardrail restrictions and data policy") — a
- * no-providers error.
+ * A failure refused before the response begins carries its own non-200
+ * transport status. So the status an error carries is its LOGICAL `error.code`
+ * when the body has one, else the transport status unless that is 200; how the
+ * error is classified is set out on `classifyInferenceFailure`. A ZDR miss is a
+ * logical 404 ("No endpoints available matching your guardrail restrictions
+ * and data policy") — a no-providers error.
  */
 
 import { z } from 'zod';
@@ -43,15 +45,23 @@ export type InferenceErrorCode = (typeof INFERENCE_ERROR_CODES)[number];
 
 interface InferenceErrorOptions {
   cause?: unknown;
+  status?: number | undefined;
 }
 
 export class InferenceError extends Error {
   readonly code: InferenceErrorCode;
+  /**
+   * The failure's integer HTTP status: the logical `error.code` when an
+   * OpenRouter error body carries an integer one, otherwise the transport
+   * status unless it is 200, otherwise absent.
+   */
+  readonly status: number | undefined;
 
   constructor(code: InferenceErrorCode, message: string, options?: InferenceErrorOptions) {
     super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'InferenceError';
     this.code = code;
+    this.status = options?.status;
   }
 }
 
@@ -85,11 +95,11 @@ export function invalidRequestError(message: string): InferenceError {
  * plain ZDR no-providers miss so the client can suggest changing
  * effort/model rather than a generic unavailability.
  */
-export function noReasoningEndpointsError(cause: unknown): InferenceError {
+export function noReasoningEndpointsError(cause: InferenceError): InferenceError {
   return new InferenceError(
     'no_reasoning_endpoints',
     'No endpoints support the reasoning config under the pinned routing',
-    { cause }
+    { cause, status: cause.status }
   );
 }
 
@@ -232,20 +242,40 @@ function collectChainFacts(value: unknown): ChainFacts {
   return facts;
 }
 
-function rateLimited(value: unknown): InferenceError {
-  return new InferenceError('rate_limited', 'Provider rate limit exceeded', { cause: value });
+function integerStatus(status: number | undefined): number | undefined {
+  return status !== undefined && Number.isInteger(status) ? status : undefined;
 }
 
-function upstreamError(label: string, value: unknown): InferenceError {
-  return new InferenceError('upstream_error', `Inference upstream error (${label})`, {
-    cause: value,
-  });
+/**
+ * The status every classified failure is named by: the logical code when the
+ * error body carries an integer one, otherwise the transport status unless it
+ * is 200 — a 200 beside an error body is OpenRouter's wrapping, never the
+ * failure's status.
+ */
+function namedStatus(facts: ChainFacts): number | undefined {
+  const logical = integerStatus(facts.error?.code);
+  if (logical !== undefined) return logical;
+  return facts.status === 200 ? undefined : integerStatus(facts.status);
+}
+
+/** What a classified error carries from its failure: the failure itself and its named status. */
+interface ClassifiedOrigin {
+  cause: unknown;
+  status: number | undefined;
+}
+
+function rateLimited(origin: ClassifiedOrigin): InferenceError {
+  return new InferenceError('rate_limited', 'Provider rate limit exceeded', origin);
+}
+
+function upstreamError(label: string, origin: ClassifiedOrigin): InferenceError {
+  return new InferenceError('upstream_error', `Inference upstream error (${label})`, origin);
 }
 
 /** Classify from the LOGICAL OpenRouter error code/type, never the transport status. */
 function classifyByErrorObject(
   error: OpenRouterErrorFacts | undefined,
-  value: unknown
+  origin: ClassifiedOrigin
 ): InferenceError | undefined {
   if (error === undefined) return undefined;
   const { code, type } = error;
@@ -253,16 +283,18 @@ function classifyByErrorObject(
     return new InferenceError(
       'no_providers_available',
       'No ZDR-eligible providers available for the request',
-      { cause: value }
+      origin
     );
   }
-  if (type === 'rate_limit_exceeded' || code === 429) return rateLimited(value);
+  if (type === 'rate_limit_exceeded' || code === 429) return rateLimited(origin);
   if (code === 400) {
-    return new InferenceError('invalid_request', 'Provider rejected the request as invalid', {
-      cause: value,
-    });
+    return new InferenceError(
+      'invalid_request',
+      'Provider rejected the request as invalid',
+      origin
+    );
   }
-  if (code !== undefined) return upstreamError(String(code), value);
+  if (code !== undefined) return upstreamError(String(code), origin);
   return undefined;
 }
 
@@ -296,17 +328,17 @@ function indicatesContentPolicy(type: string | undefined, message: string | unde
  * own code so the client can render a targeted next action rather than a
  * generic "unavailable".
  */
-function classifyByReason(facts: ChainFacts, value: unknown): InferenceError | undefined {
+function classifyByReason(facts: ChainFacts, origin: ClassifiedOrigin): InferenceError | undefined {
   const messages = [facts.error?.message, facts.message];
   if (messages.some((message) => indicatesContextLength(message))) {
-    return new InferenceError('context_length', 'Request exceeds the model context length', {
-      cause: value,
-    });
+    return new InferenceError('context_length', 'Request exceeds the model context length', origin);
   }
   if (messages.some((message) => indicatesContentPolicy(facts.error?.type, message))) {
-    return new InferenceError('content_policy', 'Request refused by provider content policy', {
-      cause: value,
-    });
+    return new InferenceError(
+      'content_policy',
+      'Request refused by provider content policy',
+      origin
+    );
   }
   return undefined;
 }
@@ -334,18 +366,24 @@ function isNetworkFailure(facts: ChainFacts, value: unknown): boolean {
   );
 }
 
-/** Fall back to the transport status when no logical error body was present. */
-function classifyByStatus(status: number | undefined, value: unknown): InferenceError | undefined {
+/** Classify by the transport status when the logical error decided nothing. */
+function classifyByStatus(
+  status: number | undefined,
+  origin: ClassifiedOrigin
+): InferenceError | undefined {
   if (status === undefined) return undefined;
-  if (status === 429) return rateLimited(value);
-  if (status === 408 || status >= 500) return upstreamError(String(status), value);
+  if (status === 429) return rateLimited(origin);
+  if (status === 408 || status >= 500) return upstreamError(String(status), origin);
   return undefined;
 }
 
 /**
  * Classify any failure surfaced by the SDK (a stream `error` part payload
- * or a thrown iteration error) into a typed InferenceError, keying on the
- * LOGICAL error code, never the transport status.
+ * or a thrown iteration error) into a typed InferenceError. The code is chosen
+ * by reason markers in the message and type first, then the LOGICAL error
+ * code, then the transport status. The stamped status is the logical code when
+ * it is an integer, otherwise the transport status unless it is 200, otherwise
+ * absent.
  */
 export function classifyInferenceFailure(value: unknown): InferenceError {
   if (value instanceof InferenceError) return value;
@@ -353,22 +391,21 @@ export function classifyInferenceFailure(value: unknown): InferenceError {
   const facts = collectChainFacts(value);
   if (facts.aborted) return abortedError();
 
-  const reason = classifyByReason(facts, value);
+  const origin: ClassifiedOrigin = { cause: value, status: namedStatus(facts) };
+  const reason = classifyByReason(facts, origin);
   if (reason !== undefined) return reason;
 
   const classified =
-    classifyByErrorObject(facts.error, value) ?? classifyByStatus(facts.status, value);
+    classifyByErrorObject(facts.error, origin) ?? classifyByStatus(facts.status, origin);
   if (classified !== undefined) return classified;
 
   if (isNetworkFailure(facts, value)) {
-    return new InferenceError('network', 'Failed to reach the inference provider', {
-      cause: value,
-    });
+    return new InferenceError('network', 'Failed to reach the inference provider', origin);
   }
 
   if (typeof value === 'string') {
     return new InferenceError('upstream_error', `Inference stream error: ${value}`);
   }
   const detail = facts.message === undefined ? '' : `: ${facts.message}`;
-  return new InferenceError('upstream_error', `Inference stream error${detail}`, { cause: value });
+  return new InferenceError('upstream_error', `Inference stream error${detail}`, origin);
 }

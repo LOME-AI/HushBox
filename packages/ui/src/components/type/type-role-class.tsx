@@ -30,6 +30,7 @@ const ROLE_CLASS: Readonly<Record<TypeRole, string>> = {
   'auth-title': 'text-auth-title',
   'header-title': 'text-header-title',
   'chat-greeting': 'text-chat-greeting',
+  'share-title': 'text-share-title',
   'site-post-title': 'text-site-post-title',
   'site-lead': 'text-site-lead',
   'site-value': 'text-site-value',

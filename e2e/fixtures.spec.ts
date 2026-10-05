@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
+import path from 'node:path';
 
 import { TIMEOUTS } from './config/timeouts.js';
 import { expectApiErrors, expectConsoleErrors, instrumentPage, test, expect } from './fixtures.js';
@@ -447,8 +448,12 @@ const stallingTest = test.extend<{ stalledContexts: StalledContexts }>({
   // torn down before it. Its teardown stands in for a page verdict that hangs.
   stalledContexts: async ({ browser }, use, testInfo) => {
     const stalled: StalledContexts = { contexts: [], harPaths: [] };
+    // Outside this test's own output directory: the test ends as `fail` expects,
+    // so Playwright deletes that directory before the next test reads the HARs.
+    const harDir = path.join(testInfo.project.outputDir, 'stalled-teardown-hars');
+    const attempt = `worker${String(testInfo.workerIndex)}-retry${String(testInfo.retry)}`;
     for (const label of ['stalled-teardown-first', 'stalled-teardown-second']) {
-      const harPath = testInfo.outputPath(`${label}.har`);
+      const harPath = path.join(harDir, `${label}-${attempt}.har`);
       const context = await browser.newContext({
         storageState: { cookies: [], origins: [] },
         recordHar: { path: harPath },
@@ -494,6 +499,7 @@ stallingTest.describe(
     stallingTest('disposes of every context the stalled test left', () => {
       expect(left.contexts.map((context) => context.isClosed())).toEqual([true, true]);
       expect(left.harPaths.map((harPath) => existsSync(harPath))).toEqual([true, true]);
+      for (const harPath of left.harPaths) rmSync(harPath);
     });
   }
 );

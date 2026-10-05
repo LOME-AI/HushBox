@@ -1,10 +1,13 @@
 import * as React from 'react';
 import { Navigate, useNavigate } from '@tanstack/react-router';
-import { PRE_CREATION_CONVERSATION_ID, ROUTES, TEST_IDS } from '@hushbox/shared';
+import { useQuery } from '@tanstack/react-query';
+import { PRE_CREATION_CONVERSATION_ID, ROUTES, TEST_IDS, displayUsername } from '@hushbox/shared';
+import { ChatColumn } from '@/components/chat/layout/chat-column';
 import { ChatLayout } from '@/components/chat/layout/chat-layout';
 import { useAuthenticatedChat } from '@/hooks/chat/use-authenticated-chat';
 import { useGroupChat } from '@/hooks/realtime/use-group-chat';
 import { useForks } from '@/hooks/chat/forks';
+import { conversationQueryOptions } from '@/hooks/chat/chat';
 import { useClearConversationNotifications } from '@/hooks/notifications/use-notification-clearing';
 import { useAdvanceReadCursor } from '@/hooks/notifications/use-read-cursor';
 import { useEpochMaintenance } from '@/hooks/crypto/use-epoch-maintenance';
@@ -13,10 +16,15 @@ import { useChatEditStore } from '@/stores/chat/edit';
 import { ForkDialogs, useForkManagement } from '@/components/chat/page/fork-management';
 import { EpochIntegrityBanner } from '@/components/chat/page/epoch-integrity-banner';
 import { BadEpochsContext } from '@/components/chat/message/bad-epochs-context';
+import { GuestBar } from '@/components/chat/share/guest-bar';
+import { ShareHead } from '@/components/chat/share/share-head';
 import { resolveRegenerateTarget } from '@/lib/chat/regeneration';
+import { hasStoredAuth } from '@/lib/auth/client';
 import type { FundingSource, MemberPrivilege } from '@hushbox/shared';
 import type { Message } from '@/lib/api/api';
 import type { PhantomMessage } from '@/hooks/realtime/use-remote-streaming';
+import type { GroupChatProps } from '@/components/chat/message/types';
+import type { ChatLayoutProps } from '@/components/chat/layout/chat-layout';
 import type { EpochVerdict } from '@/lib/crypto/epoch-key-cache';
 
 interface AuthenticatedChatPageProps {
@@ -132,6 +140,11 @@ interface ForkUrlStateArgs {
   activeForkId: string | null;
   forksList: ForkItem[];
   setActiveFork: (id: string | null) => void;
+  /**
+   * False on a share link: its route carries no fork param, and writing one
+   * would leave it for the member-only chat route.
+   */
+  writesUrl: boolean;
 }
 
 // Owns the active fork ↔ URL relationship. The `?fork=` search param is the
@@ -143,6 +156,7 @@ function useForkUrlState({
   activeForkId,
   forksList,
   setActiveFork,
+  writesUrl,
 }: ForkUrlStateArgs): void {
   const navigate = useNavigate();
   const seedResolvedRef = React.useRef(false);
@@ -197,7 +211,7 @@ function useForkUrlState({
 
   React.useEffect(() => {
     // Mirror the active fork into the URL. The route stays the single writer.
-    if (!seedResolvedRef.current) {
+    if (!writesUrl || !seedResolvedRef.current) {
       return;
     }
     if (activeForkId !== null) {
@@ -217,7 +231,7 @@ function useForkUrlState({
       return;
     }
     replaceForkSearch();
-  }, [initialForkId, activeForkId, replaceForkSearch]);
+  }, [writesUrl, initialForkId, activeForkId, replaceForkSearch]);
 }
 
 // Holds the latest `value` in a ref without writing or reading it during render.
@@ -231,6 +245,17 @@ function useLatestRef<T>(value: T): React.RefObject<T> {
   return ref;
 }
 
+// Holds the meta line's height until the member list arrives, so the thread below it stays put.
+const META_PLACEHOLDER = '\u00A0';
+
+/** Who shared the conversation and how many sit in it, counted as the members pane counts. */
+function shareMeta(members: GroupChatProps['members'] | undefined): string {
+  const owner = members?.find((member) => member.privilege === 'owner');
+  if (members === undefined || owner?.username == null) return META_PLACEHOLDER;
+  const noun = members.length === 1 ? 'member' : 'members';
+  return `Shared by ${displayUsername(owner.username)} · ${String(members.length)} ${noun}`;
+}
+
 /** Default callerPrivilege to 'read' during loading for link guests to prevent notification flash. */
 function resolveGuestPrivilege(
   isLinkGuest: boolean,
@@ -238,6 +263,47 @@ function resolveGuestPrivilege(
 ): MemberPrivilege | undefined {
   if (!isLinkGuest) return callerPrivilege;
   return callerPrivilege ?? 'read';
+}
+
+interface ReadOnlyGuestSlots {
+  /** The header's title: none for a read-only guest, whose shared head carries it. */
+  readonly headerTitle: string | undefined;
+  readonly threadHeader: React.ReactNode;
+  readonly composerSlot: React.ReactNode;
+}
+
+/**
+ * What a read-only link guest sees in the chat's place: the shared head at the top of the
+ * thread and the guest bar in the composer's. Both are memoised, because the message list
+ * they reach is.
+ */
+function useReadOnlyGuestSlots(
+  isLinkGuest: boolean,
+  callerPrivilege: MemberPrivilege | undefined,
+  title: string | undefined,
+  groupChat: GroupChatProps | undefined
+): ReadOnlyGuestSlots {
+  const isReadOnlyGuest =
+    isLinkGuest && resolveGuestPrivilege(isLinkGuest, callerPrivilege) === 'read';
+  const shareTitle = title ?? '';
+  const meta = shareMeta(groupChat?.members);
+  // On a share link the session is masked and never restored, so the device's sign-in
+  // marker is the one sign that the visitor holds an account here.
+  const [signedIn] = React.useState(hasStoredAuth);
+  const threadHeader = React.useMemo(
+    () =>
+      isReadOnlyGuest ? (
+        <ChatColumn>
+          <ShareHead title={shareTitle} meta={meta} />
+        </ChatColumn>
+      ) : undefined,
+    [isReadOnlyGuest, shareTitle, meta]
+  );
+  const composerSlot = React.useMemo(
+    () => (isReadOnlyGuest ? <GuestBar signedIn={signedIn} /> : undefined),
+    [isReadOnlyGuest, signedIn]
+  );
+  return { headerTitle: isReadOnlyGuest ? undefined : title, threadHeader, composerSlot };
 }
 
 export function AuthenticatedChatPage({
@@ -258,9 +324,23 @@ export function AuthenticatedChatPage({
 
   const forksQueryId = conversationId ?? '';
   const { data: forks } = useForks(forksQueryId);
+  // The conversation read arrives before its member list, so the header can hold a
+  // group's member strip row from first paint.
+  const { data: memberCount } = useQuery({
+    ...conversationQueryOptions(forksQueryId),
+    select: (detail) => detail.memberCount,
+    enabled: forksQueryId !== '',
+  });
   const forksList = React.useMemo(() => forks ?? [], [forks]);
 
-  useForkUrlState({ routeConversationId, initialForkId, activeForkId, forksList, setActiveFork });
+  useForkUrlState({
+    routeConversationId,
+    initialForkId,
+    activeForkId,
+    forksList,
+    setActiveFork,
+    writesUrl: privateKeyOverride == null,
+  });
 
   const fm = useForkManagement(conversationId, forksList, activeForkId, setActiveFork);
 
@@ -313,6 +393,12 @@ export function AuthenticatedChatPage({
   );
 
   const isLinkGuest = privateKeyOverride != null;
+  const { headerTitle, threadHeader, composerSlot } = useReadOnlyGuestSlots(
+    isLinkGuest,
+    chat.callerPrivilege,
+    chat.displayTitle,
+    groupChat
+  );
   const remotePhantoms = groupChat?.remoteStreamingMessages;
   const messagesWithRemoteTiles = React.useMemo(
     () => messagesWithPhantoms(chat.messages, remotePhantoms, conversationId),
@@ -351,74 +437,77 @@ export function AuthenticatedChatPage({
     return REDIRECT_TO_CHAT;
   }
 
-  if (chat.renderState.type === 'loading') {
-    return (
-      <ChatLayout
-        title={chat.renderState.title}
-        messages={[]}
-        streamingMessageIds={new Set<string>()}
-        persistingMessageIds={new Set<string>()}
-        inputValue=""
-        onInputChange={chat.state.setInputValue}
-        onSubmit={NOOP}
-        inputDisabled={true}
-        isProcessing={false}
-        historyCharacters={0}
-        isAuthenticated={!isLinkGuest}
-        isLinkGuest={isLinkGuest}
-        isDecrypting={true}
-        conversationId={conversationId ?? undefined}
-        groupChat={groupChat}
-        callerPrivilege={resolveGuestPrivilege(isLinkGuest, chat.callerPrivilege)}
-      />
-    );
-  }
+  // Loading and ready render one element tree: a remount between them would rebuild the
+  // composer's band and reset its measured height while the page settles, shifting it.
+  const sharedLayoutProps = {
+    onInputChange: chat.state.setInputValue,
+    isAuthenticated: !isLinkGuest,
+    isLinkGuest,
+    promptInputRef: chat.promptInputRef,
+    conversationId: conversationId ?? undefined,
+    groupChat,
+    memberCount,
+    threadHeader,
+    composerSlot,
+  } satisfies Partial<ChatLayoutProps>;
+  const isLoading = chat.renderState.type === 'loading';
+  const layoutProps: ChatLayoutProps = isLoading
+    ? {
+        ...sharedLayoutProps,
+        title: chat.renderState.title,
+        messages: [],
+        streamingMessageIds: new Set<string>(),
+        persistingMessageIds: new Set<string>(),
+        inputValue: '',
+        onSubmit: NOOP,
+        inputDisabled: true,
+        isProcessing: false,
+        historyCharacters: 0,
+        isDecrypting: true,
+        callerPrivilege: resolveGuestPrivilege(isLinkGuest, chat.callerPrivilege),
+      }
+    : {
+        ...sharedLayoutProps,
+        title: headerTitle,
+        messages: messagesWithRemoteTiles,
+        branchMessages: chat.branchMessages,
+        streamingMessageIds: effectiveStreamingIds,
+        persistingMessageIds: effectivePersistingIds,
+        inputValue: chat.state.inputValue,
+        onSubmit: handleEditSubmit,
+        onSubmitUserOnly: chat.handleSendUserOnly,
+        inputDisabled: chat.inputDisabled,
+        isProcessing: chat.isStreaming,
+        onStop: chat.handleStop,
+        onQueue: chat.onQueueMessage,
+        queueCount: chat.queueCount,
+        queueFull: chat.queueFull,
+        queuedMessages: chat.queuedMessages,
+        onCancelQueued: chat.onCancelQueued,
+        historyCharacters: chat.historyCharacters,
+        errorMessageId: chat.errorMessageId,
+        callerPrivilege: chat.callerPrivilege,
+        forks: forksList,
+        activeForkId,
+        onForkSelect: fm.handleForkSelect,
+        onForkRename: fm.handleForkRename,
+        onForkDelete: fm.handleForkDelete,
+        onRegenerate: handleRegenerate,
+        onEdit: handleEdit,
+        onFork: fm.handleForkFromMessage,
+        isEditing: editingMessageId !== null,
+        onCancelEdit: handleCancelEdit,
+        messagesReady: chat.messagesReady,
+      };
 
   return (
     <BadEpochsContext value={badEpochsOf(chat.epochVerdict)}>
       <EpochIntegrityBanner
-        verdict={chat.epochVerdict}
+        verdict={isLoading ? undefined : chat.epochVerdict}
         conversationId={conversationId}
         isLinkGuest={isLinkGuest}
       />
-      <ChatLayout
-        title={chat.displayTitle}
-        messages={messagesWithRemoteTiles}
-        branchMessages={chat.branchMessages}
-        streamingMessageIds={effectiveStreamingIds}
-        persistingMessageIds={effectivePersistingIds}
-        inputValue={chat.state.inputValue}
-        onInputChange={chat.state.setInputValue}
-        onSubmit={handleEditSubmit}
-        onSubmitUserOnly={chat.handleSendUserOnly}
-        inputDisabled={chat.inputDisabled}
-        isProcessing={chat.isStreaming}
-        onStop={chat.handleStop}
-        onQueue={chat.onQueueMessage}
-        queueCount={chat.queueCount}
-        queueFull={chat.queueFull}
-        queuedMessages={chat.queuedMessages}
-        onCancelQueued={chat.onCancelQueued}
-        historyCharacters={chat.historyCharacters}
-        isAuthenticated={!isLinkGuest}
-        isLinkGuest={isLinkGuest}
-        promptInputRef={chat.promptInputRef}
-        errorMessageId={chat.errorMessageId}
-        conversationId={conversationId ?? undefined}
-        groupChat={groupChat}
-        callerPrivilege={chat.callerPrivilege}
-        forks={forksList}
-        activeForkId={activeForkId}
-        onForkSelect={fm.handleForkSelect}
-        onForkRename={fm.handleForkRename}
-        onForkDelete={fm.handleForkDelete}
-        onRegenerate={handleRegenerate}
-        onEdit={handleEdit}
-        onFork={fm.handleForkFromMessage}
-        isEditing={editingMessageId !== null}
-        onCancelEdit={handleCancelEdit}
-        messagesReady={chat.messagesReady}
-      />
+      <ChatLayout {...layoutProps} />
       <ForkDialogs fm={fm} />
     </BadEpochsContext>
   );

@@ -7,6 +7,9 @@ import type { Message } from '@/lib/api/api';
 import type { MessageAction } from '@/lib/chat/message-actions';
 import type { NoticeReason } from '@hushbox/shared';
 
+/** The fields of a message its controls read. */
+type ControlsMessage = Pick<Message, 'id' | 'role' | 'content'>;
+
 export interface MessageHandlers {
   /** Re-runs a turn: Regenerate on a reply, Retry on a user message. */
   onRegenerate?: ((messageId: string) => void) | undefined;
@@ -69,7 +72,7 @@ function ControlButton({
 }
 
 function userControls(
-  message: Message,
+  message: ControlsMessage,
   allowed: ReadonlySet<MessageAction>,
   handlers: MessageHandlers,
   regenerateRefusal: NoticeReason | undefined
@@ -101,7 +104,7 @@ function userControls(
 }
 
 function replyControls(
-  message: Message,
+  message: ControlsMessage,
   allowed: ReadonlySet<MessageAction>,
   handlers: MessageHandlers,
   regenerateRefusal: NoticeReason | undefined
@@ -154,7 +157,7 @@ export function MessageControls({
   handlers,
   regenerateRefusal,
 }: Readonly<{
-  message: Message;
+  message: ControlsMessage;
   allowed: ReadonlySet<MessageAction>;
   handlers: MessageHandlers;
   regenerateRefusal?: NoticeReason | undefined;

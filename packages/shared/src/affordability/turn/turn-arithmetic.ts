@@ -155,7 +155,8 @@ export function budgetBuysTokens(
 }
 
 interface CeilingBounds {
-  readonly contextHeadroomTokens: number;
+  /** The prompt's input tokens, which set the context headroom. */
+  readonly inputTokens: number;
   /** `budgetBuys(m)` for a solo turn, the shared `T` for siblings. */
   readonly sharedTokens: number;
 }
@@ -169,10 +170,7 @@ interface CeilingBounds {
  * model's full output capability gets it.
  */
 export function ceilingTokens(model: PriceableModel, bounds: CeilingBounds): number {
-  return Math.max(
-    0,
-    Math.min(effectiveCompletionCap(model), bounds.contextHeadroomTokens, bounds.sharedTokens)
-  );
+  return Math.max(0, Math.min(maxCallCostTokens(model, bounds.inputTokens), bounds.sharedTokens));
 }
 
 /**

@@ -1,10 +1,34 @@
-import { TEST_IDS } from '@hushbox/shared';
+import { forkResponseSchema, isMobileWidth, TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { matrix } from '../../scripts/lib/playwright/browser-matrix.js';
 import { ChatPage } from '../pages/index.js';
 import { TIMEOUTS } from '../config/timeouts.js';
+import { expectOkResponse } from '../helpers/ok-response.js';
+import type { APIRequestContext } from '../fixtures.js';
 
 const SPEC_MATRIX = matrix({ engine: 'engine-matrix', formFactor: 'either' });
+
+/** The conversation's stored forks, each fork's name keyed by its id. */
+async function readStoredForks(
+  request: APIRequestContext,
+  conversationId: string
+): Promise<Record<string, string>> {
+  const response = await request.get(`/conversations/${conversationId}/forks`);
+  await expectOkResponse(response, 'fork list read');
+  const { forks } = (await response.json()) as { forks: unknown };
+  return Object.fromEntries(
+    forkResponseSchema
+      .array()
+      .parse(forks)
+      .map((fork) => [fork.id, fork.name])
+  );
+}
+
+function forkIdNamed(stored: Record<string, string>, name: string): string {
+  const id = Object.keys(stored).find((key) => stored[key] === name);
+  if (id === undefined) throw new Error(`no stored fork is named ${name}`);
+  return id;
+}
 
 test.describe('Fork Lifecycle', SPEC_MATRIX, () => {
   test('create first fork lists Main and Fork 1 in the branch switcher', async ({
@@ -157,6 +181,134 @@ test.describe('Fork Lifecycle', SPEC_MATRIX, () => {
 
     await test.step('verify the switcher disappears (only fork deleted)', async () => {
       await chatPage.expectNoBranches();
+    });
+  });
+
+  test('the fork mark opens the branches for rename, delete and Back to Main', async ({
+    authenticatedPage,
+    authenticatedRequest,
+    testConversation,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    const mainFollowUp = 'A follow-up only Main carries';
+    const renamed = 'Renamed branch';
+    const storedForks = (): Promise<Record<string, string>> =>
+      readStoredForks(authenticatedRequest, testConversation.id);
+    const storedNames = async (): Promise<string[]> =>
+      Object.values(await storedForks()).toSorted((a, b) => a.localeCompare(b));
+
+    await test.step('Main gets a follow-up the forks will not share', async () => {
+      await chatPage.sendFollowUpMessage(mainFollowUp);
+      await chatPage.waitForAIResponse(mainFollowUp);
+      await expect
+        .poll(() => chatPage.getMessageCountViaAPI(), { timeout: TIMEOUTS.ASSERT })
+        .toBe(4);
+    });
+
+    await test.step('fork twice from the first reply, staying on the second fork', async () => {
+      await chatPage.clickFork(1);
+      await chatPage.expectCurrentBranch('Fork 1');
+      await chatPage.openBranch('Main');
+      await chatPage.clickFork(1);
+      await chatPage.expectCurrentBranch('Fork 2');
+      await expect
+        .poll(storedNames, { timeout: TIMEOUTS.ASSERT })
+        .toEqual(['Fork 1', 'Fork 2', 'Main']);
+    });
+
+    const created = await storedForks();
+    const mainId = forkIdNamed(created, 'Main');
+    const otherForkId = forkIdNamed(created, 'Fork 1');
+    const openForkId = forkIdNamed(created, 'Fork 2');
+    await expect
+      .poll(() => chatPage.getForkIdFromUrl(), { timeout: TIMEOUTS.ASSERT })
+      .toBe(openForkId);
+
+    await test.step('the fork mark opens one row per branch', async () => {
+      await chatPage.expectForkMark(2);
+      await chatPage.openBranchesFromForkMark();
+      const viewport = authenticatedPage.viewportSize();
+      const asSheet = viewport !== null && isMobileWidth(viewport.width);
+      await expect(
+        chatPage.getBranchList().getByRole('heading', { name: 'Branches', exact: true })
+      ).toHaveCount(asSheet ? 1 : 0);
+      // Every branch here parts at the one fork point, so each has one row; a branch parting
+      // at two points appears under both points' labels.
+      for (const forkId of [mainId, otherForkId, openForkId]) {
+        await expect(
+          chatPage.getBranchList().getByTestId(TEST_ID_BUILDERS.branchRow(forkId))
+        ).toHaveCount(1);
+      }
+      await chatPage.closeBranches();
+      await chatPage.expectBranchCount(3);
+      await chatPage.expectCurrentBranch('Fork 2');
+    });
+
+    await test.step('rename the other fork from its row', async () => {
+      await chatPage.openBranchesFromForkMark();
+      await chatPage
+        .getBranchList()
+        .getByTestId(TEST_ID_BUILDERS.branchRename(otherForkId))
+        .click();
+      await expect(chatPage.getBranchList()).not.toBeVisible();
+      await chatPage.confirmRename(renamed);
+
+      await chatPage.openBranchesFromForkMark();
+      await expect(
+        chatPage
+          .getBranchList()
+          .getByTestId(TEST_ID_BUILDERS.branchRow(otherForkId))
+          .getByRole('button', { name: renamed, exact: true })
+      ).toBeVisible();
+      await chatPage.closeBranches();
+      await expect
+        .poll(storedForks, { timeout: TIMEOUTS.ASSERT })
+        .toEqual({ [mainId]: 'Main', [otherForkId]: renamed, [openForkId]: 'Fork 2' });
+    });
+
+    await test.step('delete the other fork from its row', async () => {
+      await chatPage.openBranchesFromForkMark();
+      await chatPage
+        .getBranchList()
+        .getByTestId(TEST_ID_BUILDERS.branchDelete(otherForkId))
+        .click();
+      await expect(chatPage.getBranchList()).not.toBeVisible();
+      const deleted = authenticatedPage.waitForResponse(
+        (response) =>
+          response.request().method() === 'DELETE' &&
+          new URL(response.url()).pathname.endsWith(
+            `/conversations/${testConversation.id}/forks/${otherForkId}`
+          )
+      );
+      await chatPage.confirmDelete();
+      await expectOkResponse(await deleted, 'fork delete');
+
+      await chatPage.expectForkMark(1);
+      await chatPage.openBranchesFromForkMark();
+      await expect(
+        chatPage.getBranchList().getByTestId(TEST_ID_BUILDERS.branchRow(otherForkId))
+      ).toHaveCount(0);
+      await chatPage.closeBranches();
+      await chatPage.expectBranchCount(2);
+      await expect
+        .poll(storedForks, { timeout: TIMEOUTS.ASSERT })
+        .toEqual({ [mainId]: 'Main', [openForkId]: 'Fork 2' });
+    });
+
+    await test.step('Back to Main returns to the main thread', async () => {
+      await chatPage.openBranchesFromForkMark();
+      await chatPage.getBackTo('Main').click();
+      await expect(chatPage.getBranchList()).not.toBeVisible();
+      // Main is a fork like the others once any exist, so the URL names it rather than
+      // dropping the parameter.
+      await expect
+        .poll(() => chatPage.getForkIdFromUrl(), { timeout: TIMEOUTS.ASSERT })
+        .toBe(mainId);
+      await chatPage.waitForConversationLoaded();
+      await expect.poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.ASSERT }).toBe(4);
+      await expect(chatPage.getLastMessage()).toContainText(mainFollowUp);
+      await chatPage.expectCurrentBranch('Main');
     });
   });
 
@@ -316,9 +468,14 @@ test.describe('Group Chat Forking', SPEC_MATRIX, () => {
       await aliceChatPage.gotoConversation(groupConversation.id);
       await aliceChatPage.waitForConversationLoaded();
 
-      const aiMessage = aliceChatPage.messagesByRole('assistant').first();
-      await aiMessage.hover();
-      await aiMessage.getByRole('button', { name: 'Fork' }).click();
+      // The first assistant reply: the group chat's second row, after Alice's opening message.
+      const forked = authenticatedPage.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname.endsWith(`/conversations/${groupConversation.id}/forks`)
+      );
+      await aliceChatPage.clickFork(1);
+      await expectOkResponse(await forked, 'fork create');
 
       await aliceChatPage.expectBranchCount(2);
     });
@@ -498,12 +655,12 @@ test.describe('Fork History Preservation', SPEC_MATRIX, () => {
     expect(totalMessages).toBe(3); // 1 user + 2 AI
 
     const firstAiNametag = await chatPage
-      .getMessage(1)
+      .getMessageAt({ row: 1, column: 0 })
       .getByTestId(TEST_IDS.modelNametag)
       .textContent();
 
     await test.step('fork from first AI message', async () => {
-      await chatPage.clickFork(1);
+      await chatPage.clickFork({ row: 1, column: 0 });
       await chatPage.expectBranchCount(2);
       await chatPage.expectCurrentBranch('Fork 1');
     });
@@ -511,7 +668,7 @@ test.describe('Fork History Preservation', SPEC_MATRIX, () => {
     await test.step('Fork 1 has the forked AI message only', async () => {
       const forkCount = await chatPage.countMessages();
       expect(forkCount).toBe(3); // 1 user + 2 AI siblings (multi-model responses always grouped)
-      await chatPage.expectModelNametag(1, firstAiNametag!);
+      await chatPage.expectModelNametag({ row: 1, column: 0 }, firstAiNametag!);
     });
 
     await test.step('Main still has all 3 messages', async () => {

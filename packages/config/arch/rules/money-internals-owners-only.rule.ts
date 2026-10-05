@@ -87,8 +87,16 @@ export const PRICE_OWNERS: readonly string[] = [
   // The served catalog: each row's served rates, and the Smart Model row's
   // range, read off the anchor.
   'apps/api/src/slices/models/domain/catalog/list-models.ts',
+  // A language call's `max_price`: the ceiling its input bound reaches, priced
+  // beside the estimator, with the property composing it with the hold.
+  'apps/api/src/slices/models/domain/pricing/call-routing.ts',
+  'apps/api/src/slices/models/domain/pricing/call-routing.property.test.ts',
   // The engine admits on the run's reservation, which it receives call by call.
   'apps/api/src/slices/workflows/domain/engine/interpreter.ts',
+  // The node receives its call's reservation and prices its `max_price` from it.
+  'apps/api/src/slices/workflows/domain/engine/execution-registry.ts',
+  'apps/api/src/slices/workflows/domain/nodes/model-call-execution.ts',
+  'apps/api/src/slices/workflows/domain/nodes/model-call-execution.test.ts',
   // Solves the turn's shared token count and stamps each sibling's cap — the
   // server-side clamp order, deliberately distinct from the module's.
   'apps/api/src/slices/chat/domain/turn/definition.ts',

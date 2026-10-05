@@ -101,7 +101,7 @@ beforeAll(async () => {
       descriptor: {
         id: MODEL,
         provider: 'p',
-        version: '3',
+        version: '4',
         inputs: ['text'],
         outputs: ['text'],
         parameters: {},
@@ -109,6 +109,7 @@ beforeAll(async () => {
         limits: { contextLength: 128_000 },
         pricing: {
           kind: 'tokens',
+          anchorContextTokens: 1_000_000,
           anchor: { base: { input: '2500', output: '10000' }, tiers: [] },
         },
         zdrReachable: true,
@@ -222,7 +223,7 @@ async function driveTurn(
     ...bound,
     settlement: async (request) => {
       await midRun();
-      await bound.settlement(request);
+      return bound.settlement(request);
     },
   };
   const handle = rt.executor.start({

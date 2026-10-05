@@ -4204,6 +4204,7 @@ describe('e2e-debug', () => {
           btrfs: null,
           dState: null,
           ramRootBytes: null,
+          ramFilesystem: null,
         },
       ],
       scan: {
@@ -4325,15 +4326,27 @@ describe('e2e-debug', () => {
       expect(md).toContain('**E2E RAM root, peak use:** 812 MiB\n');
     });
 
+    it('renderResourceSection prints the RAM filesystem’s peak use against its size', () => {
+      const md = renderResourceSection(
+        measured({ ramFilesystemPeak: { usedBytes: 2034 * MIB, sizeBytes: 2048 * MIB } })
+      ).join('\n');
+
+      expect(md).toContain(
+        '**RAM filesystem holding the E2E RAM root, peak use:** 2034 MiB of its 2048 MiB ' +
+          '(every occupant, files unlinked but still open included)'
+      );
+    });
+
     it('renderResourceSection states each Linux series as not measured when none was', () => {
       const md = renderResourceSection(measured({})).join('\n');
 
       expect(md).toContain('**Disk utilisation, peak per device:** not measured');
       expect(md).toContain('**Most frequent D-state waits:** not measured');
       expect(md).toContain('**E2E RAM root, peak use:** not measured');
+      expect(md).toContain('**RAM filesystem holding the E2E RAM root, peak use:** not measured');
     });
 
-    it('renderResourceSection prints the three lines a fixture timeline yields', () => {
+    it('renderResourceSection prints the Linux series lines a fixture timeline yields', () => {
       const timeline: ResourceSample[] = [0, 2000].map((t, index) => ({
         t,
         cpuPct: 10,
@@ -4343,6 +4356,7 @@ describe('e2e-debug', () => {
         btrfs: [{ devices: ['loop3'], commits: 1, commitMs: 900 }],
         dState: { folio_wait_bit_common: 2 + index },
         ramRootBytes: (300 + index * 100) * MIB,
+        ramFilesystem: { usedBytes: (900 - index * 100) * MIB, sizeBytes: 2048 * MIB },
       }));
       const md = renderResourceSection({
         ...resources,
@@ -4356,6 +4370,9 @@ describe('e2e-debug', () => {
       expect(md).toContain(
         `**E2E RAM root, peak use:** 400 MiB of the ${String(ramRootRequiredBytes(7) / MIB)} MiB ` +
           'a run of 7 workers is sized for'
+      );
+      expect(md).toContain(
+        '**RAM filesystem holding the E2E RAM root, peak use:** 900 MiB of its 2048 MiB'
       );
     });
 
@@ -4681,6 +4698,7 @@ describe('e2e-debug', () => {
             btrfs: [{ devices: ['loop3'], commits: 2, commitMs: 4100 }],
             dState: { folio_wait_bit_common: 4 },
             ramRootBytes: 512 * 1024 ** 2,
+            ramFilesystem: null,
           },
         ],
         scan: { totalHits: 0, categories: [] },

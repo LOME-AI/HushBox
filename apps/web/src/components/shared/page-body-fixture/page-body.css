@@ -5,3 +5,5 @@
 /* The fixture's root is this folder, so the page body's and the page's classes are named here. */
 @source '../page-body.tsx';
 @source './page-body.entry.tsx';
+@source '../../accessibility/accessibility-preview.tsx';
+@source '../../chat/message/model-nameplate.tsx';

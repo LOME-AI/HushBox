@@ -4,7 +4,7 @@ import { act, render, screen, waitFor, fireEvent, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { centsToNanoUsd, MEMBER_PRIVILEGES, TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { DAY_MS, TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
-import { MemberSidebar } from '@/components/chat/member/member-sidebar';
+import { MEMBERS_PANE_ID, MemberSidebar } from '@/components/chat/member/member-sidebar';
 import { RightPaneHostContext } from '@/components/shared/right-pane';
 import { useSidebarRail } from '@/hooks/ui/use-sidebar-rail';
 import { clearLinkGuestAuth, setLinkGuestAuth } from '@/lib/auth/link-guest-auth';
@@ -41,14 +41,9 @@ function RailProbe(): React.JSX.Element {
   return <div data-rail-probe={String(useSidebarRail())} />;
 }
 
-/** The header's facepile press: the phone flag below 768, the desktop toggle from 768. */
-function pressFacepile(): void {
-  const store = useUIModalsStore.getState();
-  if (globalThis.matchMedia('(max-width: 767px)').matches) {
-    store.setMobileMemberSidebarOpen(!store.mobileMemberSidebarOpen);
-  } else {
-    store.toggleMemberSidebar();
-  }
+/** The header's facepile or member strip press. */
+function pressOpener(): void {
+  useRightPane.getState().open(MEMBERS_PANE_ID);
 }
 
 /** Stands in for the app shell: an opener, the content, and the right-pane slot. */
@@ -57,7 +52,7 @@ function Shell({ children }: Readonly<{ children: React.ReactNode }>): React.JSX
   return (
     <RightPaneHostContext value={host}>
       <RailProbe />
-      <button type="button" data-opener-under-test="" onClick={pressFacepile}>
+      <button type="button" data-opener-under-test="" onClick={pressOpener}>
         Members
       </button>
       <main>{children}</main>
@@ -210,18 +205,6 @@ describe('MemberSidebar', () => {
       expect(within(slot()).getByRole('button', { name: 'Close members' })).toBeInTheDocument();
     });
 
-    it('clears both open flags when its close button is pressed', async () => {
-      const user = userEvent.setup();
-      renderPane(<MemberSidebar {...defaultProps} />);
-
-      await user.click(screen.getByRole('button', { name: 'Close members' }));
-
-      expect(useUIModalsStore.getState()).toMatchObject({
-        memberSidebarOpen: false,
-        mobileMemberSidebarOpen: false,
-      });
-    });
-
     it('leaves the slot when its close button is pressed', async () => {
       const user = userEvent.setup();
       renderPane(<MemberSidebar {...defaultProps} />);
@@ -269,12 +252,12 @@ describe('MemberSidebar', () => {
       expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
     });
 
-    it('stays closed at 390 when only the desktop flag is set', () => {
-      stubPhoneWidth();
+    it('opens nothing when an open flag is written, since the openers open the pane', () => {
       renderClosed(<MemberSidebar {...defaultProps} />);
 
       act(() => {
         useUIModalsStore.getState().setMemberSidebarOpen(true);
+        useUIModalsStore.getState().setMobileMemberSidebarOpen(true);
       });
 
       expect(screen.queryByTestId(TEST_IDS.memberSidebar)).not.toBeInTheDocument();
@@ -290,7 +273,6 @@ describe('MemberSidebar', () => {
       await waitFor(() => {
         expect(screen.queryByTestId(TEST_IDS.memberSidebar)).not.toBeInTheDocument();
       });
-      expect(useUIModalsStore.getState().mobileMemberSidebarOpen).toBe(false);
     });
 
     it('keeps the memberSidebar and memberSidebarContent ids', () => {
@@ -301,28 +283,7 @@ describe('MemberSidebar', () => {
       );
     });
 
-    it('clears both open flags when another pane takes the slot', () => {
-      renderPane(<MemberSidebar {...defaultProps} />);
-
-      act(() => {
-        useRightPane.getState().open('accessibility');
-      });
-
-      expect(useUIModalsStore.getState()).toMatchObject({
-        memberSidebarOpen: false,
-        mobileMemberSidebarOpen: false,
-      });
-    });
-
-    it('closes on a second press of the opener', () => {
-      renderPane(<MemberSidebar {...defaultProps} />);
-
-      fireEvent.click(opener());
-
-      expect(useRightPane.getState().active).toBeNull();
-    });
-
-    it('leaves another pane open when its own flag is clear', () => {
+    it('leaves another open pane in place when it mounts', () => {
       useRightPane.setState({ active: 'accessibility' });
 
       renderClosed(<MemberSidebar {...defaultProps} />);
@@ -1193,6 +1154,29 @@ describe('MemberSidebar', () => {
       renderPane(<MemberSidebar />);
 
       expect(mockUseConversationBudgets).toHaveBeenCalledWith(null);
+    });
+
+    it('asks no budgets read while the member list has not loaded', () => {
+      renderPane(<MemberSidebar {...defaultProps} members={undefined} />);
+
+      expect(mockUseConversationBudgets).toHaveBeenCalledWith(null);
+      expect(mockUseConversationBudgets).not.toHaveBeenCalledWith(defaultProps.conversationId);
+    });
+
+    it("asks no budgets read while the caller's privilege is unknown", () => {
+      renderPane(<MemberSidebar {...defaultProps} currentUserPrivilege={undefined} />);
+
+      expect(mockUseConversationBudgets).toHaveBeenCalledWith(null);
+      expect(mockUseConversationBudgets).not.toHaveBeenCalledWith(defaultProps.conversationId);
+    });
+
+    it("asks the budgets read once the member list and the caller's privilege are known", () => {
+      renderPane(<MemberSidebar {...defaultProps} />);
+
+      // The foot calls the same hook with the id, so only the absence of a null call
+      // proves the pane's own argument.
+      expect(mockUseConversationBudgets).toHaveBeenCalledWith(defaultProps.conversationId);
+      expect(mockUseConversationBudgets).not.toHaveBeenCalledWith(null);
     });
   });
 

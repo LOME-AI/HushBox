@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { MediaValue } from './content-value.ts';
 import { Modality } from '../affordability/model/modality.ts';
 import { ResolvedReasoningEffort } from '../affordability/reasoning-effort.ts';
+import { buildTurnSystemPrompt } from '../prompt/system-prompt.ts';
+import type { MaxPrice } from '../models/routing-options.ts';
 
 /**
  * Multimodal I/O contract — replaces the text-or-one-blob event model.
@@ -39,6 +41,15 @@ export const ChatHistoryMessage = z.object({
 });
 
 export type ChatHistoryMessage = z.infer<typeof ChatHistoryMessage>;
+
+/** A `max_price` rate on the wire: USD per million tokens to the micro-dollar. */
+const MaxPriceRate = z.string().regex(/^\d+\.\d{6}$/);
+
+/** A call's `max_price` on the request, typed as the one wire shape the routing block sends. */
+const MaxPriceWire: z.ZodType<MaxPrice> = z.object({
+  prompt: MaxPriceRate,
+  completion: MaxPriceRate,
+});
 
 export const InferenceRequest = z.object({
   model: z.string().min(1),
@@ -82,9 +93,57 @@ export const InferenceRequest = z.object({
    * compile error instead.
    */
   utcDay: z.iso.date(),
+  /**
+   * A language call's price reservation: the `max_price` no serving endpoint
+   * may exceed, one value for every step of the call. A language call that
+   * reaches a provider without it is a defect. Media calls carry none.
+   */
+  routing: z.object({ maxPrice: MaxPriceWire }).optional(),
 });
 
 export type InferenceRequest = z.infer<typeof InferenceRequest>;
+
+const utf8 = new TextEncoder();
+
+/**
+ * The UTF-8 bytes of the texts a request sends: a true upper bound on the
+ * tokens they occupy, since a token spans at least one byte. Routing decides on
+ * it where the 3-characters estimate could miss a dense script crossing a
+ * context.
+ */
+export function promptUtf8Bytes(messages: readonly { readonly content: string }[]): number {
+  return messages.reduce((bytes, message) => bytes + utf8.encode(message.content).byteLength, 0);
+}
+
+/**
+ * The system prompt a language request sends: the base preamble for its day,
+ * with any custom instructions folded in, on an answer call, and none on a
+ * routing-only call. The adapter sends exactly this and the node bounds its
+ * price on exactly this, so the two cannot price different prompts.
+ */
+export function sentSystemPromptOf(request: InferenceRequest): string | undefined {
+  if (request.routingOnly === true) return undefined;
+  return buildTurnSystemPrompt({
+    utcDay: request.utcDay,
+    ...(request.customInstructions === undefined
+      ? {}
+      : { customInstructions: request.customInstructions }),
+  });
+}
+
+/**
+ * The texts a language request sends from its own fields, in order: the system
+ * prompt they render, its history, and the text parts of its input. A tool
+ * loop's re-sends are reserved separately.
+ */
+export function sentTextsOf(request: InferenceRequest): { readonly content: string }[] {
+  const prompt = sentSystemPromptOf(request);
+  const system = prompt === undefined ? [] : [prompt];
+  const inputs = request.inputs.flatMap((part) => (part.modality === 'text' ? [part.text] : []));
+  return [...system, ...(request.history ?? []).map((message) => message.content), ...inputs].map(
+    (content) => ({ content })
+  );
+}
 
 /**
  * Terminal finish reasons — mirrors the AI SDK's `FinishReason` union
@@ -126,8 +185,8 @@ const ServedBy = z.string().min(1);
  * where each step-finish carries its own id). `providerCostUsd` is the raw
  * provider-charged cost in USD read inline off the response — the billing
  * truth settlement charges directly (no true-up); absent when the provider
- * returns no inline cost (image generation, or the pathological missing-cost
- * path), where settlement falls back to the deterministic estimate. Carried
+ * returns no inline cost (the pathological missing-cost path), where
+ * settlement falls back to the deterministic estimate. Carried
  * as the raw USD number; nano-USD conversion happens at settlement.
  */
 export const ProviderMetadata = z.object({

@@ -185,12 +185,6 @@ describe('ChatWelcome prediction suggestions', () => {
     return [...container.querySelectorAll<HTMLElement>('[data-slot="prediction-suggestion-row"]')];
   }
 
-  function reservedRows(container: HTMLElement): HTMLElement[] {
-    return [
-      ...container.querySelectorAll<HTMLElement>('[data-slot="prediction-suggestion-reserve-row"]'),
-    ];
-  }
-
   it('offers nothing under the composer until a prediction arrives', () => {
     const { container } = render(<ChatWelcome onSend={vi.fn()} isAuthenticated />);
 
@@ -209,43 +203,6 @@ describe('ChatWelcome prediction suggestions', () => {
           row.querySelector('[data-slot="prediction-suggestion-completion"]')?.textContent ?? ''
       )
     ).toEqual(CANDIDATES);
-  });
-
-  it('adds the same height above the composer as the list adds below it', () => {
-    const { container } = render(<ChatWelcome onSend={vi.fn()} isAuthenticated />);
-
-    typeIntoComposer('the quick brown fox');
-    emitCandidates(CANDIDATES);
-
-    // The column is vertically centred, so a list appearing under the composer
-    // would pull the composer up by half its height. The reserved copy above
-    // the greeting is what cancels that, and it can only cancel it while the
-    // two are the same rows.
-    expect(reservedRows(container).map((row) => row.textContent)).toEqual(
-      suggestionRows(container).map((row) => row.textContent)
-    );
-  });
-
-  it('reserves that height above the composer and lists it below, inside the centred column', () => {
-    const { container } = render(<ChatWelcome onSend={vi.fn()} isAuthenticated />);
-
-    typeIntoComposer('the quick brown fox');
-    emitCandidates(CANDIDATES);
-
-    const centred = container.querySelector('.my-auto');
-    const composer = container.querySelector('[data-testid="prompt-input"]')!;
-    const reserved = reservedRows(container)[0]!;
-    const listed = suggestionRows(container)[0]!;
-
-    expect(centred).not.toBeNull();
-    expect(centred!.contains(reserved)).toBe(true);
-    expect(centred!.contains(listed)).toBe(true);
-    expect(reserved.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    );
-    expect(composer.compareDocumentPosition(listed) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    );
   });
 
   it('appends the chosen continuation to what the user has already typed', () => {
@@ -289,6 +246,5 @@ describe('ChatWelcome prediction suggestions', () => {
     rerender(<ChatWelcome onSend={vi.fn()} isAuthenticated isLoading />);
 
     expect(suggestionRows(container)).toHaveLength(0);
-    expect(reservedRows(container)).toHaveLength(0);
   });
 });

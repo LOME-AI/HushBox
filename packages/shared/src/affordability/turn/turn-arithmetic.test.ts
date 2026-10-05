@@ -283,24 +283,21 @@ describe('budgetBuysTokens — floor((funding − fixedCosts) / Σ variableRate)
 
 describe('ceilingTokens — min(providerCap, contextHeadroom, budgetBuys)', () => {
   it('is bound by the provider cap when the money and the prompt leave more room', () => {
-    expect(ceilingTokens(MODEL, { contextHeadroomTokens: 99_750, sharedTokens: 50_000 })).toBe(
-      8000
-    );
+    expect(ceilingTokens(MODEL, { inputTokens: 250, sharedTokens: 50_000 })).toBe(8000);
   });
 
   it('is bound by the context headroom when that is tightest', () => {
-    expect(ceilingTokens(MODEL, { contextHeadroomTokens: 500, sharedTokens: 50_000 })).toBe(500);
+    expect(ceilingTokens(MODEL, { inputTokens: 99_500, sharedTokens: 50_000 })).toBe(500);
   });
 
   it('is bound by what the money buys when that is tightest', () => {
-    expect(ceilingTokens(MODEL, { contextHeadroomTokens: 99_750, sharedTokens: 1200 })).toBe(1200);
+    expect(ceilingTokens(MODEL, { inputTokens: 250, sharedTokens: 1200 })).toBe(1200);
   });
 
   it('falls back to the context length when the catalog carries no provider cap', () => {
     const uncapped = { ...MODEL, providerCap: undefined };
-    expect(ceilingTokens(uncapped, { contextHeadroomTokens: 200_000, sharedTokens: 500_000 })).toBe(
-      100_000
-    );
+    // 200,000 tokens of headroom, more than the window, so only the fallback cap binds.
+    expect(ceilingTokens(uncapped, { inputTokens: -100_000, sharedTokens: 500_000 })).toBe(100_000);
   });
 });
 

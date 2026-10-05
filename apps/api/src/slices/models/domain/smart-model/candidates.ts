@@ -268,6 +268,7 @@ export function pickEffortClassifier(
       modality: 'text',
       pinned: {},
       webSearch: turn.webSearch,
+      effortAuto: true,
     },
     { models: pool, nowMs: turn.nowMs }
   );
@@ -401,6 +402,7 @@ export function buildSmartModelCandidates(
       // already, so the menu is graded at it.
       pinned: input.effortPin === undefined ? {} : { effort: input.effortPin },
       webSearch: input.webSearch,
+      effortAuto: input.effortAuto === true,
     },
     { models: pool, nowMs: input.nowMs }
   );
@@ -422,21 +424,14 @@ export function buildSmartModelCandidates(
   // exclude it, so this narrows the menu without moving the money.
   const pinnedIds = new Set(input.pinnedModelIds);
   const menu = effortMenuOf(options);
-  // Caps differ by rung only where a decision can land on two or more rungs and a
-  // pinned sibling's loop grows with the rung; one available rung settles effort.
-  const perRung =
-    input.effortAuto === true &&
-    input.webSearch &&
-    input.pinnedModelIds.length > 0 &&
-    menu.effortOptions.length >= 2
-      ? new Set(menu.effortOptions.map((option) => option.optionId))
-      : new Set<string>();
   const candidates = set.runnable
     .filter((entry) => !pinnedIds.has(entry.modelId))
     .map((entry): SmartModelCandidateEntry => {
       const description = describedBy.get(entry.modelId);
       const effortCeiling = effortCeilingOf(entry);
-      const rungs = entry.rungCeilings.filter((rung) => perRung.has(rung.effort));
+      // The producer publishes a row's per-rung ceilings exactly on a turn whose
+      // replies are capped rung by rung, so an empty list means the graded cap.
+      const rungs = entry.rungCeilings;
       return {
         id: entry.modelId,
         ...(description === undefined ? {} : { description }),

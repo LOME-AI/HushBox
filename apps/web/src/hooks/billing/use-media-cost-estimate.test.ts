@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import {
-  ESTIMATED_IMAGE_BYTES,
-  ESTIMATED_VIDEO_BYTES_PER_SECOND,
-  MEDIA_STORAGE_COST_PER_BYTE_NANO,
-} from '@hushbox/shared';
 import { selectedServedRows, useMediaCostEstimate } from '@/hooks/billing/use-media-cost-estimate';
 import type { Model } from '@hushbox/shared';
 import type { UseMediaCostEstimateInput } from '@/hooks/billing/use-media-cost-estimate';
@@ -14,6 +9,9 @@ import type { UseMediaCostEstimateInput } from '@/hooks/billing/use-media-cost-e
 function expectedNano(providerBillableNano: bigint, storageBaseNano: bigint): bigint {
   return providerBillableNano + storageBaseNano;
 }
+
+/** A media turn's storage, reserved once: the value-store budget, 20,971,520 bytes × 18. */
+const RUN_STORAGE = 377_487_360n;
 
 function servedRow(overrides: Partial<Model>): Model {
   return {
@@ -75,18 +73,16 @@ describe('useMediaCostEstimate', () => {
     expect(result.current).toBeUndefined();
   });
 
-  it('computes image cost as the billable per-model provider rate plus per-model storage', () => {
+  it('computes image cost as the billable per-model provider rate plus the run storage once', () => {
     // Billable nano per-image rates: $0.04 and $0.06.
-    const storage = BigInt(ESTIMATED_IMAGE_BYTES) * MEDIA_STORAGE_COST_PER_BYTE_NANO * 2n;
     expect(priced({ models: [imageRow(40_000_000n), imageRow(60_000_000n)] })).toBe(
-      expectedNano(100_000_000n, storage)
+      expectedNano(100_000_000n, RUN_STORAGE)
     );
   });
 
   it('reserves each image model at its dearest rate, the side the hold reserves', () => {
-    const storage = BigInt(ESTIMATED_IMAGE_BYTES) * MEDIA_STORAGE_COST_PER_BYTE_NANO;
     expect(priced({ models: [imageRow(40_000_000n, 90_000_000n)] })).toBe(
-      expectedNano(90_000_000n, storage)
+      expectedNano(90_000_000n, RUN_STORAGE)
     );
   });
 
@@ -107,24 +103,19 @@ describe('useMediaCostEstimate', () => {
     expect(mixed).toBeLessThan(maxOnly);
   });
 
-  it('computes video cost as the billable (per-model rate × duration) plus storage', () => {
+  it('computes video cost as the billable (per-model rate × duration) plus the run storage', () => {
     const durationSeconds = 4;
     const provider = (100_000_000n + 400_000_000n) * BigInt(durationSeconds);
-    const storage =
-      BigInt(durationSeconds) *
-      BigInt(ESTIMATED_VIDEO_BYTES_PER_SECOND) *
-      MEDIA_STORAGE_COST_PER_BYTE_NANO *
-      2n;
     expect(
       priced({
         modality: 'video',
         models: [videoRow(100_000_000n), videoRow(400_000_000n)],
         durationSeconds,
       })
-    ).toBe(expectedNano(provider, storage));
+    ).toBe(expectedNano(provider, RUN_STORAGE));
   });
 
-  it('scales video cost linearly with duration', () => {
+  it('scales the video generation linearly with duration, the run storage staying fixed', () => {
     const short = priced({
       modality: 'video',
       models: [videoRow(100_000_000n)],
@@ -135,15 +126,15 @@ describe('useMediaCostEstimate', () => {
       models: [videoRow(100_000_000n)],
       durationSeconds: 8,
     });
-    expect(long).toBe(short * 4n);
+    expect(long - short).toBe(100_000_000n * 6n);
   });
 
-  it('scales image cost with the number of selected models', () => {
+  it("adds each selected model's generation, the run storage staying fixed", () => {
     const one = priced({ models: [imageRow(40_000_000n)] });
     const three = priced({
       models: [imageRow(40_000_000n), imageRow(40_000_000n), imageRow(40_000_000n)],
     });
-    expect(three).toBe(one * 3n);
+    expect(three - one).toBe(40_000_000n * 2n);
   });
 
   it('gives no figure for an audio turn, which no price kind represents', () => {

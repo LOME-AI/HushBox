@@ -14,6 +14,7 @@ import type {
 import type { IdentitySecrets, OpaqueFinishFlow } from '../opaque/opaque.js';
 import type { RedisClient } from '../keys.js';
 import type { StepUpFinishOutcome } from '../session/step-up.js';
+import type { TotpGate } from './totp.js';
 
 const TOTP_CODE = z
   .string()
@@ -80,7 +81,7 @@ export function startDisable2fa(
 }
 
 export type Disable2faResult =
-  | { readonly kind: 'locked'; readonly retryAfterSeconds: number }
+  | { readonly kind: 'locked'; readonly retryAfterSeconds: number; readonly gate: TotpGate }
   | { readonly kind: 'not-configured' }
   | { readonly kind: 'stranded' }
   | { readonly kind: 'invalid-code' }
@@ -125,6 +126,7 @@ function verifyCodeThenDisable(
       return okAsync<Disable2faResult, DomainError>({
         kind: 'locked',
         retryAfterSeconds: verdict.retryAfterSeconds,
+        gate: verdict.gate,
       });
     }
     if (verdict.kind === 'not-configured' || verdict.kind === 'stranded') {

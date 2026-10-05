@@ -48,6 +48,7 @@ interface SeedOverrides {
   readonly pricing?: Record<string, unknown>;
   readonly limits?: Record<string, number>;
   readonly zdrReachable?: boolean;
+  readonly zdrPin?: readonly string[];
   readonly releasedAt?: number;
 }
 
@@ -60,7 +61,7 @@ async function seedDescriptor(modelId: string, overrides: SeedOverrides = {}): P
       descriptor: {
         id: modelId,
         provider: RUN_PREFIX,
-        version: '3',
+        version: '4',
         inputs: ['text'],
         outputs: overrides.outputs ?? ['text'],
         parameters: {},
@@ -68,9 +69,11 @@ async function seedDescriptor(modelId: string, overrides: SeedOverrides = {}): P
         limits: overrides.limits ?? { contextLength: 128_000 },
         pricing: overrides.pricing ?? {
           kind: 'tokens',
+          anchorContextTokens: 1_000_000,
           anchor: { base: { input: '100', output: '200' }, tiers: [] },
         },
         zdrReachable: overrides.zdrReachable ?? true,
+        ...(overrides.zdrPin === undefined ? {} : { zdrPin: overrides.zdrPin }),
         // The default leaves the premium-recency leg unfired for every seeded
         // row, so a row overridden to the wall clock is the only recency
         // premium in the list.
@@ -153,6 +156,7 @@ describe('GET /models (public)', () => {
       outputs: ['image'],
       pricing: { kind: 'perImage', anchor: '40000000', dearest: '40000000' },
       limits: {},
+      zdrPin: ['test-provider'],
     });
     const body = await fetchList();
     expect(body.premiumModelIds).toContain(recent);

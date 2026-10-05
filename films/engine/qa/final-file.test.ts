@@ -5,6 +5,7 @@ import { FPS, HEIGHT, SAMPLE_RATE, SAMPLES_PER_FRAME, WIDTH } from '../time/grid
 import { colourScore } from './colour.js';
 import { deliveredLoudnessFailure, finalFileGate } from './final-file.js';
 
+import type { BinaryFinding } from '@hushbox/scripts/lib/privacy/binary/scan';
 import type { StereoBuffer } from '../audio/dsp/index.js';
 import type { FinalFileEvidence } from './final-file.js';
 import type { Mp4Track } from './mp4-boxes.js';
@@ -87,6 +88,7 @@ function evidence(overrides: Partial<FinalFileEvidence> = {}): FinalFileEvidence
     onsets: [{ cueId: 'beat', frame: 30, sample: 30 * SAMPLES_PER_FRAME }],
     colour: [colourScore({ frame: 30, decoded: GREY, still: GREY })],
     chartPsnr: 50,
+    privacy: { verdict: 'clean', findings: [] },
     ...overrides,
   };
 }
@@ -294,6 +296,46 @@ describe('finalFileGate', () => {
   it('reports the colour chart score', () => {
     expect(finalFileGate('film', evidence()).measured).toContain(
       'colour chart block-mean PSNR 50.0 dB through the delivery encode and the decode as tagged (floor 44 dB)'
+    );
+  });
+
+  it('fails a file the privacy classifier flags, naming each finding where it sits', () => {
+    const banner: BinaryFinding = {
+      file: 'film.mp4',
+      format: 'isobmff',
+      kind: 'isobmff:bitstream',
+      location: 'mdat',
+      rule: 'toolchain-identity',
+      shape: 'video encoder build banner',
+      offset: 0,
+      length: 0,
+    };
+
+    expect(lines({ privacy: { verdict: 'dirty', findings: [banner] } })).toEqual([
+      'film: privacy: mdat: toolchain-identity: video encoder build banner',
+    ]);
+  });
+
+  it('places a whole-file privacy finding at the file', () => {
+    const unknown: BinaryFinding = {
+      file: 'film.mp4',
+      format: 'unknown',
+      kind: '',
+      location: '',
+      rule: 'unrecognized-format',
+      shape: 'binary blob matching no registered container format',
+      offset: 0,
+      length: 1,
+    };
+
+    expect(lines({ privacy: { verdict: 'dirty', findings: [unknown] } })).toEqual([
+      'film: privacy: file: unrecognized-format: binary blob matching no registered container format',
+    ]);
+  });
+
+  it("reports the privacy classifier's verdict", () => {
+    expect(finalFileGate('film', evidence()).measured).toContain(
+      "the repo privacy gate's binary classifier reads the file clean"
     );
   });
 

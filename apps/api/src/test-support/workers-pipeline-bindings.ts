@@ -13,8 +13,8 @@ import type { Bindings, RequiredBindings } from '../lib/context/index.js';
  * the mode `createEnvUtilities` reads, the sink list `createRequestTelemetry`
  * demands, the counter's Redis bound and identifier key, which
  * `configureRateLimitBound` and `configureRateLimitKeySecret` refuse to
- * default, and the idempotency body-hash key, which
- * `configureIdempotencyBodyHashSecret` refuses to default.
+ * default, and the idempotency body-hash key, which the bindings stage
+ * likewise refuses to default.
  */
 type WorkersPipelineBindings = RequiredBindings &
   Required<

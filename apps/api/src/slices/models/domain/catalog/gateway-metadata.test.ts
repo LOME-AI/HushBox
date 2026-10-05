@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { TEST_DAY_START } from '@hushbox/shared/test-time';
 import { fetchGatewayCatalog } from './gateway-metadata.js';
+import { normalizeCatalog } from './normalize.js';
 import { usdRateToNanoUsd } from '../pricing/usd-rate.js';
 import {
   TEST_GATEWAY_BASE_URL,
@@ -9,6 +11,7 @@ import {
   jsonResponse,
   modelEntryFixture,
   routedFetch,
+  SONNET_45_ZDR_ROWS,
   videoModelFixture,
   zdrBody,
 } from './gateway-fixtures.js';
@@ -18,11 +21,15 @@ import type {
   LanguageMetadata,
   ListWalkCutoff,
   VideoMetadata,
+  ZdrEndpoint,
 } from './gateway-metadata.js';
 import type { DomainError } from '../../../../lib/errors/index.js';
 import type { ResultAsync } from '../../../../lib/result/index.js';
 
 const BASE_URL = TEST_GATEWAY_BASE_URL;
+
+/** The refresh clock the normalized fixtures are dated against. */
+const NOW_MS = TEST_DAY_START;
 
 async function unwrap(result: ResultAsync<GatewayCatalog, DomainError>): Promise<GatewayCatalog> {
   const settled = await result;
@@ -69,11 +76,6 @@ describe('fetchGatewayCatalog', () => {
       contextLength: 128_000,
       maxCompletionTokens: 16_384,
       deprecated: false,
-    });
-    expect(language.pricing).toEqual({
-      prompt: '0.0000025',
-      completion: '0.00001',
-      cacheRead: undefined,
     });
   });
 
@@ -151,6 +153,234 @@ describe('fetchGatewayCatalog', () => {
     expect(catalog.zdrModelIds.has('missing/model')).toBe(false);
   });
 
+  it("reads each of Claude Sonnet 4.5's four ZDR rows as an endpoint with its decimal rates", async () => {
+    const fetch = routedFetch({ zdr: () => jsonResponse({ data: SONNET_45_ZDR_ROWS }) });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const endpoints = catalog.zdrEndpoints.get('anthropic/claude-sonnet-4.5') ?? [];
+    expect(endpoints.map((endpoint) => [endpoint.tag, endpoint.pricing])).toEqual([
+      [
+        'amazon-bedrock/eu-west-1',
+        expect.objectContaining({ prompt: '0.0000033', completion: '0.0000165' }),
+      ],
+      [
+        'google-vertex/us-east5',
+        expect.objectContaining({ prompt: '0.0000033', completion: '0.0000165' }),
+      ],
+      ['amazon-bedrock', expect.objectContaining({ prompt: '0.000003', completion: '0.000015' })],
+      [
+        'google-vertex/global',
+        expect.objectContaining({ prompt: '0.000003', completion: '0.000015' }),
+      ],
+    ]);
+  });
+
+  it("reads each Claude Sonnet 4.5 ZDR row's long-context override above 200,000 prompt tokens", async () => {
+    const fetch = routedFetch({ zdr: () => jsonResponse({ data: SONNET_45_ZDR_ROWS }) });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const endpoints = catalog.zdrEndpoints.get('anthropic/claude-sonnet-4.5') ?? [];
+    expect(
+      endpoints.map((endpoint) => endpoint.overrides.map((entry) => entry['min_prompt_tokens']))
+    ).toEqual([[200_000], [200_000], [200_000], [200_000]]);
+  });
+
+  it("reads an endpoint's provider, caps, parameters and implicit caching off its ZDR row", async () => {
+    const fetch = routedFetch({
+      zdr: () => jsonResponse({ data: SONNET_45_ZDR_ROWS.slice(2, 3) }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.zdrEndpoints.get('anthropic/claude-sonnet-4.5')?.[0]).toMatchObject({
+      providerName: 'Amazon Bedrock',
+      tag: 'amazon-bedrock',
+      maxCompletionTokens: 64_000,
+      contextLength: 1_000_000,
+      supportedParameters: expect.arrayContaining(['max_tokens', 'tools', 'reasoning']),
+      implicitCaching: false,
+    });
+  });
+
+  it('keeps a model with an unreadable endpoint price in the ZDR set and marks that endpoint unreadable', async () => {
+    const fetch = routedFetch({
+      zdr: () => jsonResponse({ data: [{ ...SONNET_45_ZDR_ROWS[0], pricing: 'garbage' }] }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.zdrModelIds.has('anthropic/claude-sonnet-4.5')).toBe(true);
+    expect(catalog.zdrEndpoints.get('anthropic/claude-sonnet-4.5')?.[0]?.pricing).toBe(
+      'unreadable'
+    );
+  });
+
+  it.each([
+    ['a price that is neither a string nor a number', { prompt: '0.000003', completion: null }],
+    [
+      'an overrides list that is not a list',
+      { prompt: '0.000003', completion: '0.000015', overrides: {} },
+    ],
+    [
+      'an override entry that is not an object',
+      { prompt: '0.000003', completion: '0.000015', overrides: [1] },
+    ],
+  ])('marks an endpoint unreadable when its pricing carries %s', async (_label, pricing) => {
+    const fetch = routedFetch({
+      zdr: () => jsonResponse({ data: [{ ...SONNET_45_ZDR_ROWS[0], pricing }] }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.zdrEndpoints.get('anthropic/claude-sonnet-4.5')?.[0]?.pricing).toBe(
+      'unreadable'
+    );
+  });
+
+  it('reads a numeric discount, as the live listing carries it, without marking the price unreadable', async () => {
+    const fetch = routedFetch({
+      zdr: () =>
+        jsonResponse({
+          data: [
+            {
+              ...SONNET_45_ZDR_ROWS[2],
+              pricing: { prompt: '0.000003', completion: '0.000015', discount: 0.15 },
+            },
+          ],
+        }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.zdrEndpoints.get('anthropic/claude-sonnet-4.5')?.[0]?.pricing).toEqual({
+      prompt: '0.000003',
+      completion: '0.000015',
+      discount: 0.15,
+    });
+  });
+
+  it('reads a row with no tag, provider, caps or caching as an endpoint stating none', async () => {
+    const fetch = routedFetch({
+      zdr: () =>
+        jsonResponse({
+          data: [
+            {
+              model_id: 'vendor/bare',
+              pricing: { prompt: '0.000001', completion: '0.000002' },
+              max_completion_tokens: null,
+              supported_parameters: ['max_tokens'],
+              supports_implicit_caching: 'yes',
+            },
+          ],
+        }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.zdrEndpoints.get('vendor/bare')).toEqual([
+      {
+        providerName: '',
+        tag: '',
+        supportedParameters: ['max_tokens'],
+        implicitCaching: false,
+        pricing: { prompt: '0.000001', completion: '0.000002' },
+        overrides: [],
+      },
+    ]);
+  });
+
+  /** The one endpoint a row with `field` set to `value` parses to. */
+  async function endpointWith(field: string, value: unknown): Promise<ZdrEndpoint | undefined> {
+    const fetch = routedFetch({
+      zdr: () => jsonResponse({ data: [{ ...SONNET_45_ZDR_ROWS[2], [field]: value }] }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    return catalog.zdrEndpoints.get('anthropic/claude-sonnet-4.5')?.[0];
+  }
+
+  it.each(['65536', -1, 0, 1.5])(
+    'marks a stated max_completion_tokens of %j unreadable rather than unstated',
+    async (value) => {
+      const endpoint = await endpointWith('max_completion_tokens', value);
+      expect(endpoint?.maxCompletionTokens).toBe('unreadable');
+    }
+  );
+
+  it.each(['1000000', -1, 0, 1.5])(
+    'marks a stated context_length of %j unreadable rather than unstated',
+    async (value) => {
+      const endpoint = await endpointWith('context_length', value);
+      expect(endpoint?.contextLength).toBe('unreadable');
+    }
+  );
+
+  it.each([null, 'tools', [1], undefined])(
+    'marks a supported_parameters of %j unreadable rather than empty',
+    async (value) => {
+      const endpoint = await endpointWith('supported_parameters', value);
+      expect(endpoint?.supportedParameters).toBe('unreadable');
+    }
+  );
+
+  it.each(['65536', -1, 0])(
+    'never anchors a model on an endpoint whose stated cap is %j',
+    async (cap) => {
+      // DeepSeek V4 Flash's live rows: DeepInfra is cheaper, and its stated cap
+      // is the one under test; DigitalOcean states the model's 384,000 cap.
+      const row = (tag: string, prompt: string, completion: string, cap: unknown): unknown => ({
+        model_id: 'deepseek/deepseek-v4-flash',
+        tag,
+        pricing: { prompt, completion },
+        max_completion_tokens: cap,
+        context_length: 1_048_576,
+        supported_parameters: ['max_tokens', 'tools', 'reasoning'],
+      });
+      const fetch = catalogFetch({
+        models: [
+          modelEntryFixture({
+            id: 'deepseek/deepseek-v4-flash',
+            context_length: 1_048_576,
+            supported_parameters: ['max_tokens', 'tools', 'reasoning'],
+            top_provider: { max_completion_tokens: 384_000 },
+          }),
+        ],
+        zdrRows: [
+          row('deepinfra/fp8', '0.00000009', '0.00000018', cap),
+          row('digitalocean', '0.000000098', '0.000000196', 384_000),
+        ],
+      });
+      const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+      const [entry] = normalizeCatalog(catalog.models, catalog.zdrEndpoints, NOW_MS);
+      expect(entry?.kind === 'normalized' ? entry.content.pricing : entry).toEqual({
+        kind: 'tokens',
+        anchorContextTokens: 1_048_576,
+        anchor: { base: { input: '113', output: '226' }, tiers: [] },
+      });
+    }
+  );
+
+  it('derives ZDR membership from the endpoint map', async () => {
+    const fetch = routedFetch({ zdr: () => jsonResponse({ data: SONNET_45_ZDR_ROWS }) });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect([...catalog.zdrModelIds]).toEqual([...catalog.zdrEndpoints.keys()]);
+  });
+
+  it('lists a bare /models entry at the default ZDR price with no caps stated', async () => {
+    const fetch = catalogFetch({ models: [{ id: 'bare/model' }], zdrModelIds: ['bare/model'] });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.zdrEndpoints.get('bare/model')).toEqual([
+      {
+        providerName: 'bare/model',
+        tag: 'test-provider',
+        supportedParameters: ['max_tokens'],
+        implicitCaching: false,
+        pricing: { prompt: '0.0000025', completion: '0.00001' },
+        overrides: [],
+      },
+    ]);
+  });
+
+  it('builds ZDR rows only from /models entries that are objects with a string id', () => {
+    const body = zdrBody(
+      ['listed/model', 'array/model'],
+      [null, 'not-an-entry', [], { id: 7 }, { id: 'array/model', top_provider: [] }]
+    );
+    expect(body).toEqual({
+      data: [
+        expect.objectContaining({ model_id: 'listed/model', supported_parameters: ['max_tokens'] }),
+        expect.objectContaining({ model_id: 'array/model', max_completion_tokens: null }),
+      ],
+    });
+  });
+
   it('fetches per-image-model pricing from the N+1 endpoints call', async () => {
     const fetch = catalogFetch({
       images: [imageModelFixture()],
@@ -160,7 +390,7 @@ describe('fetchGatewayCatalog', () => {
     const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
     const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
     expect(image.source).toBe('image');
-    expect(image.endpointPricing).toEqual([
+    expect(image.endpoints.flatMap((endpoint) => endpoint.pricing)).toEqual([
       { billable: 'output_image', unit: 'image', costUsd: '0.05' },
     ]);
     expect(image.supportedParameters).toEqual({
@@ -168,6 +398,71 @@ describe('fetchGatewayCatalog', () => {
       aspectRatio: ['1:1', '16:9'],
       maxN: 4,
     });
+  });
+
+  it('reads each image endpoint with its provider tag and its own pricing', async () => {
+    const fetch = catalogFetch({
+      images: [imageModelFixture()],
+      imageEndpoints: () => ({
+        id: 'google/test-image',
+        endpoints: [
+          {
+            provider_tag: 'google-vertex/global',
+            pricing: [{ billable: 'output_image', unit: 'image', cost_usd: '0.04' }],
+          },
+          {
+            provider_tag: 'google-ai-studio',
+            pricing: [{ billable: 'output_image', unit: 'image', cost_usd: '0.03' }],
+          },
+        ],
+      }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+
+    expect(image.endpoints).toEqual([
+      {
+        providerTag: 'google-vertex/global',
+        pricing: [{ billable: 'output_image', unit: 'image', costUsd: '0.04' }],
+      },
+      {
+        providerTag: 'google-ai-studio',
+        pricing: [{ billable: 'output_image', unit: 'image', costUsd: '0.03' }],
+      },
+    ]);
+  });
+
+  it('reads a null provider tag as an endpoint no routing field can target', async () => {
+    const fetch = catalogFetch({
+      images: [imageModelFixture()],
+      imageEndpoints: () => ({ id: 'google/test-image', endpoints: [{ provider_tag: null }] }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+
+    expect(image.endpoints).toEqual([{ providerTag: null, pricing: [] }]);
+  });
+
+  it('reads an empty provider tag as null, so it never joins an unreadable ZDR tag', async () => {
+    const fetch = catalogFetch({
+      images: [imageModelFixture()],
+      imageEndpoints: () => ({ id: 'google/test-image', endpoints: [{ provider_tag: '' }] }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+
+    expect(image.endpoints).toEqual([{ providerTag: null, pricing: [] }]);
+  });
+
+  it('reads an unreadable provider tag as null without failing the model', async () => {
+    const fetch = catalogFetch({
+      images: [imageModelFixture()],
+      imageEndpoints: () => ({ id: 'google/test-image', endpoints: [{ provider_tag: 7 }] }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+
+    expect(image.endpoints).toEqual([{ providerTag: null, pricing: [] }]);
   });
 
   it('extracts enum values, a range max, and tolerates other parameter types', async () => {
@@ -228,7 +523,7 @@ describe('fetchGatewayCatalog', () => {
     });
     const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
     const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
-    expect(image.endpointPricing).toEqual([
+    expect(image.endpoints.flatMap((endpoint) => endpoint.pricing)).toEqual([
       { billable: 'output_image', unit: 'token', costUsd: '0.00003' },
       { billable: 'input_image', unit: 'token', costUsd: '0.000001' },
     ]);
@@ -246,7 +541,7 @@ describe('fetchGatewayCatalog', () => {
     const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
     const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
 
-    expect(usdRateToNanoUsd(image.endpointPricing[0]?.costUsd ?? '')).toBeUndefined();
+    expect(usdRateToNanoUsd(image.endpoints[0]?.pricing[0]?.costUsd ?? '')).toBeUndefined();
   });
 
   it('renders a numeric rate below a microdollar at twelve decimals', async () => {
@@ -258,7 +553,7 @@ describe('fetchGatewayCatalog', () => {
     const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
     const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
 
-    expect(image.endpointPricing[0]?.costUsd).toBe('0.000000500000');
+    expect(image.endpoints[0]?.pricing[0]?.costUsd).toBe('0.000000500000');
   });
 
   it('renders a genuinely zero rate as a parseable zero', async () => {
@@ -270,7 +565,7 @@ describe('fetchGatewayCatalog', () => {
     const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
     const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
 
-    expect(image.endpointPricing[0]?.costUsd).toBe('0');
+    expect(image.endpoints[0]?.pricing[0]?.costUsd).toBe('0');
   });
 
   it('leaves billable undefined when a pricing row omits it', async () => {
@@ -280,7 +575,7 @@ describe('fetchGatewayCatalog', () => {
     });
     const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
     const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
-    expect(image.endpointPricing[0]?.billable).toBeUndefined();
+    expect(image.endpoints[0]?.pricing[0]?.billable).toBeUndefined();
   });
 
   it('carries the raw video SKU dict and derived params through', async () => {
@@ -324,7 +619,6 @@ describe('fetchGatewayCatalog', () => {
       outputModalities: [],
       supportedParameters: [],
       contextLength: undefined,
-      pricing: undefined,
       deprecated: false,
     });
   });
@@ -507,7 +801,7 @@ describe('fetchGatewayCatalog', () => {
     });
     const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
     const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
-    expect(image.endpointPricing).toEqual([]);
+    expect(image.endpoints.flatMap((endpoint) => endpoint.pricing)).toEqual([]);
   });
 
   it('defaults every absent image and video field to empty metadata', async () => {
@@ -966,8 +1260,10 @@ describe('fetchGatewayCatalog', () => {
     const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
 
     expect(detailIds).toEqual(['a/one', 'b/two']);
-    expect((byId(catalog.models, 'b/two') as ImageMetadata).endpointPricing).toEqual([
-      { billable: 'output_image', unit: 'image', costUsd: '0.04' },
-    ]);
+    expect(
+      (byId(catalog.models, 'b/two') as ImageMetadata).endpoints.flatMap(
+        (endpoint) => endpoint.pricing
+      )
+    ).toEqual([{ billable: 'output_image', unit: 'image', costUsd: '0.04' }]);
   });
 });

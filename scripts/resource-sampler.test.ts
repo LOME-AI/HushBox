@@ -26,6 +26,15 @@ import type { Socket } from 'node:net';
 import type { HeapProbeRound } from './lib/playwright/stall-windows.js';
 import type { ResourceScan } from './resource-scan.js';
 
+/** The kernel's own `statfs`, passed through, so a case can see the sampler reach for it. */
+const kernelStatfs = vi.hoisted(() => vi.fn<typeof import('node:fs/promises').statfs>());
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  kernelStatfs.mockImplementation(actual.statfs);
+  return { ...actual, statfs: kernelStatfs };
+});
+
 type Cpu = ReturnType<typeof os.cpus>[number];
 
 function cpu(idle: number, busy: number): Cpu {
@@ -60,6 +69,7 @@ function sampleAt(t: number, over: Partial<ResourceSample> = {}): ResourceSample
     btrfs: null,
     dState: null,
     ramRootBytes: null,
+    ramFilesystem: null,
     ...over,
   };
 }
@@ -182,6 +192,24 @@ describe('summarizeSamples', () => {
     );
 
     expect(s.ramRootPeakBytes).toBe(800);
+  });
+
+  it('takes the RAM filesystem’s peak use over the samples that measured it, with its size', () => {
+    const s = summarizeSamples(
+      [
+        sampleAt(0, { ramFilesystem: { usedBytes: 300, sizeBytes: 2048 } }),
+        sampleAt(1000, { ramFilesystem: null }),
+        sampleAt(2000, { ramFilesystem: { usedBytes: 1900, sizeBytes: 2048 } }),
+        sampleAt(3000, { ramFilesystem: { usedBytes: 700, sizeBytes: 2048 } }),
+      ],
+      4000
+    );
+
+    expect(s.ramFilesystemPeak).toEqual({ usedBytes: 1900, sizeBytes: 2048 });
+  });
+
+  it('states no RAM filesystem peak when no sample measured it', () => {
+    expect(summarizeSamples([sampleAt(0)], 1000)).not.toHaveProperty('ramFilesystemPeak');
   });
 
   it('states every Linux series not measured when no sample measured it', () => {
@@ -1625,9 +1653,151 @@ describe('createResourceSampler (the Linux kernel’s view)', () => {
     });
   });
 
+  describe('its RAM filesystem series', () => {
+    const RAM_ROOT = path.join(path.sep, 'ram', 'hushbox-e2e-fixture');
+    const BLOCK = 4096;
+
+    /** Readings that end only when the test ends them, one per call, in the order they began. */
+    function heldReadings(): {
+      statfs: NonNullable<ResourceSamplerOptions['statfs']>;
+      targets: string[];
+      finish: (blocks: number, bfree: number) => Promise<void>;
+      fail: () => Promise<void>;
+    } {
+      const targets: string[] = [];
+      const pending: PromiseWithResolvers<{ blocks: number; bfree: number; bsize: number }>[] = [];
+      return {
+        targets,
+        statfs: (target: string): Promise<{ blocks: number; bfree: number; bsize: number }> => {
+          targets.push(target);
+          const reading = Promise.withResolvers<{ blocks: number; bfree: number; bsize: number }>();
+          pending.push(reading);
+          return reading.promise;
+        },
+        finish: async (blocks: number, bfree: number): Promise<void> => {
+          const reading = pending.shift();
+          reading?.resolve({ blocks, bfree, bsize: BLOCK });
+          await reading?.promise;
+        },
+        fail: async (): Promise<void> => {
+          const reading = pending.shift();
+          reading?.reject(new Error('ENOENT: the root is not there yet'));
+          await reading?.promise.catch(() => undefined);
+        },
+      };
+    }
+
+    /** A Linux sampler whose root walks finish at once, so only the filesystem readings are held. */
+    function filesystemSampler(statfs?: ResourceSamplerOptions['statfs']): ResourceSampler {
+      return linuxSampler({
+        ramRoot: RAM_ROOT,
+        measureRamRoot: (): Promise<number> => Promise.resolve(0),
+        ...(statfs === undefined ? {} : { statfs }),
+      });
+    }
+
+    it('records the used blocks and the size of the filesystem holding the root', async () => {
+      const readings = heldReadings();
+      const sampler = filesystemSampler(readings.statfs);
+      sampler.start();
+      vi.advanceTimersByTime(1000);
+      await readings.finish(512, 128);
+
+      expect(readings.targets).toEqual([RAM_ROOT]);
+      expect(sampler.stop().samples[0]?.ramFilesystem).toEqual({
+        usedBytes: 384 * BLOCK,
+        sizeBytes: 512 * BLOCK,
+      });
+    });
+
+    it('starts no reading while the last one is still running', async () => {
+      const readings = heldReadings();
+      const sampler = filesystemSampler(readings.statfs);
+      sampler.start();
+      vi.advanceTimersByTime(2000);
+      await readings.finish(512, 256);
+
+      expect(readings.targets).toHaveLength(1);
+      expect(sampler.stop().samples.map((sample) => sample.ramFilesystem?.usedBytes)).toEqual([
+        256 * BLOCK,
+        undefined,
+      ]);
+    });
+
+    it('reads it while a walk of the root is still running', async () => {
+      const readings = heldReadings();
+      const sampler = linuxSampler({
+        ramRoot: RAM_ROOT,
+        measureRamRoot: (): Promise<number> => new Promise<number>(() => undefined),
+        statfs: readings.statfs,
+      });
+      sampler.start();
+      vi.advanceTimersByTime(1000);
+      await readings.finish(512, 256);
+      vi.advanceTimersByTime(1000);
+      await readings.finish(512, 128);
+
+      expect(sampler.stop().samples.map((sample) => sample.ramFilesystem?.usedBytes)).toEqual([
+        256 * BLOCK,
+        384 * BLOCK,
+      ]);
+    });
+
+    it('leaves a sample whose reading failed not measured', async () => {
+      const readings = heldReadings();
+      const sampler = filesystemSampler(readings.statfs);
+      sampler.start();
+      vi.advanceTimersByTime(1000);
+      await readings.fail();
+
+      expect(sampler.stop().samples[0]?.ramFilesystem).toBeNull();
+    });
+
+    it('leaves a sample not measured where the filesystem states no size', async () => {
+      const readings = heldReadings();
+      const sampler = filesystemSampler(readings.statfs);
+      sampler.start();
+      vi.advanceTimersByTime(1000);
+      await readings.finish(0, 0);
+
+      expect(sampler.stop().samples[0]?.ramFilesystem).toBeNull();
+    });
+
+    it('keeps no reading that lands after sampling stopped', async () => {
+      const readings = heldReadings();
+      const sampler = filesystemSampler(readings.statfs);
+      sampler.start();
+      vi.advanceTimersByTime(1000);
+      const { samples } = sampler.stop();
+      await readings.finish(512, 128);
+
+      expect(samples[0]?.ramFilesystem).toBeNull();
+    });
+
+    it('reads nothing where it is given no root', () => {
+      const readings = heldReadings();
+      const sampler = linuxSampler({ ramRoot: null, statfs: readings.statfs });
+      sampler.start();
+      vi.advanceTimersByTime(1000);
+
+      expect(readings.targets).toEqual([]);
+      expect(sampler.stop().samples[0]?.ramFilesystem).toBeNull();
+    });
+
+    it('reads the kernel’s statfs when given none', () => {
+      const sampler = filesystemSampler();
+      sampler.start();
+      vi.advanceTimersByTime(1000);
+      sampler.stop();
+
+      expect(kernelStatfs).toHaveBeenCalledWith(RAM_ROOT);
+    });
+  });
+
   it('measures none of the Linux series off Linux', () => {
     writeDiskstats([{ device: 'sda', busyMs: 0, queuedMs: 0 }]);
     let walks = 0;
+    let readings = 0;
     const sampler = createResourceSampler(1000, {
       openHeapProbe: () => null,
       oomLogPath: null,
@@ -1636,6 +1806,10 @@ describe('createResourceSampler (the Linux kernel’s view)', () => {
       measureRamRoot: (): Promise<number> => {
         walks += 1;
         return Promise.resolve(1);
+      },
+      statfs: (): Promise<{ blocks: number; bfree: number; bsize: number }> => {
+        readings += 1;
+        return Promise.resolve({ blocks: 1, bfree: 0, bsize: 1 });
       },
     });
     sampler.start();
@@ -1647,8 +1821,10 @@ describe('createResourceSampler (the Linux kernel’s view)', () => {
       btrfs: null,
       dState: null,
       ramRootBytes: null,
+      ramFilesystem: null,
     });
     expect(walks).toBe(0);
+    expect(readings).toBe(0);
   });
 
   it('reads this machine’s own kernel when given no host', () => {

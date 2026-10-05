@@ -5,6 +5,7 @@ import { ResultAsync, err, ok, okAsync } from '../../../../lib/result/index.js';
 import { readLatestDescriptorRows, upsertCatalog } from './store.js';
 import { fetchGatewayCatalog } from './gateway-metadata.js';
 import { normalizeCatalog } from './normalize.js';
+import { ENDPOINT_BUCKETS, emptyEndpointBuckets, endpointBucketCounts } from './price-schedule.js';
 import { auditCatalogHealth } from './list-models.js';
 import type { Database } from '@hushbox/db';
 import type { ExcludeReason } from '@hushbox/shared';
@@ -14,6 +15,7 @@ import type { Telemetry } from '../../../../lib/telemetry/index.js';
 import type { GatewayCatalog } from './gateway-metadata.js';
 import type { StoredDescriptorRow } from './store.js';
 import type { CatalogEntry } from './normalize.js';
+import type { EndpointBucket } from './price-schedule.js';
 import type { Result } from '../../../../lib/result/index.js';
 
 /**
@@ -83,10 +85,13 @@ export interface RefreshSummary extends PriorCatalogState {
    * nowhere else once the refresh returns.
    */
   readonly excludedReasonById: ReadonlyMap<string, ExcludeReason>;
+  /** Every listed language model's ZDR endpoints, counted by where each landed
+   * (see `price-schedule.ts`); a model's buckets sum to its ZDR endpoint count. */
+  readonly endpointsByBucket: Record<EndpointBucket, number>;
 }
 
 /** The dispositions {@link persistCatalog} counts from its own writes. */
-type RefreshCounts = Omit<RefreshSummary, keyof PriorCatalogState>;
+type RefreshCounts = Omit<RefreshSummary, keyof PriorCatalogState | 'endpointsByBucket'>;
 
 /** A fresh per-reason counter with every {@link ExcludeReason} initialized to 0. */
 function emptyExcludedByReason(): Record<ExcludeReason, number> {
@@ -129,7 +134,8 @@ function shouldSkipWrite(
 
 /** A fail-closed exclusion (unclassifiable modality, unknown pricing unit,
  * missing release date, a media row that describes no aspect-ratio domain, a
- * language row whose stated token limit is not a whole positive count) is an
+ * language row whose stated token limit is not a whole positive count, a
+ * standard-tier endpoint price the token schedule cannot bound) is an
  * EXPECTED catalog-exclusion condition — a model
  * "excluded with an alert" — so it is a structured `warn` on the telemetry
  * port (allowlisted fields, not retained in production), never a Sentry page
@@ -145,6 +151,16 @@ function shouldSkipWrite(
  * are only counted. The log messages are compile-time literals (SafeLogFields rule):
  * the model id is a field. */
 function alertExcluded(telemetry: Telemetry, modelId: string, reason: ExcludeReason): void {
+  if (reason === 'unrepresentable-endpoint-price') {
+    telemetry.warn(
+      'gateway model has a standard-tier endpoint price the schedule cannot bound — model excluded',
+      {
+        modelName: modelId,
+        errorCode: 'model_endpoint_price_unrepresentable',
+      }
+    );
+    return;
+  }
   if (reason === 'unknown-pricing-unit') {
     telemetry.warn('gateway model has an unknown pricing unit — model excluded', {
       modelName: modelId,
@@ -352,6 +368,46 @@ export function alertMassExclusion(telemetry: Telemetry, summary: RefreshSummary
   }
 }
 
+/**
+ * The watcher on the `max_price` band: one Sentry capture when any text model
+ * has a standard-tier endpoint priced above its base ceiling that its short calls'
+ * `max_price` still admits, and one warn per such model naming it. Raised after
+ * the writes, like {@link alertMassExclusion}: the band is reported, never
+ * blocked.
+ */
+export function alertPriceBandOpen(telemetry: Telemetry, entries: readonly CatalogEntry[]): void {
+  const open = entries.filter(
+    (entry) => entry.kind === 'normalized' && (entry.bandOpenEndpoints ?? 0) > 0
+  );
+  if (open.length === 0) return;
+  for (const entry of open) {
+    telemetry.warn('standard-tier endpoint above the base ceiling within max_price', {
+      modelName: entry.modelId,
+      errorCode: FINGERPRINT_CODES.maxPriceBandOpen,
+    });
+  }
+  telemetry.captureError(
+    new Error(
+      'catalog refresh found standard-tier endpoints above the base ceiling within max_price'
+    ),
+    FINGERPRINT_CODES.maxPriceBandOpen
+  );
+}
+
+/** Every listed language model's ZDR endpoints by bucket, each model counted once. */
+function countEndpointBuckets(catalog: GatewayCatalog): Record<EndpointBucket, number> {
+  const totals = emptyEndpointBuckets();
+  const counted = new Set<string>();
+  for (const model of catalog.models) {
+    const endpoints = catalog.zdrEndpoints.get(model.id);
+    if (model.source !== 'language' || endpoints === undefined || counted.has(model.id)) continue;
+    counted.add(model.id);
+    const counts = endpointBucketCounts(endpoints, model.supportedParameters);
+    for (const bucket of ENDPOINT_BUCKETS) totals[bucket] += counts[bucket];
+  }
+  return totals;
+}
+
 type ModelDisposition = 'written' | 'unchanged' | 'excluded';
 
 /**
@@ -484,7 +540,7 @@ export function refreshCatalog(deps: RefreshCatalogDeps): ResultAsync<RefreshSum
     .andThen((catalog) => {
       alertWalkCutoffs(deps.telemetry, catalog);
       alertUnreadableDetail(deps.telemetry, catalog);
-      const entries = normalizeCatalog(catalog.models, catalog.zdrModelIds, deps.now().getTime());
+      const entries = normalizeCatalog(catalog.models, catalog.zdrEndpoints, deps.now().getTime());
       // Rank is carried only on language models (the sorted `/models` set) and
       // rides the column, not the descriptor — collect it here for persistence.
       const rankByModelId = new Map<string, number>();
@@ -502,7 +558,8 @@ export function refreshCatalog(deps: RefreshCatalogDeps): ResultAsync<RefreshSum
             // reporting on the read instead emitted the same error once per
             // visitor. Best-effort telemetry about the refresh, never part of it.
             await auditCatalogHealth(deps, deps.now().getTime());
-            return { ...counts, ...prior };
+            alertPriceBandOpen(deps.telemetry, entries);
+            return { ...counts, ...prior, endpointsByBucket: countEndpointBuckets(catalog) };
           }
         );
       });

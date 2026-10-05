@@ -207,6 +207,7 @@ interface ConversationBody {
   conversation: { id: string; title: string; currentEpoch: number };
   membership: Record<string, unknown>;
   forks?: { id: string; name: string; tipMessageId: string | null }[];
+  memberCount?: number;
 }
 
 interface ListBody {
@@ -506,6 +507,27 @@ describe('conversations routes: get', () => {
     });
     // A fresh, unforked conversation reports an empty branch set.
     expect(body.forks).toEqual([]);
+  });
+
+  it('counts the owner alone in a solo conversation', async () => {
+    const owner = await newUser();
+    const id = await createConversation(owner);
+    const res = await get(`/conversations/${id}`, owner.cookie);
+    const body: ConversationBody = await res.json();
+    expect(body.memberCount).toBe(1);
+  });
+
+  it('counts every member of a group, as the list does', async () => {
+    const owner = await newUser();
+    const member = await newUser();
+    const id = await createConversation(owner);
+    await addFullHistory(owner, id, member);
+    const detail = await get(`/conversations/${id}`, member.cookie);
+    const listed = await get('/conversations', member.cookie);
+    const body: ConversationBody = await detail.json();
+    const list: ListBody = await listed.json();
+    expect(body.memberCount).toBe(2);
+    expect(list.conversations.find((c) => c.id === id)?.memberCount).toBe(2);
   });
 
   it('hides an existing conversation from a non-member', async () => {
@@ -5068,6 +5090,17 @@ describe('conversations routes: link-guest reads', () => {
     const myName = await guestGet(`/conversations/${conv}/my-name`, guestKey);
     expect(myName.status).toBe(200);
     expect(await myName.json()).toEqual({ displayName: null, privilege: 'read' });
+  });
+
+  it("gives a guest's conversation read the count that seats it beside the owner", async () => {
+    const owner = await newUser();
+    const conv = await createConversation(owner);
+    const { guestKey } = await seatGuest(owner, conv);
+
+    const res = await guestGet(`/conversations/${conv}`, guestKey);
+    const body: ConversationBody = await res.json();
+
+    expect(body.memberCount).toBe(2);
   });
 
   it("returns the guest's link display name from my-name", async () => {

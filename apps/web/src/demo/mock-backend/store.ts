@@ -15,7 +15,8 @@ import {
   serializeNanoUSD,
   utcDayKey,
 } from '@hushbox/shared';
-import { HOUR_MS, MINUTE_MS } from '@hushbox/shared/durations';
+import { SECOND_MS } from '@hushbox/shared/durations';
+import { localDayStart } from '@/lib/chat/conversation-groups';
 import {
   beginMessage,
   buildKeyChain,
@@ -52,14 +53,6 @@ import type {
 } from '@hushbox/shared';
 
 const DEMO_EPOCH_NUMBER = 1;
-/**
- * Fixed base so timestamps are deterministic (never `Date.now()`). A calendar day
- * plus an offset rather than a written clock: a literal time of day is
- * indistinguishable from a recorded one, so none is committed.
- */
-const DEMO_BASE_MS = Date.UTC(2026, 5, 1) + 12 * HOUR_MS;
-/** The allowance period key for the demo's frozen UTC day. */
-const DEMO_DAY = utcDayKey(new Date(DEMO_BASE_MS));
 /** The real free-tier daily allowance, serialized the way the wire carries it. */
 const DEMO_ALLOWANCE_NANO_USD = serializeNanoUSD(freeDailyAllowanceNanoUsd());
 /** Every budget figure the demo publishes: it delegates no allowance to anyone. */
@@ -168,16 +161,25 @@ interface BuiltConversation {
   cursor: number;
 }
 
-function isoAt(offsetMinutes: number): string {
-  return new Date(DEMO_BASE_MS + offsetMinutes * 60_000).toISOString();
+/**
+ * A seeded conversation's stamp: one second per place in the script before the
+ * visit, held at the visit's local midnight, so every seeded chat sits under
+ * Today and ranks by recency in the script's order.
+ */
+function seededCreatedAt(visit: Date, index: number): string {
+  return new Date(
+    Math.max(localDayStart(visit, 0), visit.getTime() - index * SECOND_MS)
+  ).toISOString();
 }
 
 /**
- * A message's creation instant: its conversation's plus one minute per sequence
- * step, so no message predates its conversation and dates follow sequence order.
+ * A message's creation instant: its conversation's plus one millisecond per
+ * sequence step, so no message predates its conversation and dates follow
+ * sequence order. A replay stays on the visit day unless the visit falls fewer
+ * milliseconds before local midnight than its transcript has messages.
  */
 function messageCreatedAt(conversationCreatedAt: string, sequenceNumber: number): string {
-  return new Date(Date.parse(conversationCreatedAt) + sequenceNumber * MINUTE_MS).toISOString();
+  return new Date(Date.parse(conversationCreatedAt) + sequenceNumber).toISOString();
 }
 
 /**
@@ -197,17 +199,19 @@ const DEMO_MEMBERSHIP: GetConversationResponse['membership'] = {
   linkId: null,
 };
 
-/** The lone member of a solo (non-group) conversation: the demo user. */
-const SOLO_MEMBER: DemoMember = {
-  id: 'demo-member-self',
-  userId: DEMO_USER.id,
-  linkId: null,
-  username: DEMO_USER.username,
-  privilege: 'owner',
-  visibleFromEpoch: 1,
-  joinedAt: isoAt(0),
-  accepted: true,
-};
+/** The lone member of a solo (non-group) conversation: the demo user, joining as it is created. */
+function soloMember(joinedAt: string): DemoMember {
+  return {
+    id: 'demo-member-self',
+    userId: DEMO_USER.id,
+    linkId: null,
+    username: DEMO_USER.username,
+    privilege: 'owner',
+    visibleFromEpoch: 1,
+    joinedAt,
+    accepted: true,
+  };
+}
 
 /** The concatenated text of a message's text content (media items contribute nothing). */
 function textOf(content: readonly DemoContent[]): string {
@@ -238,7 +242,7 @@ function regenerateModelId(models: string[] | undefined, original: MessageRespon
   return models?.[0] ?? original.contentItems[0]?.modelName ?? 'demo-model';
 }
 
-function toWireMember(participant: DemoParticipant): DemoMember {
+function toWireMember(participant: DemoParticipant, joinedAt: string): DemoMember {
   return {
     id: `demo-member-${participant.userId}`,
     userId: participant.userId,
@@ -246,7 +250,7 @@ function toWireMember(participant: DemoParticipant): DemoMember {
     username: participant.username,
     privilege: participant.privilege,
     visibleFromEpoch: 1,
-    joinedAt: isoAt(0),
+    joinedAt,
     accepted: true,
   };
 }
@@ -266,7 +270,18 @@ export class DemoBackendStore {
    */
   private readonly assistantContent = new Map<string, readonly DemoContent[]>();
 
-  constructor(private readonly accountPublicKey: Uint8Array) {
+  /** The visit's first instant: the seeded stamps, the allowance day and media expiry follow it. */
+  private readonly visit: Date;
+
+  /**
+   * `now` is the visitor's clock, read once here for the visit, and again only
+   * to stamp a chat the visitor creates.
+   */
+  constructor(
+    private readonly accountPublicKey: Uint8Array,
+    private readonly now: () => Date = () => new Date()
+  ) {
+    this.visit = now();
     for (const [index, conversation] of DEMO_CONVERSATIONS.entries()) {
       this.built.set(conversation.id, this.buildConversation(conversation, index));
       this.order.push(conversation.id);
@@ -341,12 +356,12 @@ export class DemoBackendStore {
 
   getBalance(): DemoBalance {
     // Large purchased balance → demo user reads as a paid tier, so every
-    // model is selectable. Allowance is untouched on the demo's frozen day.
+    // model is selectable. Allowance is untouched on the visit's UTC day.
     return {
       purchased: { balanceNanoUsd: '100000000000' },
       free: { balanceNanoUsd: '0' },
       allowance: {
-        day: DEMO_DAY,
+        day: utcDayKey(this.visit),
         limitNanoUsd: DEMO_ALLOWANCE_NANO_USD,
         spentNanoUsd: '0',
         remainingNanoUsd: DEMO_ALLOWANCE_NANO_USD,
@@ -406,7 +421,7 @@ export class DemoBackendStore {
   getMembers(id: string): { members: DemoMember[] } {
     // Solo conversations report a single member (the demo user) so no group
     // websocket opens; group conversations report their full roster.
-    return { members: this.built.get(id)?.members ?? [SOLO_MEMBER] };
+    return { members: this.built.get(id)?.members ?? [soloMember(this.visit.toISOString())] };
   }
 
   getLinks(_id: string): { links: [] } {
@@ -425,7 +440,9 @@ export class DemoBackendStore {
     if (!this.media.has(contentItemId)) return undefined;
     return {
       downloadUrl: `/media/${contentItemId}/blob`,
-      expiresAt: isoAt(MEDIA_DOWNLOAD_URL_TTL_SECONDS / 60),
+      expiresAt: new Date(
+        this.visit.getTime() + MEDIA_DOWNLOAD_URL_TTL_SECONDS * SECOND_MS
+      ).toISOString(),
     };
   }
 
@@ -763,7 +780,7 @@ export class DemoBackendStore {
       confirmationHash: fromBase64(request.confirmationHash),
       memberWrap: fromBase64(request.memberWrap),
     };
-    const now = new Date(DEMO_BASE_MS + 5000 * 60_000).toISOString();
+    const now = this.now().toISOString();
     const conversation: ConversationResponse = {
       id: request.id,
       title: request.title ?? '',
@@ -773,7 +790,7 @@ export class DemoBackendStore {
       createdAt: now,
       updatedAt: now,
     };
-    const members = [SOLO_MEMBER];
+    const members = [soloMember(now)];
     const listItem: ConversationListItem = {
       ...conversation,
       accepted: true,
@@ -788,6 +805,7 @@ export class DemoBackendStore {
       conversation,
       membership: DEMO_MEMBERSHIP,
       forks: [],
+      memberCount: members.length,
     };
     this.built.set(request.id, {
       epoch,
@@ -866,7 +884,7 @@ export class DemoBackendStore {
 
   private buildConversation(conversation: DemoConversation, index: number): BuiltConversation {
     const epoch = createDemoEpoch(this.accountPublicKey, conversation.id, DEMO_EPOCH_NUMBER);
-    const createdAt = isoAt(index * 60);
+    const createdAt = seededCreatedAt(this.visit, index);
     const conversationEntity: ConversationResponse = {
       id: conversation.id,
       title: encryptForEpoch(epoch, conversation.title),
@@ -882,8 +900,8 @@ export class DemoBackendStore {
     const messages: MessageResponse[] = [];
 
     const members = conversation.members
-      ? conversation.members.map((participant) => toWireMember(participant))
-      : [SOLO_MEMBER];
+      ? conversation.members.map((participant) => toWireMember(participant, createdAt))
+      : [soloMember(createdAt)];
     const listItem: ConversationListItem = {
       ...conversationEntity,
       accepted: true,
@@ -899,6 +917,7 @@ export class DemoBackendStore {
       conversation: conversationEntity,
       membership: DEMO_MEMBERSHIP,
       forks: [],
+      memberCount: members.length,
     };
 
     return {

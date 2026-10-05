@@ -14,8 +14,9 @@ import {
   type VariableConfig,
 } from '../packages/shared/src/env/env.config.js';
 import { CI_SECRETS } from '../packages/shared/src/env/ci-secrets.js';
+import { nativeBakedEntries } from '../packages/shared/src/env/client-shippable.js';
 import {
-  runbookPath,
+  githubEnvironmentOf,
   type Credential,
   type SecretStore,
 } from '../packages/shared/src/env/env-types.js';
@@ -42,6 +43,9 @@ import { applyStackDatabase } from './lib/stack/stack-database.js';
 import { SURFACE_ORIGINS } from './lib/deployed-surfaces.js';
 import { generateE2eMatrix, generateE2eRunSet } from './lib/playwright/e2e-workflow-sections.js';
 import { GITLEAKS_VERSION } from './lib/privacy/gitleaks.js';
+import { inventoryTable, isEscrowed } from './lib/secrets-inventory.js';
+import { BUILD_VARIANT_OVERRIDES, type BuildVariant } from './lib/bundling/build-variants.js';
+import { sweepBindings } from './lib/artifact-sweep/registry-values.js';
 import { isMainModule } from './lib/cli/is-main.js';
 import { parseCommandLine, readCommandLine, type CommandSpec } from './lib/cli/command-line.js';
 
@@ -121,55 +125,19 @@ const LEGAL_DATE_WORKFLOW_INPUTS: Record<string, string> = {
   VITE_TERMS_OF_SERVICE_EFFECTIVE_DATE: '${{ inputs.terms-of-service-effective-date }}',
 };
 
-/**
- * Build variants for release workflows.
- * Each variant overrides specific frontend env vars in the generated build-env section.
- * Keys not in the overrides map use the default envConfig production values.
- */
-const BUILD_VARIANTS: Record<string, { owners: SectionOwners; overrides: Record<string, string> }> =
-  {
-    'build-env': {
-      owners: [CI_WORKFLOW],
-      overrides: { VITE_APP_VERSION: VERSION_JOB_OUTPUT, ...LEGAL_DATE_JOB_OUTPUTS },
-    },
-    // Per-platform OTA bundles built in one CI step; the shell loop supplies
-    // VITE_PLATFORM per iteration, overriding this block's base value.
-    'build-env-mobile': {
-      owners: [CI_WORKFLOW],
-      overrides: { VITE_APP_VERSION: VERSION_JOB_OUTPUT, ...LEGAL_DATE_JOB_OUTPUTS },
-    },
-    // Each native job builds its own bundle: the platform flag is compiled into
-    // the JavaScript, so a bundle built elsewhere carries that build's platform
-    // into this one's artifact with no other symptom.
-    'build-env-ios': {
-      owners: [IOS_WORKFLOW],
-      overrides: {
-        VITE_PLATFORM: 'ios',
-        VITE_APP_VERSION: '${{ inputs.version }}',
-        ...LEGAL_DATE_WORKFLOW_INPUTS,
-      },
-    },
-    'build-env-android': {
-      owners: [ANDROID_WORKFLOW],
-      overrides: {
-        VITE_PLATFORM: '${{ inputs.vite-platform }}',
-        VITE_APP_VERSION: '${{ inputs.version }}',
-        ...LEGAL_DATE_WORKFLOW_INPUTS,
-      },
-    },
-  };
+/** A generated variant block: where it renders, and the keys it binds over the registry. */
+interface VariantBlock {
+  readonly owners: SectionOwners;
+  readonly overrides: Readonly<Record<string, string>>;
+}
 
 /**
- * Per-platform variants of the production environment block, declared the way
- * the build variants above are. Each native workflow is a single job that takes
- * the version as a workflow input, so the version-job expression the pipeline's
- * own block binds resolves to nothing there and the step exits naming the
- * version as a missing required value.
+ * Per-platform variants of the production environment block. Each native
+ * workflow is a single job that takes the version as a workflow input, so the
+ * version-job expression the pipeline's own block binds resolves to nothing
+ * there and the step exits naming the version as a missing required value.
  */
-const PRODUCTION_ENV_VARIANTS: Record<
-  string,
-  { owners: SectionOwners; overrides: Record<string, string> }
-> = {
+const PRODUCTION_ENV_VARIANTS = {
   'production-env': {
     owners: [CI_WORKFLOW],
     overrides: { VITE_APP_VERSION: VERSION_JOB_OUTPUT, ...LEGAL_DATE_JOB_OUTPUTS },
@@ -182,6 +150,37 @@ const PRODUCTION_ENV_VARIANTS: Record<
     owners: [ANDROID_WORKFLOW],
     overrides: { VITE_APP_VERSION: '${{ inputs.version }}', ...LEGAL_DATE_WORKFLOW_INPUTS },
   },
+} satisfies Record<string, VariantBlock>;
+
+/**
+ * One build variant's block: the overrides of the production environment
+ * variant of its own job, then its own. A variant binds the version and the
+ * legal dates exactly as that block does, so the file the job generates and the
+ * bundle it builds carry one answer for each.
+ */
+function buildVariant(
+  variant: BuildVariant,
+  owners: SectionOwners,
+  production: keyof typeof PRODUCTION_ENV_VARIANTS
+): VariantBlock {
+  return {
+    owners,
+    overrides: {
+      ...PRODUCTION_ENV_VARIANTS[production].overrides,
+      ...BUILD_VARIANT_OVERRIDES[variant],
+    },
+  };
+}
+
+const BUILD_VARIANTS: Record<BuildVariant, VariantBlock> = {
+  'build-env': buildVariant('build-env', [CI_WORKFLOW], 'production-env'),
+  'build-env-mobile': buildVariant('build-env-mobile', [CI_WORKFLOW], 'production-env'),
+  'build-env-ios': buildVariant('build-env-ios', [IOS_WORKFLOW], 'production-env-ios'),
+  'build-env-android': buildVariant(
+    'build-env-android',
+    [ANDROID_WORKFLOW],
+    'production-env-android'
+  ),
 };
 
 /**
@@ -984,41 +983,48 @@ function generateVerifySecrets(): string {
 }
 
 /**
- * Generate the decode-google-services section (base64 decode command for workflow).
+ * Generate the decode-google-services section: the step writing the Firebase
+ * Android configuration into the Android project, for the one entry the
+ * registry routes into the native build. The step writes one file, so a
+ * second such entry is refused rather than decoded over the first.
  */
-function generateGoogleServicesDecode(): string {
-  const config = envConfig.GOOGLE_SERVICES_JSON_BASE64;
-  const raw = resolveRaw(config as VariableConfig, Mode.Production);
+export function generateGoogleServicesDecode(
+  registry: Readonly<Record<string, VariableConfig>> = envConfig
+): string {
+  const entries = [...nativeBakedEntries(registry)];
+  const [entry] = entries;
+  if (entries.length !== 1 || entry === undefined) {
+    throw new Error(
+      'the native build decodes exactly one entry into google-services.json; the registry routes ' +
+        entries.map(([key]) => key).join(', ')
+    );
+  }
+  const [key, config] = entry;
+  const raw = resolveRaw(config, Mode.Production);
   /* istanbul ignore next -- @preserve defensive check */
   if (!raw || !isSecret(raw)) return '';
 
   const lines = [
-    `run: echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > apps/web/android/app/google-services.json`,
+    `run: echo "$${key}" | base64 -d > apps/web/android/app/google-services.json`,
     `env:`,
-    `  GOOGLE_SERVICES_JSON_BASE64: \${{ secrets.${raw.name} }}`,
+    `  ${key}: \${{ secrets.${raw.name} }}`,
   ];
   return lines.join('\n') + '\n';
 }
 
-const INVENTORY_COLUMNS = [
-  'Name',
-  'Family',
-  'Store',
-  'Description',
-  'Replace',
-  'On loss',
-  'Escrowed',
-  'User-visible',
-  'Coupled with',
-  'Leak impact',
-] as const;
-
-type InventoryColumn = (typeof INVENTORY_COLUMNS)[number];
-type InventoryRow = Readonly<Record<InventoryColumn, string>>;
-
-/** Prose in a table cell: a bare pipe would end the cell. */
-function tableCell(text: string): string {
-  return text.replaceAll('|', String.raw`\|`);
+/**
+ * Generate the artifact-sweep-env section: every secret a job publishing a
+ * client artifact can read — the registry's production secrets, the CI
+ * credentials, and the identifiers declared as shipping — bound under the name
+ * the sweep reads it by. Bare mapping entries, for the reason
+ * {@link generateDeploySecretsEnv} carries.
+ */
+function generateArtifactSweepEnv(): string {
+  return (
+    sweepBindings()
+      .bound.map(({ key, secretName }) => secretBinding(key, secretName))
+      .join('\n') + '\n'
+  );
 }
 
 /**
@@ -1037,16 +1043,6 @@ function credentialDeclarations(): (readonly [string, Credential])[] {
 }
 
 /**
- * Whether the escrow captures this credential. The loss class is the stance and
- * the only field that decides it: a second `backup` field would equal the loss
- * class for every credential, and two fields that must agree are the sync
- * contract `docs/CODE-RULES.md` bans.
- */
-function isEscrowed(credential: Credential): boolean {
-  return credential.onLoss === 'restoreFromCopy';
-}
-
-/**
  * The escrow job that captures one declaration, named by the environment that
  * job declares. A job declaring an environment reads that environment's secrets
  * and the repository's alike, so a repository-scoped declaration is within
@@ -1057,8 +1053,8 @@ function isEscrowed(credential: Credential): boolean {
  * here, rather than generated into a block no workflow carries.
  */
 export function escrowEnvironmentOf(name: string, store: SecretStore): string {
-  const environment = store.startsWith('github:') ? store.slice('github:'.length) : '';
-  if (environment === '') {
+  const environment = githubEnvironmentOf(store);
+  if (environment === undefined) {
     throw new Error(
       `${name} says a copy of it is escrowed, but no GitHub secret holds it — its store is ` +
         `${store} — so no escrow job can bind it. Store it on GitHub, or give it another ` +
@@ -1126,51 +1122,6 @@ export function escrowedSecretNames(): string[] {
   return escrowedSecretKeys().map((key) => productionSecretName(key));
 }
 
-/** One inventory row; the family links to its runbook relative to the document. */
-function inventoryRow([name, credential]: readonly [string, Credential]): InventoryRow {
-  const runbook = path.posix.relative(
-    path.posix.dirname(SECRETS_DOC),
-    runbookPath(credential.family)
-  );
-  return {
-    Name: `\`${name}\``,
-    Family: `[${credential.family}](${runbook})`,
-    Store: credential.store,
-    Description: tableCell(credential.description),
-    Replace: credential.replace,
-    'On loss': credential.onLoss,
-    Escrowed: isEscrowed(credential) ? 'yes' : '',
-    'User-visible': tableCell(credential.userVisible),
-    'Coupled with': (credential.coupledWith ?? []).map((other) => `\`${other}\``).join(', '),
-    'Leak impact': credential.leakImpact,
-  };
-}
-
-/**
- * A Markdown table in the shape Prettier prints, so the block is formatted as
- * written: every cell padded to its column's widest entry, three at least, and
- * the rule row filled to that width. Widths are code-unit lengths, which are
- * Prettier's display widths while every cell is ASCII.
- */
-function markdownTable(rows: readonly InventoryRow[]): string {
-  const widths = Object.fromEntries(
-    INVENTORY_COLUMNS.map((column) => [
-      column,
-      Math.max(3, column.length, ...rows.map((row) => row[column].length)),
-    ])
-  ) as Record<InventoryColumn, number>;
-  const line = (cell: (column: InventoryColumn) => string): string =>
-    `| ${INVENTORY_COLUMNS.map((column) => cell(column).padEnd(widths[column])).join(' | ')} |`;
-
-  return (
-    [
-      line((column) => column),
-      line((column) => '-'.repeat(widths[column])),
-      ...rows.map((row) => line((column) => row[column])),
-    ].join('\n') + '\n'
-  );
-}
-
 /**
  * The secrets document's inventory block. A blank line on each side of the
  * table, because Prettier separates a table from the HTML comment beside it
@@ -1179,7 +1130,7 @@ function markdownTable(rows: readonly InventoryRow[]): string {
 export function generateSecretsInventory(
   declarations: readonly (readonly [string, Credential])[] = credentialDeclarations()
 ): string {
-  return `\n${markdownTable(declarations.map((declaration) => inventoryRow(declaration)))}\n`;
+  return `\n${inventoryTable(declarations, SECRETS_DOC)}\n`;
 }
 
 /** One env mapping entry: the name a step reads on the left, the secret on the right. */
@@ -1298,6 +1249,10 @@ export function workflowSections(): Record<string, GeneratedSection> {
     'decode-google-services': {
       owners: [ANDROID_WORKFLOW],
       content: generateGoogleServicesDecode(),
+    },
+    'artifact-sweep-env': {
+      owners: [CI_WORKFLOW, ANDROID_WORKFLOW, IOS_WORKFLOW],
+      content: generateArtifactSweepEnv(),
     },
     // .gitleaks.toml's allowlist rests on version-specific merge semantics, so
     // the engine CI installs must be the engine the local hook installs. The

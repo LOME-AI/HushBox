@@ -16,8 +16,8 @@ export { blobCacheKeys } from '@/lib/query-keys/blob-cache-keys';
  * wrapped content key, and this item's full `ContentLocation` tuple — all three
  * feed `decryptContentEnvelope`, whose AAD binds the location and the wrap so a
  * blob relocated to any other item/position/sender fails to decrypt instead of
- * yielding spliced bytes. Every reader uses it: the authenticated chat, the
- * share dialog preview, and the public share page.
+ * yielding spliced bytes. Every page that draws a message's media decrypts it
+ * through this.
  */
 export interface MediaEnvelopeDecryptor {
   contentKey: ContentKey;

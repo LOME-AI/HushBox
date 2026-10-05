@@ -3,7 +3,11 @@ import { ERROR_CODES, applyMarkup } from '@hushbox/shared';
 import { TEST_DAY_START } from '@hushbox/shared/test-time';
 import { conflictError, domainWireCode } from '../../../../lib/errors/index.js';
 import { runSettlement } from '../../../../lib/idempotency/index.js';
-import { AbsorbedSettlementRefusal, SettlementConflictError } from './failures.js';
+import {
+  AbsorbedSettlementRefusal,
+  BilledSettlementRefusal,
+  SettlementConflictError,
+} from './failures.js';
 import {
   SettlementCompletionError,
   SettlementFenceLost,
@@ -13,7 +17,7 @@ import {
   createRefusalChargingCommit,
   keyRowCompletion,
 } from './settlement.js';
-import type { SettlementCharge, SettlementRequest } from '@hushbox/shared';
+import type { SettlementCharge, SettlementReceipt, SettlementRequest } from '@hushbox/shared';
 import type { Database } from '@hushbox/db';
 import type { KeyRowFence, SettlementTx } from '../../../../lib/idempotency/index.js';
 import type {
@@ -224,7 +228,7 @@ function settle(
   fence: KeyRowFence,
   charges: readonly SettlementCharge[],
   commit: SettlementCommit
-): Promise<void> {
+): Promise<SettlementReceipt> {
   return createFencedSettlementHook({
     db: makeDb(world),
     fence,
@@ -679,6 +683,27 @@ describe('createChargingCommit — token/media dimension forwarding', () => {
 });
 
 describe('createFencedSettlementHook — the settlement plumbing', () => {
+  it('resolves a receipt of the charges the commit posted (modeled world)', async () => {
+    const charge = settlementCharge('answer', { storageFeeNanoUsd: 7n });
+
+    const receipt = await settle(makeWorld(), FENCE_A, [charge], commitFor());
+
+    expect(receipt).toEqual({ billed: [charge] });
+  });
+
+  it('leaves out of the receipt a charge the commit skipped (modeled world)', async () => {
+    const persisted = new Map<string, string>([['other', 'c-other']]);
+
+    const receipt = await settle(
+      makeWorld(),
+      FENCE_A,
+      [settlementCharge('answer')],
+      commitFor([], chargeContext({ contentItemIdFor: (key) => persisted.get(key) }))
+    );
+
+    expect(receipt).toEqual({ billed: [] });
+  });
+
   it('settles once via chargeWithinTx: zero-sum ledger, wallet debited, key flipped (modeled world)', async () => {
     const world = makeWorld();
     const captured: UsageRecordInput[] = [];
@@ -703,7 +728,7 @@ describe('createFencedSettlementHook — the settlement plumbing', () => {
   it('charges exactly once when the same settlement replays (modeled world)', async () => {
     const world = makeWorld();
     const commit = commitFor();
-    const settleOnce = (): Promise<void> =>
+    const settleOnce = (): Promise<SettlementReceipt> =>
       settle(world, FENCE_A, [settlementCharge('answer')], commit);
     await settleOnce();
     await expect(settleOnce()).rejects.toBeInstanceOf(SettlementFenceLost);
@@ -796,7 +821,7 @@ function settleWithRefusal(
   world: World,
   fence: KeyRowFence,
   settlement: RefusableSettlement
-): Promise<void> {
+): Promise<SettlementReceipt> {
   return createFencedSettlementHook({
     db: makeDb(world),
     fence,
@@ -819,7 +844,11 @@ describe('createFencedSettlementHook: a refused commit bills the run and rethrow
           context: refusalContext(),
         }),
       })
-    ).rejects.toBe(thrown);
+    ).rejects.toMatchObject({
+      name: 'BilledSettlementRefusal',
+      domainError: thrown.domainError,
+      message: thrown.message,
+    });
     // The refused commit's content rolled back with its savepoint...
     expect(world.content).toEqual([]);
     // ...while the refusal bill and the flip committed together.
@@ -828,6 +857,23 @@ describe('createFencedSettlementHook: a refused commit bills the run and rethrow
     expect(txnSums(world.legs)).toEqual([0n]);
     expect(world.wallet.balanceNanoUsd).toBe(1000n - applyMarkup(100n));
     expect(world.keyRow.status).toBe('succeeded');
+  });
+
+  it('rethrows a billed refusal carrying the charges it posted, each at no storage fee (modeled world)', async () => {
+    const charge = settlementCharge('answer', { storageFeeNanoUsd: 7n });
+    const settling = settleWithRefusal(makeWorld(), FENCE_A, {
+      commit: refusingCommit(),
+      refusalCommit: createRefusalChargingCommit({
+        stores: makeStores(),
+        context: refusalContext(),
+      }),
+      charges: [charge],
+    });
+
+    const thrown = await settling.catch((error: unknown) => error);
+
+    expect(thrown).toBeInstanceOf(BilledSettlementRefusal);
+    expect(thrown).toMatchObject({ billed: [{ ...charge, storageFeeNanoUsd: 0n }] });
   });
 
   it('bills a retried refusal once: the flipped key row loses the retry its fence (modeled world)', async () => {
@@ -886,7 +932,7 @@ describe('createFencedSettlementHook: a refused commit bills the run and rethrow
     let billed = false;
     const refusalCommit: SettlementRefusalCommit = () => {
       billed = true;
-      return Promise.resolve('billed');
+      return Promise.resolve({ billed: [] });
     };
     await expect(
       settleWithRefusal(world, FENCE_A, {
@@ -905,11 +951,11 @@ describe('createFencedSettlementHook: a refused commit bills the run and rethrow
     let billed = false;
     const refusalCommit: SettlementRefusalCommit = () => {
       billed = true;
-      return Promise.resolve('billed');
+      return Promise.resolve({ billed: [] });
     };
     const storingCommit: SettlementCommit = async (tx, request) => {
       worldOf(tx).content.push('answer');
-      await commitFor()(tx, request);
+      return commitFor()(tx, request);
     };
     await settleWithRefusal(world, FENCE_A, { commit: storingCommit, refusalCommit });
     expect(billed).toBe(false);
@@ -970,7 +1016,7 @@ describe('createFencedSettlementHook: a refused commit bills the run and rethrow
           context: refusalContext(),
         }),
       })(requestWith([settlementCharge('answer')]))
-    ).rejects.toBe(thrown);
+    ).rejects.toMatchObject({ name: 'BilledSettlementRefusal', domainError: thrown.domainError });
     expect(world.usage.size).toBe(1);
     expect(world.wallet.balanceNanoUsd).toBe(1000n - applyMarkup(100n));
   });

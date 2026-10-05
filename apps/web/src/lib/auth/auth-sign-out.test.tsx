@@ -55,6 +55,7 @@ const CONVERSATION: GetConversationResponse = {
     linkId: null,
   },
   forks: [],
+  memberCount: 1,
 };
 
 const MESSAGES_PAGE: MessagesPage = { messages: [], nextCursor: null };

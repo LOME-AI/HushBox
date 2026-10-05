@@ -26,7 +26,9 @@ export function budgetRoutes(deps: ConversationsRouteDeps) {
       // each domain function: setting a per-member cap needs admin+, setting the
       // per-conversation cap needs owner, and the display is readable by any
       // active member (a non-owner sees only their own figures; the owner sees
-      // all). A stranger is refused `forbidden` (403). Link-guest and other
+      // all). A caller with no active membership reads the display as the
+      // missing-conversation 404, which hides whether the conversation exists;
+      // the cap writes refuse a stranger `forbidden` (403). Link-guest and other
       // non-session principals never reach these `session`-class routes — they
       // are refused upstream at the pipeline, so budget-view over HTTP is a
       // signed-in-member surface only. Caps are nano-USD and cross the JSON

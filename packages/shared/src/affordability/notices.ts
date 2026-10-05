@@ -252,9 +252,9 @@ export const NOTICE_COPY: Readonly<Record<NoticeReason, NoticeCopy>> = {
     severity: BLOCKING,
   },
   group_owner_funds_unavailable: {
-    // Names the cause without disclosing what the owner's wallet is doing: the
-    // served owner figure is hold-blind for privacy, and the sender is not
-    // entitled to infer the owner's activity from a refusal.
+    // Names the owner's budget as the cause and no run or conversation of the
+    // owner's. "Try again shortly" covers funds that runs in flight are
+    // holding, which are released when those runs end.
     cause: "The conversation owner's budget can't cover this message.",
     action: [{ text: 'Ask the conversation owner for budget, or try again shortly.' }],
     severity: BLOCKING,

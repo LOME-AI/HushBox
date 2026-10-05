@@ -104,6 +104,7 @@ import {
   seedConversationWithEpoch,
 } from '../../../../test-support/conversation-seed.js';
 import { mintLinkCredential } from '../../../../test-support/link-credential.js';
+import type { BudgetScope } from '../../../billing/index.js';
 import type { EpochPublicKeyReader } from './settlement.js';
 import type { WrappedSecret } from '@hushbox/crypto';
 import type {
@@ -148,6 +149,19 @@ if (!DATABASE_URL || !UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
 }
 
 const db = createDb(DATABASE_URL, { neonDev: LOCAL_NEON_DEV_CONFIG });
+
+/** Admission's scope read: the wallet's committed sequence, then `scopes`. */
+function scopesAt(
+  deps: Parameters<typeof admitRun>[0],
+  walletId: string,
+  scopes: readonly BudgetScope[] = []
+): Parameters<typeof admitRun>[1]['readScopes'] {
+  return () =>
+    deps.stores.readWalletSnapshot(deps.db, walletId).map((row) => {
+      if (row === null) throw new Error('scope read: the wallet does not exist');
+      return { scopes, walletSeq: row.ledgerSeq };
+    });
+}
 // A second pool, because `createDb` caps each at one connection: the settlement
 // transaction owns `db`'s only connection while it runs, so a write that must
 // land mid-transaction has to arrive on a connection of its own.
@@ -677,6 +691,26 @@ describe('chat settlement commit (saved ⟺ billed, linear tree)', () => {
     expect(decryptItem(fixture, assistantMessage, assistantContent, ASSISTANT_SENDER_ID)).toBe(
       ANSWER
     );
+  });
+
+  it('returns the charges it posted, each with the storage fee it debited', async () => {
+    const fixture = await seedFixture();
+    const runKey = crypto.randomUUID();
+    const runId = crypto.randomUUID();
+    const fence = await claimFence(fixture.userId, runKey, runId);
+
+    const receipt = await createFencedSettlementHook({
+      db,
+      fence,
+      complete: keyRowCompletion({ runId }),
+      commit: commitFor(fixture, runId, createChatStores(), {
+        userMessage: { id: crypto.randomUUID(), content: PROMPT },
+      }),
+    })(request(runKey));
+
+    expect(receipt).toEqual({
+      billed: [{ ...charge(), storageFeeNanoUsd: PROMPT_ANSWER_STORAGE }],
+    });
   });
 
   it('stores the text answer under the id minted when the run started', async () => {
@@ -2975,7 +3009,7 @@ describe('group-budget accrual (owner-funded, cumulative)', () => {
       estimateNanoUsd: 1000n,
       deadlineClass: 'text',
       concurrentRunCap: 10,
-      budgets: scopes,
+      readScopes: scopesAt(admissionDeps, fixture.walletId, scopes),
       now: NOW,
     });
     expect(overResult._unsafeUnwrap()).toEqual({
@@ -2989,7 +3023,7 @@ describe('group-budget accrual (owner-funded, cumulative)', () => {
       estimateNanoUsd: 500n,
       deadlineClass: 'text',
       concurrentRunCap: 10,
-      budgets: scopes,
+      readScopes: scopesAt(admissionDeps, fixture.walletId, scopes),
       now: NOW,
     });
     expect(withinResult._unsafeUnwrap().admitted).toBe(true);
@@ -3771,7 +3805,7 @@ describe('chat settlement commit (a refused turn is billed and saves nothing)', 
     const persistThenRefuse = async (
       tx: SettlementTx,
       settling: SettlementRequest
-    ): Promise<void> => {
+    ): Promise<never> => {
       await chatCommit(tx, settling);
       throw refusal;
     };
@@ -3783,7 +3817,11 @@ describe('chat settlement commit (a refused turn is billed and saves nothing)', 
       refusalCommit: refusalCommitFor(fixture, runId),
     });
 
-    await expect(hook(request(runKey))).rejects.toBe(refusal);
+    await expect(hook(request(runKey))).rejects.toMatchObject({
+      name: 'BilledSettlementRefusal',
+      domainError: refusal.domainError,
+      billed: [{ ...charge(), storageFeeNanoUsd: 0n }],
+    });
 
     expect(await messagesInOrder(fixture.conversationId)).toHaveLength(0);
     const usage = await db.select().from(usageRecords).where(eq(usageRecords.runId, runId));
@@ -3808,7 +3846,7 @@ describe('chat settlement commit (a refused turn is billed and saves nothing)', 
     const runKey = crypto.randomUUID();
     const runId = crypto.randomUUID();
     const fence = await claimFence(fixture.userId, runKey, runId);
-    const refusing = (): Promise<void> =>
+    const refusing = (): Promise<never> =>
       Promise.reject(
         new SettlementConflictError(conflictError('refused'), 'chat settlement: refused')
       );
@@ -3979,7 +4017,7 @@ describe('a user action mid-run against the real runtime', () => {
         descriptor: {
           id: TEXT_MODEL,
           provider: 'p',
-          version: '3',
+          version: '4',
           inputs: ['text'],
           outputs: ['text'],
           parameters: {},
@@ -3987,6 +4025,7 @@ describe('a user action mid-run against the real runtime', () => {
           limits: { contextLength: 128_000 },
           pricing: {
             kind: 'tokens',
+            anchorContextTokens: 1_000_000,
             anchor: { base: { input: '2500', output: '10000' }, tiers: [] },
           },
           zdrReachable: true,
@@ -4165,7 +4204,7 @@ describe('a user action mid-run against the real runtime', () => {
       settlement: async (settling) => {
         charges = settling.charges;
         await spec.midRun?.();
-        await bound.settlement(settling);
+        return bound.settlement(settling);
       },
     };
     const events: FlowStreamEvent[] = [];

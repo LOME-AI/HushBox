@@ -40,13 +40,23 @@ interface MessageEnvelopeInputs {
 }
 
 /**
+ * The generating model the share read serves for an item, null on an item no
+ * model wrote. A share link publishes it by ruling, so a shared reply names its
+ * model as its author's thread does.
+ */
+interface SharedItemModel {
+  modelName: string | null;
+  isSmartModel: boolean;
+}
+
+/**
  * One content item returned by `useSharedMessage`. Text items carry their
  * already-decrypted plaintext; media items carry a presigned GET URL plus
  * metadata. Media bytes decrypt separately under the same envelope inputs the
  * message carries, completed with the item's own `position`.
  */
 export type SharedContentItem =
-  | {
+  | (SharedItemModel & {
       type: 'text';
       position: number;
       content: string;
@@ -58,8 +68,9 @@ export type SharedContentItem =
        */
       reasoningTokens: number | null;
       reasoningEffort: ResolvedReasoningEffort | null;
-    }
-  | {
+      reasoningDurationMs: number | null;
+    })
+  | (SharedItemModel & {
       type: 'media';
       position: number;
       contentItemId: string;
@@ -73,25 +84,31 @@ export type SharedContentItem =
       downloadUrl: string;
       /** ISO-8601 expiry of `downloadUrl`. */
       expiresAt: string;
-    };
+    });
 
 /** What the share page renders: a live message, or one its sender's account deletion erased. */
 export type SharedMessageData = LiveSharedMessage | DeletedSharedMessage;
 
 interface LiveSharedMessage extends MessageEnvelopeInputs {
   deleted: false;
+  /** When the share was created. */
   createdAt: string;
+  /** When the shared message itself was written: the day its reply is dated by. */
+  messageCreatedAt: string;
   contentItems: SharedContentItem[];
 }
 
 /**
  * The sender deleted their account and the server erased the content. It
- * carries no envelope inputs: nothing is left to decrypt, so the share secret
- * is never used.
+ * carries the message's identity but no key material: nothing is left to
+ * decrypt, so the share secret is never used.
  */
 interface DeletedSharedMessage {
   deleted: true;
+  messageId: string;
+  conversationId: string;
   createdAt: string;
+  messageCreatedAt: string;
 }
 
 async function buildSharedContentItem(
@@ -121,8 +138,11 @@ async function buildSharedContentItem(
       type: 'text',
       position: item.position,
       content: textDecoder.decode(plaintext),
+      modelName: item.modelName,
+      isSmartModel: item.isSmartModel,
       reasoningTokens: item.reasoningTokens,
       reasoningEffort: item.reasoningEffort,
+      reasoningDurationMs: item.reasoningDurationMs,
     };
   }
   // Media item — the standalone read carries no inline presigned URL, so mint
@@ -144,6 +164,8 @@ async function buildSharedContentItem(
     width: item.width,
     height: item.height,
     durationMs: item.durationMs,
+    modelName: item.modelName,
+    isSmartModel: item.isSmartModel,
     downloadUrl: grant.downloadUrl,
     expiresAt: grant.expiresAt,
   };
@@ -153,7 +175,8 @@ async function buildSharedContentItem(
  * Loads a public standalone shared message under the wrap-once envelope model.
  *
  * 1. GET /conversations/shared/message/:shareId → the flat single message
- *    { shareId, messageId, wrappedContentKey, contentItems, createdAt } plus
+ *    { shareId, messageId, wrappedContentKey, contentItems, createdAt,
+ *    messageCreatedAt } plus
  *    the envelope AAD inputs (conversationId, epochNumber, senderId, the epoch
  *    wrap).
  * 2. Extract shareSecret from the URL fragment (passed as `keyBase64`).
@@ -181,7 +204,15 @@ export function useSharedMessage(
         client.conversations.shared.message[':shareId'].$get({ param: { shareId } })
       );
 
-      if (view.deleted) return { deleted: true, createdAt: view.createdAt };
+      if (view.deleted) {
+        return {
+          deleted: true,
+          messageId: view.messageId,
+          conversationId: view.conversationId,
+          createdAt: view.createdAt,
+          messageCreatedAt: view.messageCreatedAt,
+        };
+      }
 
       const shareSecret = asShareSecret(fromBase64(keyBase64));
       const wrappedShareKey = fromBase64(view.wrappedContentKey) as SealedSecret;
@@ -204,7 +235,13 @@ export function useSharedMessage(
         if (built !== null) items.push(built);
       }
 
-      return { ...envelope, deleted: false, createdAt: view.createdAt, contentItems: items };
+      return {
+        ...envelope,
+        deleted: false,
+        createdAt: view.createdAt,
+        messageCreatedAt: view.messageCreatedAt,
+        contentItems: items,
+      };
     },
     enabled: !!shareId && !!keyBase64,
   });

@@ -17,7 +17,11 @@ function descriptor(id: string): ModelDescriptor {
     parameters: {},
     behaviors: [],
     limits: { contextTokens: 400_000 },
-    pricing: { kind: 'tokens', anchor: { base: { input: '500', output: '1500' }, tiers: [] } },
+    pricing: {
+      kind: 'tokens',
+      anchorContextTokens: 1_000_000,
+      anchor: { base: { input: '500', output: '1500' }, tiers: [] },
+    },
     zdrReachable: true,
     releasedAt: FIXTURE_STAMP_SECONDS,
     fetchedAt: 0,

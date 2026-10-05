@@ -34,6 +34,7 @@ import { useWebSearch } from '@/hooks/chat/use-web-search';
 import { useTurnOptions } from '@/hooks/billing/use-turn-options.js';
 import { useReasoningEffort } from '@/hooks/chat/use-reasoning-effort';
 import type { ResolveBillingResult } from '@hushbox/shared';
+import type { BudgetCalculationResult } from '@/hooks/billing/use-budget-calculation';
 import type {
   ContextFillBand,
   DimensionAvailability,
@@ -710,12 +711,19 @@ function readOnlyBlocks(
 
 /**
  * The answer share the notices read. The shortened-reply warning says the
- * balance may cut a text reply short, and a media turn produces no text, so
- * that claim is false for it whatever the balance or the web-search setting:
- * its share is unbounded and the warning never fires on it.
+ * balance may cut a text reply short. That claim is false for a media turn,
+ * which produces no text, whatever the balance or the web-search setting, and
+ * for a Smart-slot turn whose runnable candidates and named siblings all sit at
+ * their answer rooms at every effort rung the producer publishes a ceiling for,
+ * which the budget marks with `answerHeldByRoom`: the share of either is
+ * unbounded and the warning never fires on it.
  */
-function answerShareForNotices(modality: ChatModality, maxAnswerTokens: number): number {
-  return modality === 'text' ? maxAnswerTokens : Number.POSITIVE_INFINITY;
+function answerShareForNotices(
+  modality: ChatModality,
+  budget: Pick<BudgetCalculationResult, 'maxAnswerTokens' | 'answerHeldByRoom'>
+): number {
+  if (modality !== 'text' || budget.answerHeldByRoom === true) return Number.POSITIVE_INFINITY;
+  return budget.maxAnswerTokens;
 }
 
 /**
@@ -915,7 +923,7 @@ export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
         : generateNotifications({
             billingResult,
             capacityPercent: budgetResult.capacityPercent,
-            maxAnswerTokens: answerShareForNotices(activeModality, budgetResult.maxAnswerTokens),
+            maxAnswerTokens: answerShareForNotices(activeModality, budgetResult),
             ...(input.currentUserPrivilege !== undefined && {
               privilege: input.currentUserPrivilege,
             }),
@@ -925,6 +933,7 @@ export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
       billingResult,
       budgetResult.capacityPercent,
       budgetResult.maxAnswerTokens,
+      budgetResult.answerHeldByRoom,
       activeModality,
       input.currentUserPrivilege,
       hasDelegatedBudget,

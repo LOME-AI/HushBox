@@ -1,52 +1,36 @@
 /**
- * The estimated bytes one media generation's output rests in — the single
- * expression of the byte rule, beside the byte rate that prices it
+ * The bytes a media run's output can rest in — the one bound every reserved
+ * media storage term is priced from, beside the byte rate that prices it
  * (`mediaStorageNanoUsd` in
  * `packages/shared/src/affordability/estimate/storage-rate.ts`).
  *
- * It has one home because the storage leg is charged from it on three paths that
- * must agree to the nano: the server's admission ceiling, the client's cost
- * estimate, and the per-unit affordability verdict that greys a picker row. A
- * verdict priced without this leg is not a rounding difference — an image's
- * stored bytes cost more than a cheap image's generation does — so a second
- * expression of the rule presents rows as affordable that admission then
- * refuses (`docs/CODE-RULES.md` §One Implementation, Shared).
+ * The bound is the run's value-store budget: every media value a run holds is
+ * admitted by that store, which refuses what would exceed it, so no run can store
+ * more bytes than the budget whatever its models, durations or sibling count.
+ * Settlement bills the bytes actually stored, so reserving the budget once per
+ * run covers any artifact set the run can produce.
  *
- * The estimate is structural and tier-independent: bytes per REFERENCE UNIT (one
- * image, one second) times the units generated. Nothing here reads a model, a
- * provider or a clock, so the same inputs give the same bytes on every path.
+ * It has one home because every path that prices the reserved storage leg must
+ * agree to the nano — the server's admission ceiling and its payer-freeze
+ * minimum, the client's cost estimate, the composer's media verdict. A second
+ * expression of it presents rows as affordable that admission then refuses
+ * (`docs/CODE-RULES.md` §One Implementation, Shared).
  */
 
-import {
-  ESTIMATED_AUDIO_BYTES_PER_SECOND,
-  ESTIMATED_IMAGE_BYTES,
-  ESTIMATED_VIDEO_BYTES_PER_SECOND,
-} from '../constants.ts';
+import { VALUE_STORE_BYTE_BUDGET_BYTES } from '../../constants.ts';
+import { mediaStorageNanoUsd } from './storage-rate.ts';
 import type { Modality } from '../model/modality.ts';
+
+export const MEDIA_RUN_STORAGE_BOUND_BYTES = VALUE_STORE_BYTE_BUDGET_BYTES;
+
+/** The media storage one persisting run reserves, once, whatever it generates. */
+export function mediaRunStorageNanoUsd(): bigint {
+  return mediaStorageNanoUsd(MEDIA_RUN_STORAGE_BOUND_BYTES);
+}
 
 /**
  * The modalities whose output rests in object storage. Derived from the closed
- * modality set rather than listed: a new stored modality then fails to compile
- * against the byte table below instead of silently estimating zero bytes.
+ * modality set rather than listed, so a new modality is stored unless it is
+ * excluded here.
  */
 export type StoredMediaModality = Exclude<Modality, 'text' | 'embedding'>;
-
-const BYTES_PER_UNIT: Readonly<Record<StoredMediaModality, number>> = {
-  image: ESTIMATED_IMAGE_BYTES,
-  video: ESTIMATED_VIDEO_BYTES_PER_SECOND,
-  audio: ESTIMATED_AUDIO_BYTES_PER_SECOND,
-};
-
-/**
- * The bytes a generation of `units` reference units is estimated to store.
- *
- * `units` is a count — one image, or a second count — never a duration in
- * another unit. A non-integer or negative count refuses rather than producing a
- * fractional byte estimate that would only fail later inside `BigInt`.
- */
-export function mediaOutputBytes(modality: StoredMediaModality, units: number): number {
-  if (!Number.isSafeInteger(units) || units < 0) {
-    throw new RangeError('media output units must be a non-negative integer');
-  }
-  return units * BYTES_PER_UNIT[modality];
-}

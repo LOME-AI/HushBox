@@ -10,11 +10,11 @@
  * The mock send-provider synthesizes a canned PNG for any image id, so the send
  * path needs nothing beyond an exposable catalog row.
  *
- * The row is priced per-image and ZDR-reachable so admission and settlement
- * treat it exactly like the real seedream model; the release date is fixed well
- * in the past so no premium-recency gate ever hides it.
+ * The row is priced per-image, ZDR-reachable and pinned so admission, exposure
+ * and settlement treat it exactly like the real seedream model; the release
+ * date is fixed well in the past so no premium-recency gate ever hides it.
  */
-import { applyMarkupCeil } from '@hushbox/shared';
+import { applyMarkupCeilFromUsdDecimal } from '@hushbox/shared';
 import { DESCRIPTOR_VERSION } from '@hushbox/api/dev-seed';
 import { E2E_SEEDED_IMAGE_MODEL_ID } from './model-ids.js';
 import type { UpsertCatalogParams } from '@hushbox/api/dev-seed';
@@ -22,20 +22,21 @@ import type { UpsertCatalogParams } from '@hushbox/api/dev-seed';
 export { E2E_SEEDED_IMAGE_MODEL_ID } from './model-ids.js';
 
 /**
- * $0.04 per image in nano-USD — the raw PROVIDER rate, mirroring live
+ * $0.04 per image as the vendor lists it — the raw PROVIDER rate, mirroring live
  * seedream-4.5 so the synthetic model prices identically.
  */
-const SYNTHETIC_PER_IMAGE_PROVIDER_NANO_USD = 40_000_000n;
+const SYNTHETIC_PER_IMAGE_PROVIDER_USD = '0.04';
 
 /**
  * The stored rate. The catalog invariant since descriptor v2 is billable
- * (after-fee) rates only — baked with the SAME ceil-markup helper normalize
- * uses, so this row can never drift from what `catalog:refresh` would store
- * for a real per-image model. Canonical decimal NanoUSD wire string.
+ * (after-fee) rates only — baked from the vendor decimal with the SAME
+ * one-round-up helper normalize uses, so this row can never drift from what
+ * `catalog:refresh` would store for a real per-image model. Canonical decimal
+ * NanoUSD wire string.
  */
-const SYNTHETIC_PER_IMAGE_BILLABLE_NANO_USD = applyMarkupCeil(
-  SYNTHETIC_PER_IMAGE_PROVIDER_NANO_USD
-).toString();
+const SYNTHETIC_PER_IMAGE_BILLABLE_NANO_USD = String(
+  applyMarkupCeilFromUsdDecimal(SYNTHETIC_PER_IMAGE_PROVIDER_USD)
+);
 
 /** 2023-01-01T00:00:00Z in unix seconds — a fixed, well-past release date. */
 const SYNTHETIC_RELEASED_AT_SECONDS = 1_672_531_200;
@@ -66,6 +67,7 @@ export function seededImageModelUpsert(fetchedAt: Date): UpsertCatalogParams {
         dearest: SYNTHETIC_PER_IMAGE_BILLABLE_NANO_USD,
       },
       zdrReachable: true,
+      zdrPin: ['hushbox-e2e'],
       name: 'HushBox E2E Mock Image 2',
     },
   };

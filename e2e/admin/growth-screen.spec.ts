@@ -614,7 +614,7 @@ test.describe('Admin growth screen', SPEC_MATRIX, () => {
     // included, so the badges below do not depend on what was counted.
     await adminPage
       .getByRole('group', { name: 'Show' })
-      .getByRole('radio', { name: 'Counts' })
+      .getByRole('radio', { name: 'Counts', exact: true })
       .click();
     await expect
       .poll(() => badgeCount(frame), { message: 'the overlay drew no badge over the framed page' })

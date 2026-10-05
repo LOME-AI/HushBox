@@ -292,6 +292,7 @@ function browserSends(turn: AnswerRoomTurn): boolean {
       modality: 'text',
       pinned: turn.effort === undefined ? {} : { effort: turn.effort },
       webSearch: false,
+      effortAuto: turn.effort === undefined,
     },
     { models: turn.models.map((model) => priceableOf(model)), nowMs: TEST_DAY_START }
   ).admissible.sendable;

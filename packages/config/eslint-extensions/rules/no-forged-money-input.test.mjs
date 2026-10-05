@@ -26,10 +26,10 @@ const SAMPLE_FILE = path.join(SAMPLE_DIR, 'sample.ts');
 
 const PREAMBLE = `
 import {
-  catalogPerImageCharge, compareChargeAttribution, compareHoldCoverage, compareMoneyState,
+  compareChargeAttribution, compareHoldCoverage, compareMoneyState,
   expectChargeAttribution, expectExactCharge, expectHoldCovers, expectNoMoneyMoved,
   mockGenerationCharge, mockTextTurnCharge, readChargeAttribution, readHold,
-  readMockChargeBasis, readMoneyState, readServedModelPricing, readSettledCharge,
+  readMockChargeBasis, readMoneyState, readSettledCharge,
   spendOf, storedTextCharge, sumOfCharges,
 } from './vocabulary.js';
 import type { APIRequestContext, MockTextTurn, MoneyState, ServedChargeBasis } from './vocabulary.js';

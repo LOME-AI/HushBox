@@ -4,6 +4,7 @@ import type { ChatHistoryMessage, FilePartMapper, InferenceEvent } from './infer
 import type { MockDirectives } from '../testing/mock-directives.ts';
 import type { Modality } from '../affordability/model/modality.ts';
 import type { NanoUSD } from '../affordability/money/nano-usd.ts';
+import type { ObservedUsage } from '../affordability/price/hold-overrun.ts';
 import type { SenderPrincipal } from '../principal-id.ts';
 import type { ResolvedReasoningEffort } from '../affordability/reasoning-effort.ts';
 import type { WorkflowDefinition } from './workflow.ts';
@@ -145,6 +146,13 @@ export interface SettlementCharge {
    * auxiliary charge. Display-only — the debit path is untouched.
    */
   readonly smartModelRan?: boolean;
+  /**
+   * What the call observed while it ran: each provider step's usage and the
+   * tool fees inside `billableCostNanoUsd`. The engine reads it after commit to
+   * name why a bill exceeded its hold; it is never written and never rides the
+   * client wire. Absent unless every step of the call reported its usage.
+   */
+  readonly observed?: ObservedUsage;
 }
 
 export interface SettlementRequest {
@@ -160,7 +168,15 @@ export interface SettlementRequest {
   readonly charges: readonly SettlementCharge[];
 }
 
-export type SettlementHook = (request: SettlementRequest) => Promise<void>;
+/**
+ * What a settlement posted: the charges it actually billed, each with the
+ * storage fee it was billed with. A charge the commit skipped is absent.
+ */
+export interface SettlementReceipt {
+  readonly billed: readonly SettlementCharge[];
+}
+
+export type SettlementHook = (request: SettlementRequest) => Promise<SettlementReceipt>;
 
 /**
  * The two typed policy hooks a definition declares by name, resolved

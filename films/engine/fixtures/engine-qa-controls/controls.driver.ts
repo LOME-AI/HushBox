@@ -201,7 +201,7 @@ async function main(): Promise<number> {
   } finally {
     rmSync(scratch, { recursive: true, force: true });
     // The padded control writes over the fixture's master; a clean verify writes
-    // it back, with the MP4 and report a verify of it leaves.
+    // it back, with the report a verify of it leaves.
     await verifyFilm(FILM, { gl: DEFAULT_GL });
   }
   print(

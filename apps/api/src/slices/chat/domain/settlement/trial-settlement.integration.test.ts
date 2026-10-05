@@ -246,7 +246,7 @@ describe('trial settlement (no-persist / no-charge, post-commit spend fold)', ()
       () => fields.now
     );
 
-    await expect(hook(request(fields.runKey, [charge(1000n)]))).resolves.toBeUndefined();
+    await expect(hook(request(fields.runKey, [charge(1000n)]))).resolves.toEqual({ billed: [] });
 
     // The settlement still committed (key row flipped) despite the lost fold.
     const keyRows = await db

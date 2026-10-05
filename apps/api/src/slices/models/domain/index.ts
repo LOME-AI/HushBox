@@ -2,8 +2,10 @@ export {
   estimateRunCeilingNanoUsd,
   priceMediaBillableNanoUsd,
   priceUsageBillableNanoUsd,
+  reserveMediaBillableNanoUsd,
 } from './pricing/estimate.js';
 export { createEstimateRun, mediaTurnMinCostNanoUsd } from './pricing/estimate-run.js';
+export { callMaxPrice, maxPriceReachesAnchor } from './pricing/call-routing.js';
 export { findAdminDisabledModel } from './admin/disabled.js';
 export { listAdminCatalog } from './admin/catalog.js';
 export type { AdminCatalogModel } from './admin/catalog.js';

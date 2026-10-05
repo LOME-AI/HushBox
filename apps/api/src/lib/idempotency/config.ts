@@ -38,8 +38,10 @@ export const MAX_AUTO_RESUBMIT_HORIZON_SECONDS = 10 * 60;
 
 /**
  * Terminal-row retention before the purge cron may delete. Mirrors the jobs
- * system's 7-day succeeded prune; the purge skips non-terminal rows and read
- * paths never depend on the purge having run.
+ * system's 7-day succeeded prune. The purge deletes a terminal row once its
+ * `completedAt` is past this TTL, and a `claimed` row once its `claimedAt` is
+ * past {@link IDEMPOTENCY_STALE_CLAIM_PURGE_SECONDS}; read paths never depend
+ * on the purge having run.
  */
 export const IDEMPOTENCY_PURGE_TTL_SECONDS = 7 * 24 * 3600;
 

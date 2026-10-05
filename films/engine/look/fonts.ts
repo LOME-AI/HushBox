@@ -14,7 +14,7 @@ const MIN_WEIGHT = 1;
 const MAX_WEIGHT = 1000;
 
 /** One face of an open-licence family, as `FontFace` registers it. */
-export interface OpenFace {
+interface OpenFace {
   family: string;
   /** Its file, relative to the fonts directory, POSIX-separated. */
   file: string;

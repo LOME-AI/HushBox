@@ -28,7 +28,11 @@ const validDescriptor = {
   },
   behaviors: ['streaming', 'tools'],
   limits: { contextTokens: 400_000 },
-  pricing: { kind: 'tokens', anchor: { base: { input: '500', output: '1500' }, tiers: [] } },
+  pricing: {
+    kind: 'tokens',
+    anchorContextTokens: 1_000_000,
+    anchor: { base: { input: '500', output: '1500' }, tiers: [] },
+  },
   zdrReachable: true,
   releasedAt: FIXTURE_STAMP_SECONDS,
   fetchedAt: FIXTURE_STAMP_MS,
@@ -271,6 +275,24 @@ describe('ModelDescriptor', () => {
   });
 });
 
+describe('ModelDescriptor zdrPin', () => {
+  it('parses a pin of endpoint tags', () => {
+    expect(
+      ModelDescriptor.parse({ ...validDescriptor, zdrPin: ['google-vertex/global', 'seed'] }).zdrPin
+    ).toEqual(['google-vertex/global', 'seed']);
+  });
+
+  it('rejects an empty pin', () => {
+    expect(ModelDescriptor.safeParse({ ...validDescriptor, zdrPin: [] }).success).toBe(false);
+  });
+
+  it('rejects an empty tag in a pin', () => {
+    expect(ModelDescriptor.safeParse({ ...validDescriptor, zdrPin: ['seed', ''] }).success).toBe(
+      false
+    );
+  });
+});
+
 describe('isExposedModel', () => {
   const exposed = ModelDescriptor.parse(validDescriptor);
 
@@ -284,7 +306,11 @@ describe('isExposedModel', () => {
 
   it('never meets a model priced at nothing: no price kind parses without a rate', () => {
     const pricedAtNothing = [
-      { kind: 'tokens', anchor: { base: { input: '0', output: '0' }, tiers: [] } },
+      {
+        kind: 'tokens',
+        anchorContextTokens: 1_000_000,
+        anchor: { base: { input: '0', output: '0' }, tiers: [] },
+      },
       { kind: 'perImage', anchor: '0', dearest: '0' },
       { kind: 'perSecond', anchor: {}, dearest: {} },
     ];
@@ -303,6 +329,22 @@ describe('isExposedModel', () => {
 
   it('hides a model that does not accept text input', () => {
     expect(isExposedModel({ ...exposed, inputs: ['image'] })).toBe(false);
+  });
+
+  describe('an image model', () => {
+    const unpinned = ModelDescriptor.parse({
+      ...validDescriptor,
+      outputs: ['image'],
+      pricing: { kind: 'perImage', anchor: '40000000', dearest: '40000000' },
+    });
+
+    it('is exposed with a pin', () => {
+      expect(isExposedModel({ ...unpinned, zdrPin: ['google-vertex/global'] })).toBe(true);
+    });
+
+    it('is hidden without a pin', () => {
+      expect(isExposedModel(unpinned)).toBe(false);
+    });
   });
 });
 

@@ -392,6 +392,7 @@ function pinnedEffortVerdict(
       modality: 'text',
       pinned: {},
       webSearch: false,
+      effortAuto: true,
     },
     { models: pricedPool(exposedCatalog), nowMs }
   );
@@ -496,6 +497,7 @@ function holdProbeHoldNanoUsd(
       modality: 'text',
       pinned: {},
       webSearch: false,
+      effortAuto: true,
     },
     { models, nowMs }
   );
@@ -538,6 +540,7 @@ const FREE_TIER_DEFAULT_SELECTION: Selection = {
   modality: 'text',
   pinned: {},
   webSearch: false,
+  effortAuto: true,
 };
 
 /**

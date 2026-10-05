@@ -244,6 +244,11 @@ test.describe('Solo Regeneration', SPEC_MATRIX, () => {
       await chatPage.waitForConversation();
 
       const errorTile = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
+      await chatPage.showCompareReply(
+        chatPage.messageList
+          .getByRole('tabpanel', { includeHidden: true })
+          .filter({ has: errorTile })
+      );
       await expect(errorTile).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
       // Clear the failing-models header so the retry attempt can succeed —
@@ -256,16 +261,10 @@ test.describe('Solo Regeneration', SPEC_MATRIX, () => {
         { timeout: TIMEOUTS.STREAM }
       );
 
-      // Scope Regenerate to the errored tile's own toolbar by climbing from
-      // `model-error-message` to its enclosing `message-item`. A page-wide
+      // Regenerate sits inside the failed reply's slot. A page-wide
       // `getByRole('button', { name: 'Regenerate' })` would also match the
-      // successful sibling tile's Regenerate, and the user message above
-      // exposes "Retry" (not "Regenerate"), so a role-name selector at this
-      // scope is unambiguous.
-      const retryButton = errorTile
-        .locator(`xpath=ancestor::*[@data-testid="${TEST_IDS.messageItem}"][1]`)
-        .getByTestId(TEST_IDS.messageActions)
-        .getByRole('button', { name: 'Regenerate' });
+      // successful sibling tile's Regenerate.
+      const retryButton = chatPage.failedReplyRegenerateButton(errorTile);
       await expect(retryButton).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await retryButton.click();
 

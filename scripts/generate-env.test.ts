@@ -38,7 +38,10 @@ import {
   parseArgs,
   escapeEnvValue,
   generateOpsEnv,
+  generateGoogleServicesDecode,
 } from './generate-env.js';
+import { sweepBindings } from './lib/artifact-sweep/registry-values.js';
+import { BUILD_VARIANT_OVERRIDES } from './lib/bundling/build-variants.js';
 import { CI_SECRETS } from '../packages/shared/src/env/ci-secrets.js';
 import { BACKUP_VARIABLES } from './lib/backup/run.js';
 import {
@@ -50,6 +53,7 @@ import {
   isSecret,
   resolveRaw,
   resolveValue,
+  secret,
 } from '../packages/shared/src/env/env.config.js';
 import * as envConfigModule from '../packages/shared/src/env/env.config.js';
 import {
@@ -2338,6 +2342,76 @@ old content
         );
       })
     );
+
+    /** A registry entry whose production value the native build compiles into the app. */
+    const nativeEntry = (secretName: string): VariableConfig => ({
+      to: [Destination.Scripts],
+      [Mode.Production]: { value: secret(secretName), to: [Destination.Native] },
+    });
+
+    it('renders the step from the entry the registry routes into the native build', () => {
+      const content = generateGoogleServicesDecode({
+        NATIVE_FIXTURE: nativeEntry('NATIVE_SECRET'),
+      });
+
+      expect(content).toBe(
+        [
+          'run: echo "$NATIVE_FIXTURE" | base64 -d > apps/web/android/app/google-services.json',
+          'env:',
+          '  NATIVE_FIXTURE: ${{ secrets.NATIVE_SECRET }}',
+          '',
+        ].join('\n')
+      );
+    });
+
+    it('refuses a registry routing two entries into the native build, which writes one file', () => {
+      expect(() =>
+        generateGoogleServicesDecode({
+          FIRST: nativeEntry('FIRST'),
+          SECOND: nativeEntry('SECOND'),
+        })
+      ).toThrow(
+        'the native build decodes exactly one entry into google-services.json; the registry routes FIRST, SECOND'
+      );
+    });
+  });
+
+  describe('artifact-sweep-env section', () => {
+    const content = (): string => workflowSections()['artifact-sweep-env']?.content ?? '';
+
+    it('renders in every job that publishes a client artifact', () => {
+      expect(workflowSections()['artifact-sweep-env']?.owners).toEqual([
+        '.github/workflows/ci.yml',
+        '.github/workflows/build-android.yml',
+        '.github/workflows/build-ios.yml',
+      ]);
+    });
+
+    it('binds every production secret those jobs can read, under its registry key', () => {
+      const expected = sweepBindings()
+        .bound.map(({ key, secretName }) => `${key}: \${{ secrets.${secretName} }}`)
+        .join('\n');
+
+      expect(content()).toBe(`${expected}\n`);
+    });
+
+    it('binds a backend credential no client may carry', () => {
+      expect(content()).toContain(
+        'FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}'
+      );
+    });
+
+    it('leaves out a secret held in another GitHub environment', () => {
+      expect(content()).not.toContain('BACKUP_REPOSITORY_PASSWORD');
+    });
+
+    it('binds a deploy credential declared beside the registry', () => {
+      expect(content()).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
+    });
+
+    it('binds an identifier declared as shipping, which the sweep admits', () => {
+      expect(content()).toContain('APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}');
+    });
   });
 
   describe('verify-secrets section', () => {
@@ -2681,18 +2755,6 @@ new
 
 describe('the secrets inventory', () => {
   const repoRoot = path.resolve(__dirname, '..');
-  const columns = [
-    'Name',
-    'Family',
-    'Store',
-    'Description',
-    'Replace',
-    'On loss',
-    'Escrowed',
-    'User-visible',
-    'Coupled with',
-    'Leak impact',
-  ];
 
   /** The table's lines as trimmed cells; an escaped pipe stays inside its cell. */
   const cellsOf = (block: string): string[][] =>
@@ -2706,26 +2768,8 @@ describe('the secrets inventory', () => {
           .map((cell) => cell.trim())
       );
 
-  const alone: Credential = {
-    description: 'Signs the thing | twice.',
-    store: 'github:ci',
-    replace: 'transparent',
-    onLoss: 'reissueAtVendor',
-    family: 'random-secret',
-    userVisible: 'none',
-    leakImpact: 'nuisance',
-  };
-  const coupled: Credential = { ...alone, coupledWith: ['B_KEY', 'C_KEY'] };
-
   it('declares the inventory section into the secrets document alone', () => {
     expect(workflowSections()['secrets-inventory']?.owners).toEqual([SECRETS_DOC]);
-  });
-
-  it('heads the table with one column per declared field', () => {
-    const [header, rule] = cellsOf(generateSecretsInventory());
-
-    expect(header).toEqual(columns);
-    expect(rule?.every((cell) => /^-+$/.test(cell))).toBe(true);
   });
 
   it('lists every declaration once', () => {
@@ -2760,42 +2804,6 @@ describe('the secrets inventory', () => {
       (link) => !existsSync(path.resolve(repoRoot, path.dirname(SECRETS_DOC), link ?? ''))
     );
     expect(missing).toEqual([]);
-  });
-
-  it('renders each declared field in its column', () => {
-    const row = cellsOf(generateSecretsInventory([['A_KEY', coupled]]))[2];
-
-    expect(row).toEqual([
-      '`A_KEY`',
-      '[random-secret](runbooks/secrets/random-secret.md)',
-      'github:ci',
-      String.raw`Signs the thing \| twice.`,
-      'transparent',
-      'reissueAtVendor',
-      '',
-      'none',
-      '`B_KEY`, `C_KEY`',
-      'nuisance',
-    ]);
-  });
-
-  it('leaves the coupling column empty for a declaration coupled with nothing', () => {
-    const row = cellsOf(generateSecretsInventory([['A_KEY', alone]]))[2];
-
-    expect(row?.[8]).toBe('');
-  });
-
-  it('marks a declaration the escrow captures', () => {
-    const escrowed: Credential = { ...alone, onLoss: 'restoreFromCopy' };
-    const row = cellsOf(generateSecretsInventory([['A_KEY', escrowed]]))[2];
-
-    expect(row?.[6]).toBe('yes');
-  });
-
-  it('leaves the escrow column empty for a declaration of another loss class', () => {
-    const row = cellsOf(generateSecretsInventory([['A_KEY', alone]]))[2];
-
-    expect(row?.[6]).toBe('');
   });
 
   // Prettier pads every cell to its column and puts a blank line between a
@@ -4664,6 +4672,62 @@ describe('production-env variants', () => {
       expect(androidSection()).not.toContain('RESEND_API_KEY');
     })
   );
+});
+
+/**
+ * A build step bakes what its env block binds, ahead of the production
+ * environment file the same job generates, so a key it binds any other way is a
+ * value the bundle carries that the file does not. The bundle verifier admits
+ * exactly the keys a variant declares, which holds only while every other key
+ * is bound the way the file gets it.
+ */
+describe('what a build variant bakes beside the production environment file', () => {
+  const bindings = (marker: string): Record<string, string> => {
+    const content = workflowSections()[marker]?.content ?? '';
+    return (parseYaml(content) as { env: Record<string, string> }).env;
+  };
+
+  /** The production environment section generated into the same workflow as `marker`. */
+  const productionSectionBeside = (marker: string): string => {
+    const sections = workflowSections();
+    const [owner] = sections[marker]?.owners ?? [];
+    const found = Object.entries(sections).find(
+      ([name, section]) => name.startsWith('production-env') && section.owners[0] === owner
+    );
+    return found?.[0] ?? '';
+  };
+
+  const isRegistryKey = (key: string): key is keyof typeof envConfig => key in envConfig;
+
+  /** How the production environment file comes by `key`: its step's binding, else the registry's. */
+  const fileSupply = (production: Readonly<Record<string, string>>, key: string): string => {
+    const bound = production[key];
+    if (bound !== undefined || !isRegistryKey(key)) return bound ?? '';
+    const raw = resolveRaw(envConfig[key], Mode.Production);
+    return isSecret(raw) ? `\${{ secrets.${raw.name} }}` : String(raw);
+  };
+
+  const variants: [string, Readonly<Record<string, string>>][] =
+    Object.entries(BUILD_VARIANT_OVERRIDES);
+
+  it.each(variants)(
+    'binds every key %s does not declare the way the production file gets it',
+    (variant, declared) => {
+      const production = bindings(productionSectionBeside(variant));
+      const divergent = Object.entries(bindings(variant))
+        .filter(([key]) => !(key in declared))
+        .filter(([key, value]) => value !== fileSupply(production, key))
+        .map(([key]) => key);
+
+      expect(divergent).toEqual([]);
+    }
+  );
+
+  it.each(variants)('binds each key %s declares to the value it declares', (variant, declared) => {
+    const bound = bindings(variant);
+
+    expect(Object.keys(declared).filter((key) => bound[key] !== declared[key])).toEqual([]);
+  });
 });
 
 /**

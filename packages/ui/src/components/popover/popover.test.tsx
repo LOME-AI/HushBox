@@ -2,7 +2,7 @@ import * as React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, it, expect, onTestFinished, vi } from 'vitest';
-import { Popover } from './popover';
+import { hangFromTrigger, Popover } from './popover';
 import { PortalContainerProvider } from '../primitives/portal-container';
 
 type ChangeListener = (event: MediaQueryListEvent) => void;
@@ -241,6 +241,29 @@ describe('Popover from 768', () => {
     });
     expect(screen.getByRole('button', { name: 'Aspect' })).toHaveFocus();
   });
+
+  it('hands focus on close to onCloseAutoFocus when given', async () => {
+    installViewport(1440);
+    render(
+      <>
+        <button type="button">Opener</button>
+        <Sample
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            screen.getByRole('button', { name: 'Opener' }).focus();
+          }}
+        />
+      </>
+    );
+    await openFromTrigger();
+
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Opener' })).toHaveFocus();
+  });
 });
 
 describe('Popover below 768', () => {
@@ -373,6 +396,29 @@ describe('Popover below 768', () => {
     expect(screen.getByRole('button', { name: 'Aspect' })).toHaveFocus();
   });
 
+  it('hands focus on close to onCloseAutoFocus when given', async () => {
+    installViewport(767);
+    render(
+      <>
+        <button type="button">Opener</button>
+        <Sample
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            screen.getByRole('button', { name: 'Opener' }).focus();
+          }}
+        />
+      </>
+    );
+    const dialog = await openFromTrigger();
+
+    clickInsideSheet(within(dialog).getByRole('button', { name: 'Close' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Opener' })).toHaveFocus();
+  });
+
   it('opens as a sheet from a controlled open', async () => {
     installViewport(390);
     render(<Sample open onOpenChange={vi.fn()} />);
@@ -469,5 +515,44 @@ describe('Popover portal', () => {
     );
 
     expect(target).toContainElement(await screen.findByRole('dialog'));
+  });
+});
+
+describe('hangFromTrigger', () => {
+  it('measures the trigger', () => {
+    const trigger = document.createElement('button');
+    const rect = new DOMRect(10, 20, 30, 40);
+    trigger.getBoundingClientRect = (): DOMRect => rect;
+
+    expect(hangFromTrigger({ current: trigger }).getBoundingClientRect()).toBe(rect);
+  });
+
+  it('names the trigger as its element, so the popover follows its scrolling ancestors', () => {
+    const trigger = document.createElement('button');
+
+    expect(hangFromTrigger({ current: trigger }).contextElement).toBe(trigger);
+  });
+
+  it('reads the trigger when asked, not when made', () => {
+    const ref: { current: HTMLElement | null } = { current: null };
+    const point = hangFromTrigger(ref);
+    const trigger = document.createElement('button');
+    ref.current = trigger;
+
+    expect(point.contextElement).toBe(trigger);
+  });
+
+  it('measures the page while the trigger is between nodes', () => {
+    const rect = new DOMRect(0, 0, 1, 1);
+    const measure = vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(rect);
+    onTestFinished(() => {
+      measure.mockRestore();
+    });
+
+    expect(hangFromTrigger({ current: null }).getBoundingClientRect()).toBe(rect);
+  });
+
+  it('names no element while the trigger is between nodes', () => {
+    expect(hangFromTrigger({ current: null }).contextElement).toBeUndefined();
   });
 });

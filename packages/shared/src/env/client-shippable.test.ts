@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { Destination, Mode, envConfig, ref, secret, type VariableConfig } from './env.config.ts';
-import { frontendRoutingRefusals, shippableEntries } from './client-shippable.ts';
+import {
+  frontendRoutingRefusals,
+  nativeBakedEntries,
+  nativeRoutingRefusals,
+  shippableEntries,
+} from './client-shippable.ts';
 import type { Credential } from './env-types.ts';
 
 /** A credential the rule admits: publishable, held where every build job resolves it. */
@@ -73,6 +78,32 @@ describe('shippableEntries', () => {
 
   it('reads the registry when given none', () => {
     expect(shippableEntries().get('VITE_API_URL')).toBe(envConfig.VITE_API_URL);
+  });
+});
+
+describe('nativeBakedEntries', () => {
+  it('holds an entry routed into the native build by one mode alone', () => {
+    const registry: Record<string, VariableConfig> = {
+      NATIVE_FIXTURE: {
+        to: [Destination.Scripts],
+        [Mode.Development]: 'x',
+        [Mode.Production]: { value: secret('FIXTURE_SECRET'), to: [Destination.Native] },
+      },
+    };
+
+    expect([...nativeBakedEntries(registry).keys()]).toEqual(['NATIVE_FIXTURE']);
+  });
+
+  it('leaves out an entry routed only to the frontend', () => {
+    const registry: Record<string, VariableConfig> = {
+      VITE_FIXTURE: { to: [Destination.Frontend], [Mode.Development]: 'x' },
+    };
+
+    expect([...nativeBakedEntries(registry).keys()]).toEqual([]);
+  });
+
+  it('reads the Firebase Android configuration out of the registry when given none', () => {
+    expect([...nativeBakedEntries().keys()]).toEqual(['GOOGLE_SERVICES_JSON_BASE64']);
   });
 });
 
@@ -185,5 +216,35 @@ describe('frontendRoutingRefusals', () => {
       'PLANTED: a severe credential is routed to the frontend',
       'PLANTED: a credential held in github:ci is routed to the frontend',
     ]);
+  });
+});
+
+describe('nativeRoutingRefusals', () => {
+  /** An entry the native build compiles into the app, carrying `credential`. */
+  function nativeCredential(credential: Credential): VariableConfig {
+    return {
+      to: [Destination.Scripts],
+      credential,
+      [Mode.Production]: { value: secret('FIXTURE_SECRET'), to: [Destination.Native] },
+    };
+  }
+
+  it('refuses nothing in the registry', () => {
+    expect(nativeRoutingRefusals()).toEqual([]);
+  });
+
+  it.each(['severe', 'companyEnding'] as const)(
+    'refuses a %s credential routed into the native build',
+    (leakImpact) => {
+      const registry = { PLANTED: nativeCredential({ ...PUBLISHABLE, leakImpact }) };
+
+      expect(nativeRoutingRefusals(registry)).toEqual([
+        `PLANTED: a ${leakImpact} credential is routed into the native build`,
+      ]);
+    }
+  );
+
+  it('admits a nuisance credential routed into the native build', () => {
+    expect(nativeRoutingRefusals({ PLANTED: nativeCredential(PUBLISHABLE) })).toEqual([]);
   });
 });

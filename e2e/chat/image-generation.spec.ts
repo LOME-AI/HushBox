@@ -242,6 +242,7 @@ test.describe('Image Generation', SPEC_MATRIX, () => {
     const chatPage = new ChatPage(unauthenticatedPage);
     await chatPage.goto();
     await chatPage.expectNewChatPageVisible();
+    await chatPage.waitForAppStable();
 
     await chatPage.openModeMenu();
     const image = chatPage.modeMenuItem('image');

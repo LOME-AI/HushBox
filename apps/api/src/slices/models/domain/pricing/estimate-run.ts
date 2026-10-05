@@ -14,7 +14,7 @@ import {
   carveToolLoopSteps,
   charStorageNanoUsd,
   isToolName,
-  mediaOutputBytes,
+  mediaRunStorageNanoUsd,
   toolCallCapFor,
   toolCallsOfSteps,
   toolLoopBound,
@@ -23,7 +23,7 @@ import {
 import { callOutputCeilingTokens } from '@hushbox/shared/affordability/completion-cap';
 import { classifierReserveCurve } from '@hushbox/shared/affordability/estimate/smart-model-affordability';
 import { costAt, tiersAt } from '@hushbox/shared/affordability/price/curve';
-import { tokenPricingOf } from '@hushbox/shared/affordability/price/wire';
+import { mediaPricingOf, tokenPricingOf } from '@hushbox/shared/affordability/price/wire';
 import { declaredCeilingError, mediaCallUsageFor, reservedCallParts } from './estimate.js';
 import { validationError } from '../../../../lib/errors/index.js';
 import { Result, err, ok } from '../../../../lib/result/index.js';
@@ -63,32 +63,21 @@ type EstimateRun = (definition: WorkflowDefinition) => Result<RunReservation, Do
  * (`inputChars`), read PER-RUN from the `WorkflowDefinition`, never a per-caller
  * argument. A chat turn stamps it; a general or no-persist definition omits it,
  * so storage is zero and the ceiling is provider cost only. When present the
- * estimator adds input storage ONCE (the prompt, at the definition level) plus
- * output storage for each node whose value settlement can persist — at the one
- * stored-output ratio for text, byte-estimated for media. A node whose output
- * another node consumes is not one of those, and holds none. This is why the
- * estimator is no longer purely structural: a persisting turn's hold must cover
- * the storage it will be billed.
+ * estimator adds input storage ONCE (the prompt, at the definition level),
+ * output storage for each text node whose value settlement can persist, at the
+ * one stored-output ratio, and media storage ONCE for the run when any media
+ * node's value can persist. A node whose output another node consumes is not
+ * one of those, and holds none. This is why the estimator is no longer purely
+ * structural: a persisting turn's hold must cover the storage it will be billed.
  */
-
-/** A token node's output-storage inputs for the given persisting-turn context. */
-function tokenNodeStorage(storageContext: StorageStamp | undefined): NodeStorage | undefined {
-  if (storageContext === undefined) return undefined;
-  return { mediaStorageBytes: 0 };
-}
 
 /**
- * A media node's output-storage bytes, from the one byte estimate the client's
- * cost display and the picker's affordability verdict also price against.
+ * The persistence marker a node's call carries when the turn persists. Media
+ * bytes are never per node: the run reserves them once ({@link withMediaRunStorage}).
  */
-function mediaNodeStorage(
-  storageContext: StorageStamp | undefined,
-  family: 'image' | 'video',
-  usage: CallUsage
-): NodeStorage | undefined {
+function nodeStorage(storageContext: StorageStamp | undefined): NodeStorage | undefined {
   if (storageContext === undefined) return undefined;
-  const units = usage.kind === 'media' ? usage.units : 0;
-  return { mediaStorageBytes: mediaOutputBytes(family, units) };
+  return { persists: true };
 }
 
 /** The prompt's storage, charged once per turn; zero when nothing rests. */
@@ -132,9 +121,11 @@ function reservedCallOf(
 }
 
 /**
- * One media call's reservation: its deterministic per-unit price at the
- * requested units plus the bytes settlement will store for the artifact. Media
- * pricing has no usage variance, so this is exact rather than a worst case.
+ * One media call's reservation: its dearest billable unit for the requested
+ * units, so the hold covers the call at any rate the catalog lists rather than
+ * equalling what it bills — settlement bills the provider's returned cost, or
+ * the anchor estimate when no returned cost can stand. The bytes the call
+ * stores are the run's, reserved once.
  */
 function reservedMediaCall(
   identity: CallIdentity,
@@ -143,7 +134,7 @@ function reservedMediaCall(
   storageContext: StorageStamp | undefined
 ): Result<ReservedCall, DomainError> {
   return mediaCallUsageFor(call.family, call.params).andThen((usage) =>
-    reservedCallOf(identity, usage, ceiling, mediaNodeStorage(storageContext, call.family, usage))
+    reservedCallOf(identity, usage, ceiling, nodeStorage(storageContext))
   );
 }
 
@@ -152,13 +143,13 @@ const SINGLE_CALL: DeclaredCeiling = { maxFanOutWidth: 1, maxIterations: 1 };
 
 /**
  * A media turn's `minTurnCost`: the deterministic per-unit price of every sibling
- * generation, plus the artifact's stored bytes and the prompt's characters
+ * generation, plus the run's media storage once and the prompt's characters
  * (`docs/BILLING.md` §Storage Fees, the two nano rates).
  * A per-unit modality takes its own bound in place of the token ceiling
  * (§Extending the System, "Add a modality"), so §Math & Terms' token corner —
  * which is the only `minTurnCost` that section defines — is inert here: media
  * carries no token leg, the minimum IS the whole priced turn, and pricing it any
- * other way (a token approximation, or the provider leg without its bytes) leaves
+ * other way (a token approximation, or the provider leg without its storage) leaves
  * a headroom band that clears the payer freeze and then fails admission.
  *
  * Priced through the same node pricing {@link createEstimateRun} walks, so the
@@ -184,7 +175,10 @@ export function mediaTurnMinCostNanoUsd(
         : err(validationError(`Model '${descriptor.id}' generates no image or video to price`));
     })
   ).map((calls) =>
-    calls.reduce((total, call) => total + call.heldNanoUsd, inputStorageNanoUsd(storageContext))
+    withMediaRunStorage(calls).reduce(
+      (total, call) => total + call.heldNanoUsd,
+      inputStorageNanoUsd(storageContext)
+    )
   );
 }
 
@@ -295,10 +289,11 @@ function enclosureFor(
  * ceiling ({@link inputTokenCeiling}) and the output-leg ceiling
  * ({@link callOutputCeilingTokens}), neither wider than the model's context
  * window. A call that carries a tool is priced over every step of its loop. Image/video: the
- * DETERMINISTIC catalog price for the node's declared call params (per-image
- * rate × count; per-second-at-resolution rate × duration) — exact, not an
- * over-estimate, since media pricing has no usage variance. Either way scaled
- * by declared fan-out width and loop iterations. Fail-closed if the model is
+ * dearest billable unit the catalog lists for the node's declared call params
+ * (one image at its per-image rate; the per-second rate at the requested
+ * resolution × duration), so the hold covers the call at any listed rate rather
+ * than equalling what it bills. Either way scaled by declared fan-out width and
+ * loop iterations. Fail-closed if the model is
  * unknown, unpriced, declares no context-token limit (language), or carries
  * unpriceable call params (media): any of those means no true ceiling can be
  * derived, so the run must be refused — never mid-run.
@@ -455,9 +450,9 @@ function modelCeiling(
     outputTokens: callOutputCeilingTokens(params, descriptor),
     ...(call.toolLoop === undefined ? {} : { toolLoop: call.toolLoop }),
   };
-  return reservedCallOf(identity, usage, ceiling, tokenNodeStorage(storageContext)).map(
-    (reserved) => [reserved]
-  );
+  return reservedCallOf(identity, usage, ceiling, nodeStorage(storageContext)).map((reserved) => [
+    reserved,
+  ]);
 }
 
 /**
@@ -584,6 +579,7 @@ function classifierReserveCall(
     providerNanoUsd: held,
     storageNanoUsd: nanoUSD(0n),
     heldNanoUsd: held,
+    routingClassifier: true,
   });
 }
 
@@ -864,6 +860,26 @@ function carriesRungCeilings(node: SmartModelNode): boolean {
 }
 
 /**
+ * The run's media storage, reserved once on the first media call whose value can
+ * persist and outside any enclosure multiplier. Every media value the run holds
+ * shares the one value-store budget, which refuses what would exceed it, so the
+ * budget bounds the bytes settlement can bill however many calls generate them.
+ */
+function withMediaRunStorage(calls: readonly ReservedCall[]): readonly ReservedCall[] {
+  const index = calls.findIndex(
+    (call) => call.quantities.persists && mediaPricingOf(call.pricing) !== undefined
+  );
+  const carrier = calls[index];
+  if (carrier === undefined) return calls;
+  const storage = mediaRunStorageNanoUsd();
+  return calls.with(index, {
+    ...carrier,
+    storageNanoUsd: nanoUSD(carrier.storageNanoUsd + storage),
+    heldNanoUsd: nanoUSD(carrier.heldNanoUsd + storage),
+  });
+}
+
+/**
  * The prompt's storage, reserved once per turn on the first reserved call and
  * outside any enclosure multiplier: the prompt is stored once however many
  * times the calls run. The call's quantities name the characters it stores.
@@ -901,12 +917,12 @@ function withInputStorage(
  * workflows, and every no-persist definition) the reservation is provider cost
  * only; a persisting chat turn stamps it (from the TurnBudget, via
  * `withStorageStamp`) and the reservation additionally covers input storage ONCE
- * (the prompt) plus the output storage of every node whose value settlement can
- * persist — matching what settlement bills, so admission never under-reserves.
- * Storage is pass-through and never marked up. One estimator instance serves
- * every run; the per-run storage difference is the stamp, not a closed-over
- * argument (the stamp cannot reach this factory — it is built once per DO from
- * env, before any turn is known).
+ * (the prompt), the output storage of every text node whose value settlement can
+ * persist, and the run's media storage ONCE when a media node's value can persist
+ * — covering what settlement bills, so admission never under-reserves.
+ * Storage is pass-through and never marked up. The estimator closes over a
+ * catalog snapshot alone, never over a turn, so the per-run storage difference
+ * is read from the definition's stamp.
  */
 export function createEstimateRun(resolveModel: ModelPricingResolver): EstimateRun {
   return (definition) => {
@@ -979,7 +995,7 @@ export function createEstimateRun(resolveModel: ModelPricingResolver): EstimateR
     }
     perNode.push(jointRungCeiling(perRung));
     return Result.combine(perNode).map((reservations) => {
-      const calls = withInputStorage(reservations.flat(), storageContext);
+      const calls = withInputStorage(withMediaRunStorage(reservations.flat()), storageContext);
       // With no call to carry it, the input storage is the whole hold.
       const total = calls.length === 0 ? inputStorageNanoUsd(storageContext) : heldBy(calls);
       return { totalNanoUsd: nanoUSD(total), calls };

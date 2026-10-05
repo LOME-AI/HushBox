@@ -13,6 +13,12 @@ import {
   type BrowserContextOptions,
   type Page,
 } from '@playwright/test';
+import { mediaTurnCostNanoUsd, nanoUnitPriceUsd } from '@hushbox/shared';
+import {
+  FIXTURE_IMAGE_MODEL,
+  FIXTURE_VIDEO_MODEL,
+  FIXTURE_VIDEO_TURN,
+} from './composer-bar-fixture/models-stub';
 import type { ChatModality } from '@hushbox/shared';
 
 /**
@@ -82,6 +88,7 @@ declare global {
 /** Stubbed data hooks: each alias swaps one module the composer reads for the fixture's stand-in. */
 const STUBS: readonly (readonly [string, string])[] = [
   ['@/hooks/billing/use-prompt-budget', 'prompt-budget-stub.ts'],
+  ['@/hooks/models/models', 'models-stub.ts'],
   ['@/hooks/models/use-payer-premium-access', 'payer-premium-access-stub.ts'],
   ['@/hooks/chat/use-reasoning-effort', 'reasoning-effort-stub.ts'],
   ['@/providers/stability-provider', 'stability-stub.ts'],
@@ -200,6 +207,16 @@ async function readAfterLayout(page: Page): Promise<ComposerReading> {
   });
 }
 
+/** The cost line a media turn over the fixture's selected model shows, priced by the shared producer. */
+function costLineOf(modality: 'image' | 'video'): string {
+  const cost =
+    modality === 'image'
+      ? mediaTurnCostNanoUsd({ modality, models: [FIXTURE_IMAGE_MODEL] })
+      : mediaTurnCostNanoUsd({ modality, models: [FIXTURE_VIDEO_MODEL], ...FIXTURE_VIDEO_TURN });
+  if (!cost.ok) throw new Error(`the fixture's ${modality} model has no price`);
+  return `≈ ${nanoUnitPriceUsd(cost.value, 3)}`;
+}
+
 function control(reading: ComposerReading, slot: string): ControlReading | undefined {
   return reading.controls.find((entry) => entry.slot === slot);
 }
@@ -313,6 +330,24 @@ describe('composer bar (real browser)', () => {
             const reading = await readComposer(page, { effort: modality === 'text', modality });
             expect(overlappingPairs(reading)).toEqual([]);
           }
+        });
+      },
+      TEST_MS
+    );
+
+    it.each(['image', 'video'] as const)(
+      "shows the %s cost line priced from the fixture's catalog at 320",
+      async (modality) => {
+        await withPage(engine, { width: 320 }, async (page) => {
+          await readComposer(page, { effort: false, modality });
+          // The composer holds two copies of the line, one hidden at any width, so a
+          // reader meets the visible one.
+          const shown = await page
+            .locator('[data-slot="composer"]')
+            .getByText(/^≈ \$/)
+            .filter({ visible: true })
+            .allTextContents();
+          expect(shown).toEqual([costLineOf(modality)]);
         });
       },
       TEST_MS

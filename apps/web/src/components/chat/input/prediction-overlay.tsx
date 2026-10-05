@@ -1,7 +1,14 @@
 import * as React from 'react';
-import { cn, Kbd, TEXTAREA_MIRROR_CLASSES, TEXTAREA_WRAP_CLASSES } from '@hushbox/ui';
+import { cn, Kbd, TEXTAREA_MIRROR_CLASSES, TEXTAREA_NATIVE_WRAP_CLASSES } from '@hushbox/ui';
 import { useFormFactor } from '@hushbox/ui/platform';
 import { visiblePrediction, type PredictionState } from '@/lib/prediction/state';
+
+/**
+ * How long after a finger or pen lifts from an accepting press the overlay still waits for the
+ * click that tap generates. It bounds a long press, which ends with no click, and is far above
+ * the release-to-click delay of a tap, which arrives within milliseconds.
+ */
+export const TAP_CLICK_WINDOW_MS = 1000;
 
 interface PredictionOverlayProps {
   readonly state: PredictionState;
@@ -36,6 +43,15 @@ interface PredictionOverlayProps {
  * holds, and while the held answer belongs to different text — so no
  * combination of props can put a prediction on screen in those states.
  *
+ * A tap is a press and, after the release, a click the browser hit-tests afresh. Accepting on the
+ * press re-lays the page out — the overlay goes, and on the new-chat page the stack around the
+ * composer shifts — so that click can land on a control that has moved under the finger, the
+ * model chip among them. A finger or pen press therefore swallows the one click that follows it,
+ * and stops waiting for it once the press is cancelled, a new press begins, or
+ * {@link TAP_CLICK_WINDOW_MS} passes after the release. A mouse press arms nothing: the node it
+ * pressed is gone by the release, so it produces no click, and an armed swallow would eat the
+ * user's next keyboard activation instead.
+ *
  * `aria-hidden` because a screen-reader user hears the prediction through the
  * composer's live region instead; a mirrored copy of their own typing announced
  * twice is worse than silence. The Tab hint inherits that same `aria-hidden`
@@ -47,7 +63,35 @@ export function PredictionOverlay({
 }: Readonly<PredictionOverlayProps>): React.JSX.Element | null {
   const prediction = visiblePrediction(state);
   const { pointer } = useFormFactor();
+  const releaseClickSwallow = React.useRef<(() => void) | null>(null);
+  React.useEffect(() => () => releaseClickSwallow.current?.(), []);
   if (prediction === null) return null;
+
+  const swallowNextClick = (): void => {
+    releaseClickSwallow.current?.();
+    const swallow = (event: MouseEvent): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      release();
+    };
+    let windowTimer: ReturnType<typeof setTimeout> | undefined;
+    const openWindow = (): void => {
+      windowTimer = setTimeout(release, TAP_CLICK_WINDOW_MS);
+    };
+    const release = (): void => {
+      clearTimeout(windowTimer);
+      globalThis.removeEventListener('click', swallow, true);
+      globalThis.removeEventListener('pointerup', openWindow, true);
+      globalThis.removeEventListener('pointercancel', release, true);
+      globalThis.removeEventListener('pointerdown', release, true);
+      releaseClickSwallow.current = null;
+    };
+    globalThis.addEventListener('click', swallow, true);
+    globalThis.addEventListener('pointerup', openWindow, { capture: true, once: true });
+    globalThis.addEventListener('pointercancel', release, true);
+    globalThis.addEventListener('pointerdown', release, true);
+    releaseClickSwallow.current = release;
+  };
 
   return (
     <div
@@ -55,7 +99,7 @@ export function PredictionOverlay({
       aria-hidden="true"
       className={cn(
         'pointer-events-none absolute inset-x-0 top-0 overflow-visible select-none',
-        TEXTAREA_WRAP_CLASSES,
+        TEXTAREA_NATIVE_WRAP_CLASSES,
         TEXTAREA_MIRROR_CLASSES
       )}
     >
@@ -70,6 +114,7 @@ export function PredictionOverlay({
           // press is consumed here rather than being allowed to reach the
           // textarea underneath.
           event.preventDefault();
+          if (event.pointerType !== 'mouse') swallowNextClick();
           onAccept();
         }}
       >

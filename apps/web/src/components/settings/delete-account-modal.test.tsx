@@ -761,6 +761,20 @@ describe('DeleteAccountModal', () => {
       });
     });
 
+    it('tells the user two-factor is locked, with no wait, when the second factor is frozen', async () => {
+      mockFinishMutateAsync.mockRejectedValueOnce(apiError('TWO_FACTOR_FROZEN', 403));
+      const user = await advanceToFinalStep({ withTotp: true });
+      await user.type(screen.getByLabelText(/confirmation/i), 'delete my account');
+      await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
+
+      expect(
+        await screen.findByText(
+          /two-factor authentication is locked.*reset your password with your recovery phrase/i
+        )
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/try again in/i)).not.toBeInTheDocument();
+    });
+
     it("falls back to the code's own message when the lockout wait is malformed", async () => {
       mockFinishMutateAsync.mockRejectedValueOnce(
         apiError('DELETE_ACCOUNT_LOCKED', 403, { retryAfterSeconds: 0 })

@@ -207,6 +207,7 @@ vi.mock('@/hooks/billing/use-prompt-budget', () => ({
   usePromptBudget: (input: { value: string }) => ({
     fundingSource: 'personal_balance',
     notifications: [],
+    notices: [],
     capacityPercent: 5,
     capacityBand: 'room_to_spare',
     capacityCurrentUsage: 1100,

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { TEST_DAY_START, secondsAt, testUuidV7 } from '@hushbox/shared/test-time';
+import {
+  costCircuitTripEvent,
+  settlementAboveHoldEvent,
+} from '../../../slices/workflows/domain/engine/failures.js';
 import { scrubSentryEvent } from './sentry-scrub.js';
+import type { InferenceErrorCode } from '../../../slices/models/index.js';
 import type { ErrorEvent, EventHint } from '@sentry/cloudflare';
 
 /** An inert fixture stamp: nothing in this file reads it against a clock. */
@@ -11,6 +16,25 @@ const PII_SENTINEL = 'alice@example.com';
 const BODY_SENTINEL = 'request body with prompt text';
 /** RFC 5737 documentation address. */
 const CALLER_IP_SENTINEL = '203.0.113.9';
+
+/**
+ * Every inference code the model provider port can throw. A `Record` over the
+ * port's union, so a code added there fails to compile here until it is added.
+ */
+const EVERY_INFERENCE_CODE: Record<InferenceErrorCode, true> = {
+  invalid_request: true,
+  unsupported_modality: true,
+  no_providers_available: true,
+  no_reasoning_endpoints: true,
+  rate_limited: true,
+  content_policy: true,
+  context_length: true,
+  network: true,
+  aborted: true,
+  truncated_stream: true,
+  empty_completion: true,
+  upstream_error: true,
+};
 
 /**
  * One error carrying, under every tag the scrub emits off an error, a property
@@ -64,11 +88,21 @@ function everyTaggedProperty(): Error {
     backupStaleMinutes: 540,
     backupLifecycleNoncurrentDays: 3650,
     backupNoncurrentVersionDays: 41,
+    backupStoreStatus: 403,
+    inferenceCode: 'upstream_error',
+    providerStatus: 402,
     growthClampedGrain: 'day',
     growthClampedBucket: '2026-02-11',
     growthClampedPath: '/pricing',
     resultChars: 12_423,
     droppedSourceCount: 7,
+    cutStepCount: 1,
+    holdNanoUsd: '900',
+    billedNanoUsd: '1200',
+    legs: 'input-above-estimate,tier-crossed',
+    billing: 'inline',
+    accruedNanoUsd: '2000',
+    limitNanoUsd: '500',
     conversationId: testUuidV7(0),
     supersededEpoch: 3,
     predecessorEpoch: 1,
@@ -209,11 +243,21 @@ describe('scrubSentryEvent field allowlist', () => {
         'backupStaleMinutes',
         'backupLifecycleNoncurrentDays',
         'backupNoncurrentVersionDays',
+        'backupStoreStatus',
+        'inferenceCode',
+        'providerStatus',
         'growthClampedGrain',
         'growthClampedBucket',
         'growthClampedPath',
         'resultChars',
         'droppedSourceCount',
+        'cutStepCount',
+        'holdNanoUsd',
+        'billedNanoUsd',
+        'legs',
+        'billing',
+        'accruedNanoUsd',
+        'limitNanoUsd',
         'conversationId',
         'supersededEpoch',
         'predecessorEpoch',
@@ -322,6 +366,115 @@ describe('scrubSentryEvent field allowlist', () => {
       errorCode: 'db_query_failed',
       runId: testUuidV7(0),
     });
+  });
+
+  it('surfaces a settlement above its hold by its run, both amounts, its legs and its billing, and nothing else', () => {
+    const error = settlementAboveHoldEvent({
+      runId: testUuidV7(0),
+      holdNanoUsd: 2_295_720_400n,
+      billedNanoUsd: 3_166_526_400n,
+      legs: ['tier-crossed', 'input-above-estimate'],
+      billing: 'inline',
+    });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    // The emitted error's whole own key set: a second property cannot arrive unseen.
+    expect(Object.keys(error)).toEqual([
+      'name',
+      'runId',
+      'holdNanoUsd',
+      'billedNanoUsd',
+      'legs',
+      'billing',
+    ]);
+    expect(scrubbed?.tags).toEqual({
+      errorCode: 'db_query_failed',
+      runId: testUuidV7(0),
+      holdNanoUsd: '2295720400',
+      billedNanoUsd: '3166526400',
+      legs: 'input-above-estimate,tier-crossed',
+      billing: 'inline',
+    });
+  });
+
+  it('surfaces every leg of the closed set, and an estimated bill', () => {
+    const legs =
+      'input-above-estimate,output-above-wire-cap,rate-above-ceiling,storage-above-allowance,tier-crossed,unattributed';
+    const error = Object.assign(new Error('x'), { legs, billing: 'estimated' });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed', legs, billing: 'estimated' });
+  });
+
+  it('drops a legs value naming anything outside the closed set of legs', () => {
+    const error = Object.assign(new Error('x'), {
+      legs: 'input-above-estimate,' + PII_SENTINEL,
+    });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed' });
+    expect(JSON.stringify(scrubbed)).not.toContain(PII_SENTINEL);
+  });
+
+  it('drops an empty legs value', () => {
+    const error = Object.assign(new Error('x'), { legs: '' });
+
+    expect(scrubSentryEvent(hostileEvent(), { originalException: error })?.tags).toEqual({
+      errorCode: 'db_query_failed',
+    });
+  });
+
+  it('drops a billing value outside the two ways a bill is priced', () => {
+    const error = Object.assign(new Error('x'), { billing: PII_SENTINEL });
+
+    expect(scrubSentryEvent(hostileEvent(), { originalException: error })?.tags).toEqual({
+      errorCode: 'db_query_failed',
+    });
+  });
+
+  it('drops hold and bill amounts that are not nano-USD strings', () => {
+    const error = Object.assign(new Error('x'), {
+      holdNanoUsd: 'hold ' + PII_SENTINEL,
+      billedNanoUsd: 3_166_526_400,
+    });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed' });
+    expect(JSON.stringify(scrubbed)).not.toContain(PII_SENTINEL);
+  });
+
+  it('surfaces a cost-circuit trip by its run, its accrual and its limit', () => {
+    const error = costCircuitTripEvent({
+      runId: testUuidV7(0),
+      accruedNanoUsd: 2000n,
+      limitNanoUsd: 500n,
+    });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(Object.keys(error)).toEqual(['name', 'runId', 'accruedNanoUsd', 'limitNanoUsd']);
+    expect(scrubbed?.tags).toEqual({
+      errorCode: 'db_query_failed',
+      runId: testUuidV7(0),
+      accruedNanoUsd: '2000',
+      limitNanoUsd: '500',
+    });
+  });
+
+  it('drops an accrual and a limit that are not nano-USD strings', () => {
+    const error = Object.assign(new Error('x'), {
+      accruedNanoUsd: 'spent ' + PII_SENTINEL,
+      limitNanoUsd: 500,
+    });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed' });
+    expect(JSON.stringify(scrubbed)).not.toContain(PII_SENTINEL);
   });
 
   it('surfaces the route a rate-limit bypass could not bound as a discrete tag', () => {
@@ -506,6 +659,106 @@ describe('scrubSentryEvent field allowlist', () => {
     expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed' });
   });
 
+  it('surfaces the HTTP status a backup store refused a read with as a discrete tag', () => {
+    const error = Object.assign(new Error('unavailable ' + MESSAGE_SENTINEL), {
+      backupStoreStatus: 403,
+      // A sibling property carrying the store's own words must not travel with it.
+      storeBody: '<Error><Message>' + PII_SENTINEL + '</Message></Error>',
+    });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed', backupStoreStatus: 403 });
+    expect(JSON.stringify(scrubbed)).not.toContain(PII_SENTINEL);
+  });
+
+  it.each([100, 599])(
+    'keeps a backup store status at the edge of the HTTP range (%d)',
+    (status) => {
+      const error = Object.assign(new Error('x'), { backupStoreStatus: status });
+
+      const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+      expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed', backupStoreStatus: status });
+    }
+  );
+
+  it.each([
+    ['a string', '403 ' + PII_SENTINEL],
+    ['a float', 403.5],
+    ['a number below the HTTP range', 99],
+    ['a number above the HTTP range', 600],
+  ])('drops a backup store status that is %s', (_shape, status) => {
+    const error = Object.assign(new Error('x'), { backupStoreStatus: status });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed' });
+    expect(JSON.stringify(scrubbed)).not.toContain(PII_SENTINEL);
+  });
+
+  it('surfaces the inference code and provider status of a provider failure as discrete tags', () => {
+    const error = Object.assign(new Error('provider failed ' + MESSAGE_SENTINEL), {
+      inferenceCode: 'upstream_error',
+      providerStatus: 402,
+      // A sibling property carrying the provider's own words must not travel with them.
+      providerMessage: 'insufficient credits for ' + PII_SENTINEL,
+    });
+    const event = { ...hostileEvent(), tags: { errorCode: 'inference_provider_failed' } };
+
+    const scrubbed = scrubSentryEvent(event, { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({
+      errorCode: 'inference_provider_failed',
+      inferenceCode: 'upstream_error',
+      providerStatus: 402,
+    });
+    expect(JSON.stringify(scrubbed)).not.toContain(PII_SENTINEL);
+  });
+
+  it.each(Object.keys(EVERY_INFERENCE_CODE))('keeps the inference code %s', (inferenceCode) => {
+    const error = Object.assign(new Error('x'), { inferenceCode });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed', inferenceCode });
+  });
+
+  it.each([
+    ['a string outside the set', 'upstream_error ' + PII_SENTINEL],
+    ['a number', 402],
+    ['an object', { code: 'upstream_error' }],
+  ])('drops an inference code that is %s', (_shape, inferenceCode) => {
+    const error = Object.assign(new Error('x'), { inferenceCode });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed' });
+    expect(JSON.stringify(scrubbed)).not.toContain(PII_SENTINEL);
+  });
+
+  it.each([100, 599])('keeps a provider status at the edge of the HTTP range (%d)', (status) => {
+    const error = Object.assign(new Error('x'), { providerStatus: status });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed', providerStatus: status });
+  });
+
+  it.each([
+    ['a string', '402 ' + PII_SENTINEL],
+    ['a float', 402.5],
+    ['a number below the HTTP range', 99],
+    ['a number above the HTTP range', 600],
+  ])('drops a provider status that is %s', (_shape, status) => {
+    const error = Object.assign(new Error('x'), { providerStatus: status });
+
+    const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed' });
+    expect(JSON.stringify(scrubbed)).not.toContain(PII_SENTINEL);
+  });
+
   it('surfaces the size of an oversize search payload as a discrete tag and nothing else of it', () => {
     // The shape the search adapter captures under search_result_oversize, plus a
     // sibling carrying search text that must not travel with the size.
@@ -557,6 +810,42 @@ describe('scrubSentryEvent field allowlist', () => {
 
     expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed' });
   });
+
+  it('surfaces how many model steps a hard stop cut as a discrete tag and nothing else of it', () => {
+    // The shape the model-call node captures under workflow_hard_stop_absorbed,
+    // plus a sibling carrying streamed text that must not travel with the count.
+    const error = Object.assign(new Error('the hard stop cut a model step in flight'), {
+      runId: testUuidV7(0),
+      cutStepCount: 2,
+      partialText: 'answer about ' + PII_SENTINEL,
+    });
+    error.name = 'HardStopAbsorbed';
+    const event = { ...hostileEvent(), tags: { errorCode: 'workflow_hard_stop_absorbed' } };
+
+    const scrubbed = scrubSentryEvent(event, { originalException: error });
+
+    expect(scrubbed?.tags).toEqual({
+      errorCode: 'workflow_hard_stop_absorbed',
+      runId: testUuidV7(0),
+      cutStepCount: 2,
+    });
+    expect(JSON.stringify(scrubbed)).not.toContain(PII_SENTINEL);
+  });
+
+  it.each([
+    ['text', '1 ' + PII_SENTINEL],
+    ['negative', -1],
+    ['fractional', 1.5],
+  ])(
+    'drops a %s cut-step count, since a whole non-negative count is the only shape that travels',
+    (_label, cutStepCount) => {
+      const error = Object.assign(new Error('x'), { cutStepCount });
+
+      const scrubbed = scrubSentryEvent(hostileEvent(), { originalException: error });
+
+      expect(scrubbed?.tags).toEqual({ errorCode: 'db_query_failed' });
+    }
+  );
 
   it('surfaces a superseded epoch as discrete conversation and epoch tags while dropping message and PII', () => {
     const error = Object.assign(new Error('recovery superseded ' + MESSAGE_SENTINEL), {

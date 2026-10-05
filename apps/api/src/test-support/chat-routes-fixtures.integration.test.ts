@@ -79,7 +79,11 @@ describe('seedTrialDecoys', () => {
     // billable rates, so the row carries that rate marked up and ceil-rounded —
     // a number no hand-written fixture lands on by accident.
     expect(descriptor.pricing).toEqual(
-      tokenPricingFixture({ input: 1_150_000_000n, output: 1_150_000_000n })
+      tokenPricingFixture({
+        input: 1_150_000_000n,
+        output: 1_150_000_000n,
+        anchorContextTokens: 100_000,
+      })
     );
   });
 });
@@ -89,7 +93,9 @@ describe('seedGateModel', () => {
     const modelId = freshModelId();
     await seedGateModel(modelId, { pricing: { anchor: { base: { output: '7' } } } });
     const descriptor = await seededDescriptor(modelId);
-    expect(descriptor.pricing).toEqual(tokenPricingFixture({ input: 2n, output: 7n }));
+    expect(descriptor.pricing).toEqual(
+      tokenPricingFixture({ input: 2n, output: 7n, anchorContextTokens: 100_000 })
+    );
   });
 
   it('keeps the context length when an override names another limit', async () => {

@@ -75,6 +75,9 @@ interface TextItemSpec {
   text: string;
   reasoningTokens?: number | null;
   reasoningEffort?: ResolvedReasoningEffort | null;
+  reasoningDurationMs?: number | null;
+  modelName?: string | null;
+  isSmartModel?: boolean;
 }
 
 interface MediaItemSpec {
@@ -86,6 +89,8 @@ interface MediaItemSpec {
   width?: number | null;
   height?: number | null;
   durationMs?: number | null;
+  modelName?: string | null;
+  isSmartModel?: boolean;
 }
 
 interface BuiltShare {
@@ -127,11 +132,11 @@ function buildShare(
     width: null,
     height: null,
     durationMs: null,
-    modelName: null,
-    isSmartModel: false,
+    modelName: item.modelName ?? null,
+    isSmartModel: item.isSmartModel ?? false,
     reasoningTokens: item.reasoningTokens ?? null,
     reasoningEffort: item.reasoningEffort ?? null,
-    reasoningDurationMs: null,
+    reasoningDurationMs: item.reasoningDurationMs ?? null,
     encryptedBlob: toBase64(
       encryptContentEnvelope(
         contentKey,
@@ -158,8 +163,8 @@ function buildShare(
     width: item.width ?? null,
     height: item.height ?? null,
     durationMs: item.durationMs ?? null,
-    modelName: null,
-    isSmartModel: false,
+    modelName: item.modelName ?? null,
+    isSmartModel: item.isSmartModel ?? false,
     reasoningTokens: null,
     reasoningEffort: null,
     reasoningDurationMs: null,
@@ -188,6 +193,25 @@ function buildShare(
 }
 
 type SharedMessageData = import('@/hooks/chat/use-shared-message.js').SharedMessageData;
+
+type SharedTextItem = Extract<
+  import('@/hooks/chat/use-shared-message.js').SharedContentItem,
+  { type: 'text' }
+>;
+
+/** A decrypted text item whose share read recorded no model and no reasoning. */
+function unattributedText(position: number, content: string): SharedTextItem {
+  return {
+    type: 'text',
+    position,
+    content,
+    modelName: null,
+    isSmartModel: false,
+    reasoningTokens: null,
+    reasoningEffort: null,
+    reasoningDurationMs: null,
+  };
+}
 
 /** Narrows the hook's data to a live share, failing the test on anything else. */
 function liveShare(
@@ -262,15 +286,9 @@ describe('useSharedMessage', () => {
 
     expect(result.current.data?.createdAt).toBe(isoAt(TEST_DAY_START + 10 * HOUR_MS));
     expect(liveShare(result.current.data).contentItems).toEqual([
-      { type: 'text', position: 0, content: 'first', reasoningTokens: null, reasoningEffort: null },
-      {
-        type: 'text',
-        position: 1,
-        content: 'second',
-        reasoningTokens: null,
-        reasoningEffort: null,
-      },
-      { type: 'text', position: 2, content: 'third', reasoningTokens: null, reasoningEffort: null },
+      unattributedText(0, 'first'),
+      unattributedText(1, 'second'),
+      unattributedText(2, 'third'),
     ]);
     expect(liveShare(result.current.data).contentKey).toEqual(share.contentKey);
   });
@@ -320,13 +338,7 @@ describe('useSharedMessage', () => {
 
     expect(liveShare(result.current.data).senderId).toBe('');
     expect(liveShare(result.current.data).contentItems).toEqual([
-      {
-        type: 'text',
-        position: 0,
-        content: 'still readable',
-        reasoningTokens: null,
-        reasoningEffort: null,
-      },
+      unattributedText(0, 'still readable'),
     ]);
   });
 
@@ -412,15 +424,7 @@ describe('useSharedMessage', () => {
     });
 
     // The blob-less text item builds to null and is filtered out.
-    expect(liveShare(result.current.data).contentItems).toEqual([
-      {
-        type: 'text',
-        position: 0,
-        content: 'kept',
-        reasoningTokens: null,
-        reasoningEffort: null,
-      },
-    ]);
+    expect(liveShare(result.current.data).contentItems).toEqual([unattributedText(0, 'kept')]);
   });
 
   it('defaults missing media mimeType and byteLength to empty string and zero', async () => {
@@ -555,6 +559,116 @@ describe('useSharedMessage', () => {
     });
   });
 
+  it('carries the model name the share read serves for a text item', async () => {
+    const share = buildShare({
+      text: [{ id: 'ci-1', position: 0, text: 'answer', modelName: 'anthropic/claude-sonnet-4.5' }],
+    });
+    mockFetchJson.mockResolvedValue(share.payload);
+
+    const { useSharedMessage } = await import('@/hooks/chat/use-shared-message.js');
+    const { result } = renderHook(() => useSharedMessage('share-model', share.keyBase64), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(liveShare(result.current.data).contentItems[0]).toMatchObject({
+      modelName: 'anthropic/claude-sonnet-4.5',
+    });
+  });
+
+  it('carries the smart-model flag the share read serves for a text item', async () => {
+    const share = buildShare({
+      text: [{ id: 'ci-1', position: 0, text: 'routed', isSmartModel: true }],
+    });
+    mockFetchJson.mockResolvedValue(share.payload);
+
+    const { useSharedMessage } = await import('@/hooks/chat/use-shared-message.js');
+    const { result } = renderHook(() => useSharedMessage('share-smart', share.keyBase64), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(liveShare(result.current.data).contentItems[0]).toMatchObject({ isSmartModel: true });
+  });
+
+  it('carries the reasoning duration the share read serves for a text item', async () => {
+    const share = buildShare({
+      text: [{ id: 'ci-1', position: 0, text: 'answer', reasoningDurationMs: 12_000 }],
+    });
+    mockFetchJson.mockResolvedValue(share.payload);
+
+    const { useSharedMessage } = await import('@/hooks/chat/use-shared-message.js');
+    const { result } = renderHook(() => useSharedMessage('share-duration', share.keyBase64), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(liveShare(result.current.data).contentItems[0]).toMatchObject({
+      reasoningDurationMs: 12_000,
+    });
+  });
+
+  it('carries the model name and smart-model flag the share read serves for a media item', async () => {
+    const share = buildShare({
+      media: [
+        {
+          id: 'ci-img',
+          position: 0,
+          contentType: 'image',
+          mimeType: 'image/png',
+          modelName: 'google/imagen-4',
+          isSmartModel: true,
+        },
+      ],
+    });
+    mockFetchJson.mockResolvedValueOnce(share.payload).mockResolvedValueOnce({
+      downloadUrl: 'https://r2.example/ci-img',
+      expiresAt: isoAt(TEST_DAY_START + 17 * DAY_MS + HOUR_MS),
+    });
+
+    const { useSharedMessage } = await import('@/hooks/chat/use-shared-message.js');
+    const { result } = renderHook(() => useSharedMessage('share-media-model', share.keyBase64), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(liveShare(result.current.data).contentItems[0]).toMatchObject({
+      type: 'media',
+      modelName: 'google/imagen-4',
+      isSmartModel: true,
+    });
+  });
+
+  it("carries the message's own creation instant apart from the share's", async () => {
+    const share = buildShare({ text: [{ id: 'ci-1', position: 0, text: 'dated' }] });
+    mockFetchJson.mockResolvedValue(share.payload);
+
+    const { useSharedMessage } = await import('@/hooks/chat/use-shared-message.js');
+    const { result } = renderHook(() => useSharedMessage('share-dated', share.keyBase64), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    expect(liveShare(result.current.data).messageCreatedAt).toBe(
+      isoAt(TEST_DAY_START + 9 * HOUR_MS)
+    );
+  });
+
   describe('a share whose message is deleted', () => {
     function deletedShare(): BuiltShare {
       const share = buildShare({}, { senderId: null });
@@ -591,6 +705,51 @@ describe('useSharedMessage', () => {
       });
       expect(result.current.data?.deleted).toBe(true);
       expect(mockPresignGet).not.toHaveBeenCalled();
+    });
+
+    it("carries the message's own creation instant", async () => {
+      const share = deletedShare();
+      mockFetchJson.mockResolvedValue(share.payload);
+
+      const { useSharedMessage } = await import('@/hooks/chat/use-shared-message.js');
+      const { result } = renderHook(() => useSharedMessage('share-gone', share.keyBase64), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+      });
+      expect(result.current.data?.messageCreatedAt).toBe(isoAt(TEST_DAY_START + 9 * HOUR_MS));
+    });
+
+    it('carries the message id the server serves on a deleted share', async () => {
+      const share = deletedShare();
+      mockFetchJson.mockResolvedValue(share.payload);
+
+      const { useSharedMessage } = await import('@/hooks/chat/use-shared-message.js');
+      const { result } = renderHook(() => useSharedMessage('share-gone', share.keyBase64), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+      });
+      expect(result.current.data?.messageId).toBe(MESSAGE_ID);
+    });
+
+    it('carries the conversation id the server serves on a deleted share', async () => {
+      const share = deletedShare();
+      mockFetchJson.mockResolvedValue(share.payload);
+
+      const { useSharedMessage } = await import('@/hooks/chat/use-shared-message.js');
+      const { result } = renderHook(() => useSharedMessage('share-gone', share.keyBase64), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+      });
+      expect(result.current.data?.conversationId).toBe(CONVERSATION_ID);
     });
 
     it('returns deleted: false for a live share', async () => {

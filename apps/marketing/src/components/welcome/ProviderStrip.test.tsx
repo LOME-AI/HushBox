@@ -12,7 +12,7 @@ function makeModel(overrides: Partial<Model> = {}): Model {
     provider: 'OpenAI',
     modality: 'text',
     contextLength: 128_000,
-    pricing: { inputPerToken: '10000', outputPerToken: '20000' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000', outputPerToken: '20000' },
     description: 'A test model',
     supportedParameters: ['temperature'],
     ...overrides,

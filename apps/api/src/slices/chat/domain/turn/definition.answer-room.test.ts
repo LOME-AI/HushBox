@@ -190,6 +190,7 @@ function browserRefusal(
       modality: 'text',
       pinned: { effort },
       webSearch: false,
+      effortAuto: false,
     },
     { models: rows.map((row) => priceableOf(row)), nowMs: TEST_DAY_START }
   );
@@ -215,6 +216,7 @@ function unpinnedBrowserRefusal(...rows: readonly [Row, ...Row[]]): string | und
       modality: 'text',
       pinned: {},
       webSearch: false,
+      effortAuto: true,
     },
     { models: rows.map((row) => priceableOf(row)), nowMs: TEST_DAY_START }
   );
@@ -419,6 +421,7 @@ describe('a prompt that overruns the model window on the pinned-model auto-effor
     const catalog = [descriptorOf(SONNET), descriptorOf(R1)];
     return compileAutoEffortTurn(catalog, R1.id, {
       budget,
+      catalogGeneration: '0123456789abcdef',
       hooks: CHAT_TURN_HOOKS,
       now: new Date(TEST_DAY_START),
     }).match(

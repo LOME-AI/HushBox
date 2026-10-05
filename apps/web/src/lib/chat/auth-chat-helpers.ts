@@ -12,6 +12,7 @@ import { turnNoticeText, type TurnNotice } from '@/lib/chat/turn-notice';
 import { getEpochKey, getEpochVerdict } from '@/lib/crypto/epoch-key-cache';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type { Message } from '@/lib/api/api';
+import type { FailedTurn } from '@/stores/chat/error';
 
 export const DECRYPTING_TITLE = 'Decrypting...';
 export const UNREADABLE_TITLE = 'Encrypted conversation';
@@ -144,6 +145,7 @@ export function computePruneIds(
 interface ChatError {
   id: string;
   notice: TurnNotice;
+  failedTurn?: FailedTurn;
 }
 
 interface MergeMessagesInput {
@@ -169,20 +171,55 @@ export function mergeMessages(input: MergeMessagesInput): Message[] {
     }
   }
   if (input.chatError) {
-    messages = [
-      ...messages,
-      {
-        id: input.chatError.id,
-        conversationId: input.realConversationId ?? '',
-        role: 'assistant',
-        content: turnNoticeText(input.chatError.notice),
-        turnNotice: input.chatError.notice,
-        createdAt: new Date().toISOString(),
-        modelName: input.primaryModelId,
-      },
-    ];
+    const notice: Message = {
+      id: input.chatError.id,
+      conversationId: input.realConversationId ?? '',
+      role: 'assistant',
+      content: turnNoticeText(input.chatError.notice),
+      turnNotice: input.chatError.notice,
+      createdAt: new Date().toISOString(),
+      modelName: input.primaryModelId,
+    };
+    messages = placeFailedTurn(messages, notice, input.chatError.failedTurn);
   }
   return messages;
+}
+
+/**
+ * Sets a failed turn's notice in the thread: a failed regenerate or edit directly
+ * after its own turn's last reply, anything else at the end.
+ */
+function placeFailedTurn(
+  messages: Message[],
+  notice: Message,
+  failedTurn: FailedTurn | undefined
+): Message[] {
+  const anchorId =
+    failedTurn?.retry.kind === 'regenerate' ? failedTurn.retry.request.targetMessageId : null;
+  return placeTurnNotice(messages, notice, failedTurn?.retry.question ?? null, anchorId);
+}
+
+/**
+ * Places a failed turn's notice after its anchor's turn (before the next question),
+ * or at the end when the anchor is absent. Above it goes the turn's question when
+ * no row shows it: it was never stored, so it is a display row only and never
+ * reaches a history. Every page that shows a failed turn places it through here.
+ */
+export function placeTurnNotice(
+  messages: Message[],
+  notice: Message,
+  question: Message | null,
+  anchorId: string | null
+): Message[] {
+  const drawn =
+    question === null || messages.some((m) => m.id === question.id)
+      ? [notice]
+      : [{ ...question, unsavedQuestion: true as const }, notice];
+  const anchorIndex = messages.findIndex((m) => m.id === anchorId);
+  if (anchorIndex === -1) return [...messages, ...drawn];
+  const nextTurn = messages.findIndex((m, index) => index > anchorIndex && m.role === 'user');
+  const at = nextTurn === -1 ? messages.length : nextTurn;
+  return [...messages.slice(0, at), ...drawn, ...messages.slice(at)];
 }
 
 /**

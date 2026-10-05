@@ -62,6 +62,37 @@ describe('scanResourceErrors', () => {
     }
   });
 
+  it('detects net::ERR_INSUFFICIENT_RESOURCES as browser resource exhaustion', () => {
+    const result = scanResourceErrors([
+      entry('t', 'page.goto: net::ERR_INSUFFICIENT_RESOURCES at http://localhost/chat'),
+    ]);
+    expect(result.categories.map((c) => c.name)).toEqual(['browser resource exhaustion']);
+  });
+
+  it('detects ENOSPC as browser resource exhaustion', () => {
+    const result = scanResourceErrors([entry('t', 'Error: ENOSPC: no space left on device')]);
+    expect(result.categories.map((c) => c.name)).toEqual(['browser resource exhaustion']);
+  });
+
+  it('keeps the earlier categories ahead of browser resource exhaustion on a tie', () => {
+    const result = scanResourceErrors([
+      entry('a', 'ENOSPC'),
+      entry('b', 'EAGAIN'),
+      entry('c', 'EMFILE'),
+      entry('d', 'ENOMEM'),
+      entry('e', 'SIGKILL'),
+      entry('f', 'Target crashed'),
+    ]);
+    expect(result.categories.map((c) => c.name)).toEqual([
+      'process/thread limit',
+      'open-file limit',
+      'out of memory',
+      'process killed',
+      'browser crash',
+      'browser resource exhaustion',
+    ]);
+  });
+
   it('does not categorise a bare context-teardown message', () => {
     const result = scanResourceErrors([
       entry('t', 'Target page, context or browser has been closed'),

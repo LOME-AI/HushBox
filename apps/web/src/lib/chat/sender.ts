@@ -77,26 +77,38 @@ export function isOwnMessage(senderId: string | undefined, currentUserId: string
   return senderId !== undefined && senderId === currentUserId;
 }
 
+/** Whether a message may sit in a bubble beside another: a user's saved question, by a known sender. */
+function isGroupable(message: Message): boolean {
+  return (
+    message.role === 'user' && message.senderId !== undefined && message.unsavedQuestion !== true
+  );
+}
+
 /**
  * Group consecutive user messages with the same senderId into MessageGroups.
  *
  * Rules:
  * - AI messages (role: 'assistant') are never grouped — always standalone
  * - User messages without senderId are never grouped — always standalone
+ * - A question that was never saved is never grouped: a bubble offers one set of
+ *   controls for everything it holds, and an unsaved question offers Copy alone
  * - Consecutive user messages with the same senderId merge into one group
  */
 export function groupConsecutiveMessages(messages: Message[]): MessageGroup[] {
   const groups: MessageGroup[] = [];
 
   for (const msg of messages) {
-    const canGroup = msg.role === 'user' && msg.senderId !== undefined;
-
-    if (canGroup && groups.length > 0) {
-      const lastGroup = groups.at(-1);
-      if (lastGroup?.role === 'user' && lastGroup.senderId === msg.senderId) {
-        lastGroup.messages.push(msg);
-        continue;
-      }
+    const lastGroup = groups.at(-1);
+    const previous = lastGroup?.messages.at(-1);
+    if (
+      lastGroup !== undefined &&
+      previous !== undefined &&
+      isGroupable(msg) &&
+      isGroupable(previous) &&
+      previous.senderId === msg.senderId
+    ) {
+      lastGroup.messages.push(msg);
+      continue;
     }
 
     groups.push({

@@ -1,3 +1,4 @@
+import { NANO_USD_PER_CENT } from '@hushbox/shared';
 import { test, expect } from '../fixtures.js';
 import { matrix } from '../../scripts/lib/playwright/browser-matrix.js';
 import { UsagePage } from '../pages';
@@ -45,6 +46,15 @@ const BACKDATED_PROVIDER_NAME = 'seeded';
 /** Token dimensions for the seeded row: the usage read counts only rows that carry one. */
 const BACKDATED_TOKENS = { inputTokens: 1000, outputTokens: 1000 };
 
+/**
+ * How far the seven-day narrowing of the displayed total may read from the seeded charge.
+ * The summary prints its total to four places under a cent and to two from a cent up, so
+ * while the in-window spend is under a cent the "all" figure and the "7d" figure round to
+ * different places, and their difference strays from the true one by about half a cent at
+ * most.
+ */
+const DISPLAY_ROUNDING_TOLERANCE_NANO_USD = NANO_USD_PER_CENT;
+
 test.describe('Usage Analytics', SPEC_MATRIX, () => {
   test('usage page renders charts and filters work', async ({
     authenticatedPage,
@@ -56,8 +66,8 @@ test.describe('Usage Analytics', SPEC_MATRIX, () => {
     // with. The seed is what puts more than one model there, so the count it
     // establishes is what the narrowing is measured against.
     const seededColumns = chargedModels.modelCount + 1;
-    let seededRecords = 0;
-    let outsideWindowBefore = 0;
+    let seededCharge = 0n;
+    let outsideWindowBefore = 0n;
 
     await test.step('navigate via sidebar menu', async () => {
       await authenticatedPage.goto('/chat', { waitUntil: 'domcontentloaded' });
@@ -74,9 +84,9 @@ test.describe('Usage Analytics', SPEC_MATRIX, () => {
       // assertion below compares how far this figure MOVES, which is this
       // execution's seed whatever history the account already carried.
       await usagePage.selectDateRange('all');
-      const allTime = await usagePage.readSummaryMessages();
+      const allTime = await usagePage.readTotalSpentNanoUsd();
       await usagePage.selectDateRange('7d');
-      outsideWindowBefore = allTime - (await usagePage.readSummaryMessages());
+      outsideWindowBefore = allTime - (await usagePage.readTotalSpentNanoUsd());
     });
 
     await test.step('seed charged history dated outside the seven-day window', async () => {
@@ -115,7 +125,7 @@ test.describe('Usage Analytics', SPEC_MATRIX, () => {
       // expecting no movement, which is the one way it could pass while the
       // filter did nothing. Refused here rather than carried into it.
       expect(seeded.usageRecordsCreated).toBe(records.length);
-      seededRecords = seeded.usageRecordsCreated;
+      seededCharge = seededUsageCharge(seeded);
 
       // The page was standing before the seed landed, so every range it has
       // already queried is cached from before it. Reloading is what puts the
@@ -145,7 +155,7 @@ test.describe('Usage Analytics', SPEC_MATRIX, () => {
 
     await test.step('date range filters update the summary', async () => {
       await usagePage.selectDateRange('all');
-      const allTime = await usagePage.readSummaryMessages();
+      const allTime = await usagePage.readTotalSpentNanoUsd();
 
       await usagePage.selectDateRange('7d');
 
@@ -153,14 +163,24 @@ test.describe('Usage Analytics', SPEC_MATRIX, () => {
       // A charge minted during the run sits in both windows and cancels inside
       // each difference; a row an earlier execution left behind sits outside
       // the window in both differences and cancels between them. The seed is
-      // the only term that survives, so the expectation is the count the route
-      // reported creating. A filter that stopped narrowing would hold this at
-      // the sampled history negated, which no seed count can equal.
+      // the only term that survives, so the expectation is the charge the route
+      // reported applying, read off figures rounded for display. A filter that
+      // stopped narrowing would hold this at the sampled history negated, which
+      // lands nowhere near the seeded charge.
       await expect
-        .poll(async () => allTime - (await usagePage.readSummaryMessages()) - outsideWindowBefore, {
-          timeout: TIMEOUTS.MODAL,
-        })
-        .toBe(seededRecords);
+        .poll(
+          async () => {
+            const narrowing =
+              allTime - (await usagePage.readTotalSpentNanoUsd()) - outsideWindowBefore;
+            const deviation = narrowing - seededCharge;
+            return deviation < 0n ? -deviation : deviation;
+          },
+          {
+            message: 'the seven-day range did not drop the seeded charge from the total',
+            timeout: TIMEOUTS.MODAL,
+          }
+        )
+        .toBeLessThan(DISPLAY_ROUNDING_TOLERANCE_NANO_USD);
     });
 
     await test.step('model filter narrows data', async () => {

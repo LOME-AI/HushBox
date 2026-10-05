@@ -141,6 +141,7 @@ const SMART_SELECTION: Selection = {
   modality: 'text',
   pinned: {},
   webSearch: false,
+  effortAuto: true,
 };
 
 /**

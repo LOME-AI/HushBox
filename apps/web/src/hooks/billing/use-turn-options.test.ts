@@ -20,17 +20,23 @@ import type { RenderHookResult } from '@testing-library/react';
 
 const mockSpendableCalls: (string | null)[] = [];
 
-const { mockFundingRead, mockTierInfo, mockModelsData, mockSelection, mockModality } = vi.hoisted(
-  () => ({
-    mockFundingRead: { current: undefined as unknown },
-    mockTierInfo: { current: { tier: 'paid' } as { tier: UserTier } },
-    mockModelsData: { current: undefined as unknown },
-    mockSelection: { current: [] as { id: string; name: string }[] },
-    mockModality: { current: 'text' as string },
-    mockOwnWallet: { current: undefined as unknown },
-    mockBudgets: { current: { data: undefined, isPending: false } as unknown },
-  })
-);
+const {
+  mockFundingRead,
+  mockTierInfo,
+  mockModelsData,
+  mockSelection,
+  mockModality,
+  mockWebSearchActive,
+} = vi.hoisted(() => ({
+  mockFundingRead: { current: undefined as unknown },
+  mockTierInfo: { current: { tier: 'paid' } as { tier: UserTier } },
+  mockModelsData: { current: undefined as unknown },
+  mockSelection: { current: [] as { id: string; name: string }[] },
+  mockModality: { current: 'text' as string },
+  mockWebSearchActive: { current: false },
+  mockOwnWallet: { current: undefined as unknown },
+  mockBudgets: { current: { data: undefined, isPending: false } as unknown },
+}));
 
 // Argument-aware, matching the pattern the prompt-budget suite already uses:
 // `mockOwnWallet` defaults to `undefined`, meaning both arms share one fixture.
@@ -54,7 +60,7 @@ vi.mock('@/hooks/models/models', () => ({
   useModels: () => ({ data: mockModelsData.current }),
 }));
 vi.mock('@/hooks/chat/use-web-search', () => ({
-  useWebSearch: () => ({ active: false }),
+  useWebSearch: () => ({ active: mockWebSearchActive.current }),
 }));
 vi.mock('@/stores/model', () => ({
   useModelStore: (selector: (s: unknown) => unknown) =>
@@ -79,7 +85,7 @@ function wireModel(overrides: Partial<Model> & { id: string }): Model {
     modality: 'text',
     contextLength: 128_000,
     maxOutputTokens: 8000,
-    pricing: { inputPerToken: '10000', outputPerToken: '30000' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000', outputPerToken: '30000' },
     description: 'A test model',
     supportedParameters: [],
     created: OLD_RELEASE_SECONDS,
@@ -108,6 +114,7 @@ beforeEach(() => {
   mockModelsData.current = { models: [wireModel({ id: 'vendor/a' })], premiumIds: new Set() };
   mockSelection.current = [{ id: 'vendor/a', name: 'vendor/a' }];
   mockModality.current = 'text';
+  mockWebSearchActive.current = false;
 });
 
 describe('useTurnOptions — the produced pair', () => {
@@ -154,14 +161,22 @@ describe('useTurnOptions — premium rows are marked, never removed', () => {
     const cheap = [1000, 2000, 3000, 4000].map((rate) =>
       wireModel({
         id: `vendor/cheap-${String(rate)}`,
-        pricing: { inputPerToken: String(rate), outputPerToken: String(rate) },
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: String(rate),
+          outputPerToken: String(rate),
+        },
       })
     );
     return [
       ...cheap,
       wireModel({
         id: 'vendor/premium',
-        pricing: { inputPerToken: '900000', outputPerToken: '1800000' },
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: '900000',
+          outputPerToken: '1800000',
+        },
       }),
     ];
   }
@@ -480,7 +495,11 @@ describe('the trial — the one tier with no funding door', () => {
       models: [
         wireModel({
           id: 'vendor/cheap',
-          pricing: { inputPerToken: '1000', outputPerToken: '2000' },
+          pricing: {
+            anchorContextTokens: 1_000_000,
+            inputPerToken: '1000',
+            outputPerToken: '2000',
+          },
         }),
       ],
       premiumIds: new Set(),
@@ -518,7 +537,7 @@ describe('the link guest — owner-funded, never trial-capped', () => {
         wireModel({
           id: 'vendor/cheap',
           maxOutputTokens: 5_000_000,
-          pricing: { inputPerToken: '1', outputPerToken: '1' },
+          pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1', outputPerToken: '1' },
         }),
       ],
       'vendor/cheap'
@@ -545,7 +564,12 @@ describe('the link guest — owner-funded, never trial-capped', () => {
 
   it("grades premium access on the payer's tier, so an owner-funded guest sees what the owner sees", () => {
     guestOn(
-      [wireModel({ id: 'vendor/premium', pricing: { inputPerToken: '1', outputPerToken: '1' } })],
+      [
+        wireModel({
+          id: 'vendor/premium',
+          pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1', outputPerToken: '1' },
+        }),
+      ],
       'vendor/premium'
     );
     mockFundingRead.current = {
@@ -574,7 +598,7 @@ describe('the link guest — owner-funded, never trial-capped', () => {
         wireModel({
           id: 'vendor/cheap',
           maxOutputTokens: 5_000_000,
-          pricing: { inputPerToken: '1', outputPerToken: '1' },
+          pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1', outputPerToken: '1' },
         }),
       ],
       'vendor/cheap'
@@ -594,7 +618,12 @@ describe('the link guest — owner-funded, never trial-capped', () => {
     // The trial ceiling must never stand in for a figure that is merely still
     // loading — that fabrication is what refused the guest composer outright.
     guestOn(
-      [wireModel({ id: 'vendor/cheap', pricing: { inputPerToken: '1', outputPerToken: '1' } })],
+      [
+        wireModel({
+          id: 'vendor/cheap',
+          pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1', outputPerToken: '1' },
+        }),
+      ],
       'vendor/cheap'
     );
     mockFundingRead.current = AWAITING;
@@ -643,7 +672,10 @@ describe('poolModelFromWire — the fail-closed guards', () => {
   it('excludes a row with no output rate', () => {
     const ids = poolIds([
       wireModel({ id: 'vendor/real' }),
-      wireModel({ id: 'vendor/no-output', pricing: { inputPerToken: '1000' } }),
+      wireModel({
+        id: 'vendor/no-output',
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1000' },
+      }),
     ]);
 
     expect(ids).toEqual(['vendor/real']);
@@ -678,6 +710,55 @@ describe('poolModelFromWire — the fail-closed guards', () => {
 
   it('keeps a fully-specified row', () => {
     expect(poolIds([wireModel({ id: 'vendor/real' })])).toEqual(['vendor/real']);
+  });
+});
+
+describe('useTurnOptions — an auto send against one that names no effort', () => {
+  /** A searching Smart-slot turn beside a pinned reasoning sibling, with two rungs to decide between. */
+  function searchingSlotTurn(effort?: 'auto'): UseTurnOptionsResult {
+    const ladder = { supportedEfforts: ['high', 'medium', 'low'] };
+    mockModelsData.current = {
+      models: [
+        wireModel({ id: 'v/m1', reasoning: ladder }),
+        wireModel({ id: 'v/m2', maxOutputTokens: 7583, reasoning: ladder }),
+        wireModel({ id: 'v/m3', maxOutputTokens: 7583, reasoning: ladder }),
+        wireModel({ id: SMART_MODEL_ID, isSmartModel: true }),
+      ],
+      premiumIds: new Set(),
+    };
+    mockSelection.current = [
+      { id: SMART_MODEL_ID, name: 'Smart Model' },
+      { id: 'v/m1', name: 'v/m1' },
+    ];
+    mockWebSearchActive.current = true;
+    mockFundingRead.current = served('5000000000');
+    const { result } = renderHook(() =>
+      useTurnOptions({
+        basis: BASIS,
+        isAuthenticated: true,
+        ...(effort === undefined ? {} : { effort }),
+      })
+    );
+    return result.current;
+  }
+
+  function publishedRungs(result: UseTurnOptionsResult): readonly number[] {
+    const set = result.options?.admissible;
+    return set?.sendable === true ? set.runnable.map((entry) => entry.rungCeilings.length) : [];
+  }
+
+  it('publishes per-rung ceilings for an auto send', () => {
+    const rungs = publishedRungs(searchingSlotTurn('auto'));
+
+    expect(rungs.length).toBeGreaterThan(0);
+    expect(rungs.every((count) => count >= 2)).toBe(true);
+  });
+
+  it('publishes none for a send that names no effort', () => {
+    const rungs = publishedRungs(searchingSlotTurn());
+
+    expect(rungs.length).toBeGreaterThan(0);
+    expect(rungs.every((count) => count === 0)).toBe(true);
   });
 });
 

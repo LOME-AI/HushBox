@@ -3,6 +3,7 @@ import { P, match } from 'ts-pattern';
 import { ERROR_CODES } from '@hushbox/shared';
 import { FINGERPRINT_CODES, createErrorResponse } from '../domain/index.js';
 import type { ErrorCode } from '@hushbox/shared';
+import type { TotpGate } from '../domain/index.js';
 import type { Context } from 'hono';
 import type {
   AppEnv,
@@ -19,6 +20,20 @@ export function rateLimitedResponse(
 
 function tooManyAttemptsResponse(c: Context<AppEnv>, retryAfterSeconds: number): RefusalResponse {
   return c.json(createErrorResponse(ERROR_CODES.TOO_MANY_ATTEMPTS, { retryAfterSeconds }), 429);
+}
+
+/**
+ * A refusal by the TOTP consecutive-failure ceiling carries no wait: the ceiling
+ * lapses only with its own long window, so the remedy it points the user to is
+ * a recovery-phrase reset.
+ */
+function lockedTotpResponse(
+  c: Context<AppEnv>,
+  locked: { retryAfterSeconds: number; gate: TotpGate }
+): RefusalResponse {
+  return locked.gate === 'ceiling'
+    ? errorJson(c, ERROR_CODES.TWO_FACTOR_FROZEN, 429)
+    : tooManyAttemptsResponse(c, locked.retryAfterSeconds);
 }
 
 /** One-line error arm for the ts-pattern matches below. */
@@ -93,13 +108,13 @@ export function totpVerdictResponse(
   c: Context<AppEnv>,
   userId: string,
   verdict:
-    | { kind: 'locked'; retryAfterSeconds: number }
+    | { kind: 'locked'; retryAfterSeconds: number; gate: TotpGate }
     | { kind: 'not-configured' }
     | { kind: 'stranded' }
     | { kind: 'invalid' | 'invalid-code' }
 ): RefusalResponse {
   return match(verdict)
-    .with({ kind: 'locked' }, (o) => tooManyAttemptsResponse(c, o.retryAfterSeconds))
+    .with({ kind: 'locked' }, (o) => lockedTotpResponse(c, o))
     .with({ kind: 'not-configured' }, () => errorJson(c, ERROR_CODES.INTERNAL, 500))
     .with({ kind: 'stranded' }, () => totpSecretStranded(c, userId))
     .with({ kind: P.union('invalid', 'invalid-code') }, () =>

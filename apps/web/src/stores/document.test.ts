@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useDocumentStore } from './document';
 import type { Document } from '@/lib/chat/document-parser';
 
@@ -19,7 +19,6 @@ describe('useDocumentStore', () => {
   beforeEach(() => {
     useDocumentStore.setState({
       isPanelOpen: false,
-      panelWidth: 400,
       activeDocumentId: null,
       activeDocument: null,
       isFullscreen: false,
@@ -30,11 +29,6 @@ describe('useDocumentStore', () => {
     it('has panel closed by default', () => {
       const state = useDocumentStore.getState();
       expect(state.isPanelOpen).toBe(false);
-    });
-
-    it('has default panel width of 400', () => {
-      const state = useDocumentStore.getState();
-      expect(state.panelWidth).toBe(400);
     });
 
     it('has no active document by default', () => {
@@ -143,38 +137,6 @@ describe('useDocumentStore', () => {
     });
   });
 
-  describe('setPanelWidth', () => {
-    it('sets the panel width', () => {
-      const { setPanelWidth } = useDocumentStore.getState();
-      setPanelWidth(500, 1200);
-      expect(useDocumentStore.getState().panelWidth).toBe(500);
-    });
-
-    it('enforces minimum width of 300', () => {
-      const { setPanelWidth } = useDocumentStore.getState();
-      setPanelWidth(200, 1200);
-      expect(useDocumentStore.getState().panelWidth).toBe(300);
-    });
-
-    it('enforces dynamic maximum width', () => {
-      const { setPanelWidth } = useDocumentStore.getState();
-      setPanelWidth(1000, 600);
-      expect(useDocumentStore.getState().panelWidth).toBe(600);
-    });
-
-    it('accepts values within range', () => {
-      const { setPanelWidth } = useDocumentStore.getState();
-      setPanelWidth(600, 1200);
-      expect(useDocumentStore.getState().panelWidth).toBe(600);
-    });
-
-    it('clamps to different max widths', () => {
-      const { setPanelWidth } = useDocumentStore.getState();
-      setPanelWidth(900, 850);
-      expect(useDocumentStore.getState().panelWidth).toBe(850);
-    });
-  });
-
   describe('toggleFullscreen', () => {
     it('enables fullscreen', () => {
       const { toggleFullscreen } = useDocumentStore.getState();
@@ -187,13 +149,6 @@ describe('useDocumentStore', () => {
       const { toggleFullscreen } = useDocumentStore.getState();
       toggleFullscreen();
       expect(useDocumentStore.getState().isFullscreen).toBe(false);
-    });
-
-    it('does not affect panel width when toggling fullscreen', () => {
-      useDocumentStore.setState({ panelWidth: 500 });
-      const { toggleFullscreen } = useDocumentStore.getState();
-      toggleFullscreen();
-      expect(useDocumentStore.getState().panelWidth).toBe(500);
     });
   });
 });
@@ -229,5 +184,13 @@ describe('useDocumentStore selections', () => {
     expect(state.activeDocumentId).toBe('doc-b');
     expect(state.activeDocument?.title).toBe('Complete');
     expect(state.activeSelectionId).toBe(selectionId);
+  });
+
+  it('keeps nothing in local storage, since the panel has no state that outlives a page', () => {
+    const setItem = vi.spyOn(localStorage, 'setItem');
+
+    useDocumentStore.getState().toggleFullscreen();
+
+    expect(setItem).not.toHaveBeenCalled();
   });
 });

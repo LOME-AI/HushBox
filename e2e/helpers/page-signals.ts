@@ -92,9 +92,12 @@ export function roadmapSectionsByStatus(page: Page, status: string): Locator {
   return page.locator(`section[data-status="${status}"]`);
 }
 
-/** `<img>` elements on a whole page (for non-ChatPage contexts like a shared-link recipient). */
+/**
+ * `<img>` elements in the page's `main` landmark (for non-ChatPage contexts like a
+ * shared-link recipient); the sidebar's logo sits outside it.
+ */
 export function imagesOnPage(page: Page): Locator {
-  return page.locator('img');
+  return page.getByRole('main').locator('img');
 }
 
 /** `<video>` elements on a whole page (no ARIA role, so a raw element locator is required). */

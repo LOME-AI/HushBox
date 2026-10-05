@@ -196,7 +196,6 @@ vi.mock('@/components/shared/stable-content', () => ({
 
 // Mock framer-motion to avoid animation issues in tests
 vi.mock('@/components/chat/media/modality-config-panel', () => ({
-  ImageAspectRatioControl: () => null,
   VideoAspectRatioControl: () => null,
   VideoResolutionControl: () => null,
   VideoDurationControl: () => null,
@@ -371,6 +370,28 @@ describe('ChatWelcome', () => {
 
       expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-chat-greeting');
     });
+
+    it('reserves no copy of the candidate list above the composer', () => {
+      const { container } = render(<ChatWelcome onSend={mockOnSend} isAuthenticated />, {
+        wrapper: createWrapper(),
+      });
+
+      expect(container.querySelector('[data-slot="prediction-suggestion-spacer"]')).toBeNull();
+    });
+
+    it('hosts the candidate list after the composer and ahead of Continue', () => {
+      const { container } = render(<ChatWelcome onSend={mockOnSend} isAuthenticated />, {
+        wrapper: createWrapper(),
+      });
+      const host = container.querySelector<HTMLElement>('[data-slot="prediction-suggestion-list"]');
+      if (host === null) throw new Error('no candidate list host rendered');
+
+      expectInDocumentOrder([
+        screen.getByRole('textbox'),
+        host,
+        screen.getByTestId(TEST_IDS.continueList),
+      ]);
+    });
   });
 
   it('renders the chat welcome container', () => {
@@ -403,11 +424,19 @@ describe('ChatWelcome', () => {
     expect(screen.getByRole('textbox')).toBeInTheDocument();
   });
 
-  it('keeps the composer at the 2-line start (no rows override)', () => {
+  it('starts the composer at two lines from 768 (no rows override)', () => {
     render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
     expect(screen.getByRole('textbox')).toHaveAttribute('rows', '2');
+  });
+
+  it('starts the composer at one line in the phone band (no rows override)', () => {
+    formFactorRef.current = { band: 'phone', pointer: 'coarse' };
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+    expect(screen.getByRole('textbox')).toHaveAttribute('rows', '1');
   });
 
   it('renders suggestion chips', () => {

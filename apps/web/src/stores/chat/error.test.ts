@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { turnNoticeForCode } from '@/lib/chat/turn-notice';
-import { useChatErrorStore, createChatError, MAIN_FORK_KEY } from './error';
+import { useChatErrorStore, createChatError, MAIN_FORK_KEY, type FailedTurn } from './error';
 
 describe('useChatErrorStore', () => {
   beforeEach(() => {
@@ -148,6 +148,40 @@ describe('createChatError', () => {
 
     expect(error.failedUserMessage.id).toBe('mock-uuid-123');
     expect(error.failedUserMessage.content).toBe('My original message');
+  });
+
+  it('carries the failed turn it is handed', () => {
+    const failedTurn: FailedTurn = {
+      retry: {
+        kind: 'regenerate',
+        request: {
+          conversationId: 'conv-1',
+          targetMessageId: 'u1',
+          action: 'retry',
+          models: ['model-a'],
+          userMessage: { content: 'question' },
+          messagesForInference: [{ role: 'user', content: 'question' }],
+          fundingSource: 'personal_balance',
+        },
+        turn: {},
+        question: null,
+      },
+      storedIds: ['a9'],
+    };
+
+    const error = createChatError({
+      notice: turnNoticeForCode('INTERNAL'),
+      failedContent: 'question',
+      failedTurn,
+    });
+
+    expect(error.failedTurn).toBe(failedTurn);
+  });
+
+  it('carries no failed turn when handed none', () => {
+    const error = createChatError({ notice: turnNoticeForCode('INTERNAL'), failedContent: 'msg' });
+
+    expect(error).not.toHaveProperty('failedTurn');
   });
 
   it('generates different IDs for each call', () => {

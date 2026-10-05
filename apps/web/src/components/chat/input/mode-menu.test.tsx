@@ -2,8 +2,8 @@ import * as React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, it, expect, onTestFinished, vi } from 'vitest';
-import { MOBILE_BREAKPOINT, TEST_IDS } from '@hushbox/shared';
-import { ModeMenu } from './mode-menu';
+import { MOBILE_BREAKPOINT, TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { ModeMenu, modeChipLabel } from './mode-menu';
 import type { usePayerPremiumAccess } from '@/hooks/models/use-payer-premium-access';
 import type { ChatModality } from '@hushbox/shared';
 
@@ -169,6 +169,24 @@ function item(name: string): HTMLElement {
 }
 
 describe('ModeMenu', () => {
+  describe('the mode items', () => {
+    it.each([
+      ['text', 'Text'],
+      ['image', 'Image'],
+      ['video', 'Video'],
+      ['audio', 'Audio'],
+    ] as const)('carries the %s item its test id', async (modality, title) => {
+      renderMenu({ audioEnabled: true });
+
+      await openMenu();
+
+      expect(screen.getByRole('menuitemradio', { name: title })).toHaveAttribute(
+        'data-testid',
+        TEST_ID_BUILDERS.modeMenuItem(modality)
+      );
+    });
+  });
+
   describe('the trigger', () => {
     it('is named "Change mode"', () => {
       renderMenu();
@@ -613,6 +631,18 @@ describe('ModeMenu', () => {
   });
 
   describe('the mode chip', () => {
+    it.each(['image', 'video', 'audio'] as const)(
+      'takes its name from the shared label builder in %s mode',
+      (modality) => {
+        renderMenu({ activeModality: modality, audioEnabled: true });
+
+        expect(screen.getByRole('button', { name: modeChipLabel(modality) })).toHaveAttribute(
+          'aria-pressed',
+          'true'
+        );
+      }
+    );
+
     it.each([
       ['image', 'Mode: image'],
       ['video', 'Mode: video'],

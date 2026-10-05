@@ -65,7 +65,9 @@ const BASE_PERMISSIONS: Record<
     none: ['copy', 'retry', 'regenerate', 'edit'],
   },
   'link-guest': {
-    write: ['copy', 'regenerate', 'retry', 'edit', 'fork'],
+    // Re-runs, edits and forks go to routes that accept signed-in members only; the guest's
+    // write grant is the composer, which sends through the guest chat route.
+    write: ['copy'],
     read: ['copy'],
   },
 };
@@ -90,6 +92,11 @@ const ACTION_GUARDS: Partial<
   share: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
 };
 
+/** The context's row of {@link BASE_PERMISSIONS}; empty for a privilege the mode does not list. */
+function baseRowOf(chat: ChatContext): readonly MessageAction[] {
+  return BASE_PERMISSIONS[chat.mode][chat.privilege ?? 'none'] ?? [];
+}
+
 /** Whether a group chat's user message was sent by someone other than the caller. */
 function isOtherMembersUserMessage(chat: ChatContext, msg: MessageContext): boolean {
   return Boolean(
@@ -103,9 +110,9 @@ function isOtherMembersUserMessage(chat: ChatContext, msg: MessageContext): bool
 export function resolveMessageActions(chat: ChatContext, msg: MessageContext): Set<MessageAction> {
   // A watcher's tile waiting for its stored row gets its actions from that row.
   if (msg.message.awaitingStoredRow === true) return new Set();
-  const privilegeKey = chat.privilege ?? 'none';
-  const baseActions = BASE_PERMISSIONS[chat.mode][privilegeKey] ?? [];
-  const allowed = new Set(baseActions);
+  // A question that was never saved has no stored row to edit or re-run.
+  if (msg.message.unsavedQuestion === true) return new Set<MessageAction>(['copy']);
+  const allowed = new Set(baseRowOf(chat));
 
   // Ownership gate: remove retry/edit for other user's messages in group contexts
   if (isOtherMembersUserMessage(chat, msg)) {
@@ -123,13 +130,42 @@ export function resolveMessageActions(chat: ChatContext, msg: MessageContext): S
   return result;
 }
 
+/** What the list's Regenerate gate prices a re-run against. */
+export interface RerunGateScope {
+  conversationId?: string;
+  currentUserPrivilege?: MemberPrivilege;
+}
+
+/**
+ * The scope of the list's Regenerate gate, or `undefined` when the context's row grants no
+ * re-run. Such a row draws no Regenerate or Retry, so the list mounts no gate for it and reads
+ * no funding or budgets on its behalf.
+ */
+export function rerunGateScope(
+  chat: ChatContext,
+  conversationId?: string,
+  privilege?: MemberPrivilege
+): RerunGateScope | undefined {
+  const row = baseRowOf(chat);
+  if (!row.includes('regenerate') && !row.includes('retry')) return undefined;
+  return {
+    ...(conversationId !== undefined && { conversationId }),
+    ...(privilege !== undefined && { currentUserPrivilege: privilege }),
+  };
+}
+
 export function buildChatContext(options: {
   isAuthenticated: boolean;
   isLinkGuest: boolean;
+  /** A link to one message: the reader holds that message and nothing in its conversation. */
+  isMessageLink?: boolean;
   privilege: MemberPrivilege | undefined;
   currentUserId: string | undefined;
   isGroupChat: boolean;
 }): ChatContext {
+  if (options.isMessageLink === true) {
+    return { mode: 'link-guest', privilege: 'read', currentUserId: undefined, isGroupChat: false };
+  }
   if (!options.isAuthenticated && !options.isLinkGuest) {
     return { mode: 'trial', privilege: undefined, currentUserId: undefined, isGroupChat: false };
   }

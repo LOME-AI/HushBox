@@ -2708,6 +2708,93 @@ describe('useChatStream (run transport)', () => {
     });
   });
 
+  describe('a turn the caller holds', () => {
+    const settledReplay = (): Response =>
+      jsonResponse({ runId: 'run-9', userMessageId: 'u9', assistantMessageIds: ['a9', 'b9'] }, 200);
+
+    const keyOf = (call: unknown[] | undefined): string | undefined =>
+      (call?.[1] as { headers: Record<string, string> } | undefined)?.headers['Idempotency-Key'];
+
+    const regenerateRequest: RegenerateStreamRequest = {
+      conversationId: 'conv-1',
+      targetMessageId: 'u1',
+      action: 'edit',
+      models: ['model-a'],
+      userMessage: { content: 'edited' },
+      messagesForInference: [{ role: 'user', content: 'edited' }],
+      fundingSource: 'personal_balance',
+    };
+
+    it('posts a send under the key of the turn it is handed, every time it is handed it', async () => {
+      postSpies.chat.mockImplementation(() => Promise.resolve(settledReplay()));
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      const turn = {};
+
+      await act(() => result.current.startStream(baseRequest(), { turn }));
+      await act(() => result.current.startStream(baseRequest(), { turn }));
+
+      expect(keyOf(postSpies.chat.mock.calls[1])).toBe(keyOf(postSpies.chat.mock.calls[0]));
+    });
+
+    it('posts a send handed no turn under a key of its own', async () => {
+      postSpies.chat.mockImplementation(() => Promise.resolve(settledReplay()));
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(() => result.current.startStream(baseRequest()));
+      await act(() => result.current.startStream(baseRequest()));
+
+      expect(keyOf(postSpies.chat.mock.calls[1])).not.toBe(keyOf(postSpies.chat.mock.calls[0]));
+    });
+
+    it('posts a regenerate under the key of the turn it is handed, every time it is handed it', async () => {
+      postSpies.regenerate.mockImplementation(() => Promise.resolve(settledReplay()));
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      const turn = {};
+
+      await act(() => result.current.startRegenerateStream(regenerateRequest, { turn }));
+      await act(() => result.current.startRegenerateStream(regenerateRequest, { turn }));
+
+      expect(keyOf(postSpies.regenerate.mock.calls[1])).toBe(
+        keyOf(postSpies.regenerate.mock.calls[0])
+      );
+    });
+
+    it('resolves a settled replay with the user message id its body names', async () => {
+      postSpies.chat.mockResolvedValue(settledReplay());
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      const streamResult = await act(() => result.current.startStream(baseRequest()));
+
+      expect(streamResult.userMessageId).toBe('u9');
+    });
+
+    it('resolves a settled replay with the answer ids its body names', async () => {
+      postSpies.chat.mockResolvedValue(settledReplay());
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      const streamResult = await act(() => result.current.startStream(baseRequest()));
+
+      expect(streamResult).toMatchObject({
+        outcome: 'replayed',
+        assistantMessageIds: ['a9', 'b9'],
+      });
+    });
+
+    it('resolves a replay whose body names no ids with none', async () => {
+      postSpies.chat.mockResolvedValue(jsonResponse({ runId: 'run-9' }, 200));
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      const streamResult = await act(() => result.current.startStream(baseRequest()));
+
+      expect(streamResult).toEqual({
+        outcome: 'replayed',
+        userMessageId: null,
+        assistantMessageIds: [],
+        models: [],
+      });
+    });
+  });
+
   describe('stopRun', () => {
     it('POSTs the conversation id and returns the stopped flag', async () => {
       postSpies.stop.mockResolvedValue(jsonResponse({ stopped: true }, 200));

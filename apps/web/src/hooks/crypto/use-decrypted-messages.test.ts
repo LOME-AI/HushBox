@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, StrictMode, type ReactNode } from 'react';
-import { TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
+import { HOUR_MS, TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
 import {
   useDecryptedMessages,
   clearDecryptedMessageCache,
@@ -202,6 +202,56 @@ function renderMessageWithLevel(
     })),
   };
 
+  return renderHook(() => useDecryptedMessages('conv-1', [message]), {
+    wrapper: createWrapper(),
+  });
+}
+
+/** One settled assistant message whose content items record these reasoning durations. */
+function renderMessageWithDurations(
+  durations: readonly (number | null)[]
+): ReturnType<typeof renderHook<Message[], unknown>> {
+  mockVerifiedKey.mockReturnValue(new Uint8Array([1]));
+  mockDecryptEnvelopeText.mockReturnValue('content');
+  mockFetchJson.mockResolvedValue(keyChainAt(1));
+
+  const base = createMessageResponse({ id: 'ai-msg', senderType: 'assistant' });
+  const [item] = base.contentItems;
+  if (item === undefined) throw new Error('Expected the default content item');
+  const message: MessageResponse = {
+    ...base,
+    contentItems: durations.map((reasoningDurationMs, position) => ({
+      ...item,
+      id: `ai-msg-ci-${String(position)}`,
+      position,
+      reasoningDurationMs,
+    })),
+  };
+  return renderHook(() => useDecryptedMessages('conv-1', [message]), {
+    wrapper: createWrapper(),
+  });
+}
+
+/** One settled assistant message whose content items record these token counts. */
+function renderMessageWithTokens(
+  counts: readonly { inputTokens: number | null; outputTokens: number | null }[]
+): ReturnType<typeof renderHook<Message[], unknown>> {
+  mockVerifiedKey.mockReturnValue(new Uint8Array([1]));
+  mockDecryptEnvelopeText.mockReturnValue('content');
+  mockFetchJson.mockResolvedValue(keyChainAt(1));
+
+  const base = createMessageResponse({ id: 'ai-msg', senderType: 'assistant' });
+  const [item] = base.contentItems;
+  if (item === undefined) throw new Error('Expected the default content item');
+  const message: MessageResponse = {
+    ...base,
+    contentItems: counts.map((count, position) => ({
+      ...item,
+      id: `ai-msg-ci-${String(position)}`,
+      position,
+      ...count,
+    })),
+  };
   return renderHook(() => useDecryptedMessages('conv-1', [message]), {
     wrapper: createWrapper(),
   });
@@ -764,6 +814,26 @@ describe('useDecryptedMessages', () => {
     expect(result.current[1]?.reasoningTokens).toBeUndefined();
   });
 
+  it('populates reasoningDurationMs from the content items', async () => {
+    const { result } = renderMessageWithDurations([14_000]);
+
+    await waitFor(() => {
+      expect(result.current).toHaveLength(1);
+    });
+
+    expect(result.current[0]?.reasoningDurationMs).toBe(14_000);
+  });
+
+  it('leaves reasoningDurationMs absent when no content item recorded one', async () => {
+    const { result } = renderMessageWithDurations([null, null]);
+
+    await waitFor(() => {
+      expect(result.current).toHaveLength(1);
+    });
+
+    expect(result.current[0]).not.toHaveProperty('reasoningDurationMs');
+  });
+
   it('populates reasoningEffort from the content items', async () => {
     const { result } = renderMessageWithLevel('high');
 
@@ -1026,13 +1096,14 @@ describe('useDecryptedMessages', () => {
     expect(msg.content).toBe(DECRYPTION_FAILED_MISSING_EPOCH_KEY);
   });
 
-  it('leaves createdAt empty, the history wire carrying no message timestamp', async () => {
+  it('maps createdAt from the history read', async () => {
     mockVerifiedKey.mockReturnValue(new Uint8Array([1]));
     mockDecryptEnvelopeText.mockReturnValue('time check');
 
     mockFetchJson.mockResolvedValue(keyChainAt(1));
 
-    const messages = [createMessageResponse()];
+    const createdAt = isoAt(TEST_DAY_START + HOUR_MS);
+    const messages = [createMessageResponse({ createdAt })];
 
     const { result } = renderHook(() => useDecryptedMessages('conv-1', messages), {
       wrapper: createWrapper(),
@@ -1042,9 +1113,58 @@ describe('useDecryptedMessages', () => {
       expect(result.current).toHaveLength(1);
     });
 
-    const msg = result.current[0];
-    if (!msg) throw new Error('Expected message');
-    expect(msg.createdAt).toBe('');
+    expect(result.current[0]?.createdAt).toBe(createdAt);
+  });
+
+  it('sums the input tokens of every content item that recorded them', async () => {
+    const { result } = renderMessageWithTokens([
+      { inputTokens: 1000, outputTokens: null },
+      { inputTokens: null, outputTokens: null },
+      { inputTokens: 862, outputTokens: null },
+    ]);
+
+    await waitFor(() => {
+      expect(result.current).toHaveLength(1);
+    });
+
+    expect(result.current[0]?.inputTokens).toBe(1862);
+  });
+
+  it('sums the output tokens of every content item that recorded them', async () => {
+    const { result } = renderMessageWithTokens([
+      { inputTokens: null, outputTokens: 400 },
+      { inputTokens: null, outputTokens: 12 },
+    ]);
+
+    await waitFor(() => {
+      expect(result.current).toHaveLength(1);
+    });
+
+    expect(result.current[0]?.outputTokens).toBe(412);
+  });
+
+  it('keeps a recorded zero token count rather than dropping it', async () => {
+    const { result } = renderMessageWithTokens([{ inputTokens: 0, outputTokens: 0 }]);
+
+    await waitFor(() => {
+      expect(result.current).toHaveLength(1);
+    });
+
+    expect(result.current[0]).toMatchObject({ inputTokens: 0, outputTokens: 0 });
+  });
+
+  it('leaves the token counts absent when the read serves none, as it does to a link guest', async () => {
+    const { result } = renderMessageWithTokens([
+      { inputTokens: null, outputTokens: null },
+      { inputTokens: null, outputTokens: null },
+    ]);
+
+    await waitFor(() => {
+      expect(result.current).toHaveLength(1);
+    });
+
+    expect(result.current[0]).not.toHaveProperty('inputTokens');
+    expect(result.current[0]).not.toHaveProperty('outputTokens');
   });
 
   describe('per-message decrypted-content cache', () => {

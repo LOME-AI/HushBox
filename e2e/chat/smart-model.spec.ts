@@ -67,6 +67,18 @@ const PROMPT_FILLER = 'unaffordable ';
 const UNAFFORDABLE_PROMPT_CHARS = 700_000;
 
 /**
+ * Brings the routed reply, the one wearing the Smart chip, into view: where the turn shows
+ * its replies as tabs, that reply's tab is selected.
+ */
+async function showRoutedReply(chatPage: ChatPage): Promise<void> {
+  await chatPage.showCompareReply(
+    chatPage.messageList.getByRole('tabpanel', { includeHidden: true }).filter({
+      has: chatPage.page.getByTestId(TEST_IDS.smartModelChip),
+    })
+  );
+}
+
+/**
  * Smart Model end-to-end coverage.
  *
  * The mock AIClient resolves Smart Model classifier calls to a deterministic
@@ -352,6 +364,7 @@ test.describe('Smart Model', SPEC_MATRIX, () => {
       });
       await expect(routed).toHaveCount(1);
       await expect(routed.getByTestId(TEST_IDS.modelNametag)).toContainText(OPUS_MODEL_NAME);
+      await showRoutedReply(chatPage);
       await expect(routed.getByTestId(TEST_IDS.messageCost).first()).toBeVisible();
     });
 
@@ -362,6 +375,11 @@ test.describe('Smart Model', SPEC_MATRIX, () => {
       });
       await expect(plain).toHaveCount(1);
       await expect(plain.getByTestId(TEST_IDS.modelNametag)).toContainText(SONNET_MODEL_NAME);
+      await chatPage.showCompareReply(
+        chatPage.messageList.getByRole('tabpanel', { includeHidden: true }).filter({
+          hasNot: authenticatedPage.getByTestId(TEST_IDS.smartModelChip),
+        })
+      );
       await expect(plain.getByTestId(TEST_IDS.messageCost).first()).toBeVisible();
     });
   });
@@ -450,6 +468,7 @@ test.describe('Smart Model', SPEC_MATRIX, () => {
 
         // The chip is the routed tile's own mark, so it pins the same mapping
         // from the other side: it must sit on the slot's tile and nowhere else.
+        await showRoutedReply(chatPage);
         await expect(tiles.nth(1).getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
         await expect(tiles.nth(0).getByTestId(TEST_IDS.smartModelChip)).toHaveCount(0);
       });
@@ -471,6 +490,7 @@ test.describe('Smart Model', SPEC_MATRIX, () => {
         SONNET_MODEL_NAME
       );
       await expect(tiles.nth(1).getByTestId(TEST_IDS.modelNametag)).toContainText(OPUS_MODEL_NAME);
+      await showRoutedReply(chatPage);
       await expect(tiles.nth(1).getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
     });
   });

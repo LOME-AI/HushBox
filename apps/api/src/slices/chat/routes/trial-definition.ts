@@ -7,7 +7,7 @@ import {
   compileAutoEffortTurn,
   compileTrialSingleTurn,
   createErrorResponse,
-  listDescriptors,
+  readExposedCatalog,
   trialReasoningSelection,
 } from '../domain/index.js';
 import { turnPromptCharacterCount } from './request-shapes.js';
@@ -129,23 +129,25 @@ export async function trialTurnDefinitionOrRefusal(
   // acceptance step below nor the compile it feeds ever runs. An unknown model
   // is the opposite case — absent from the exposed catalog, it gives the gate
   // no target, so the gate waves it through and the compile below refuses it.
-  const catalog = await listDescriptors({ db: c.var.db, telemetry: c.var.logger });
-  if (catalog.isErr()) return respondDomainError(c, catalog.error);
-  const target = catalog.value.find((descriptor) => descriptor.id === model);
+  const read = await readExposedCatalog({ db: c.var.db, telemetry: c.var.logger });
+  if (read.isErr()) return respondDomainError(c, read.error);
+  const { descriptors: catalog, generation: catalogGeneration } = read.value;
+  const target = catalog.find((descriptor) => descriptor.id === model);
   // The gate prices the identical character count the budget above carries, so
   // the gate and the compiled definition measure one prompt.
-  const gateRejection = trialGateRejection(c, target, catalog.value, budget.promptCharacterCount);
+  const gateRejection = trialGateRejection(c, target, catalog, budget.promptCharacterCount);
   if (gateRejection !== null) return gateRejection;
   // `auto` is the classifier's question on every tier, so it is answered before
   // the per-level acceptance gate — which never sees it.
   const requested = body.reasoningEffort;
   if (requested === 'auto') {
-    return trialAutoDefinitionOrRefusal(c, catalog.value, model, budget);
+    return trialAutoDefinitionOrRefusal(c, catalog, model, { budget, catalogGeneration });
   }
   const trialReasoning = trialReasoningOrRefusal(c, target, budget, requested);
   if ('response' in trialReasoning) return trialReasoning.response;
-  return trialSingleTurnDefinition(c, catalog.value, model, {
+  return trialSingleTurnDefinition(c, catalog, model, {
     budget,
+    catalogGeneration,
     ...reasoningEffortOption(trialReasoning.selection),
   });
 }
@@ -177,7 +179,11 @@ function trialSingleTurnDefinition(
   c: Context<AppEnv>,
   catalog: readonly ModelDescriptor[],
   model: string,
-  turn: { readonly budget: TurnBudget; readonly reasoningEffort?: ReasoningEffortSelection }
+  turn: {
+    readonly budget: TurnBudget;
+    readonly catalogGeneration: string;
+    readonly reasoningEffort?: ReasoningEffortSelection;
+  }
 ): MultiModelTurnBuild | RefusalResponse {
   const compiled = compileTrialSingleTurn(catalog, model, turn);
   if (compiled.isErr()) return respondDomainError(c, compiled.error);
@@ -228,10 +234,10 @@ function trialAutoDefinitionOrRefusal(
   c: Context<AppEnv>,
   catalog: readonly ModelDescriptor[],
   model: string,
-  budget: TurnBudget
+  turn: { readonly budget: TurnBudget; readonly catalogGeneration: string }
 ): MultiModelTurnBuild | RefusalResponse {
   const auto = compileAutoEffortTurn(catalog, model, {
-    budget,
+    ...turn,
     hooks: TRIAL_TURN_HOOKS,
     now: new Date(),
   });
@@ -240,5 +246,5 @@ function trialAutoDefinitionOrRefusal(
   if (auto.value.kind === 'unaffordable') {
     return c.json(createErrorResponse(ERROR_CODES.TRIAL_MESSAGE_TOO_EXPENSIVE), 402);
   }
-  return trialSingleTurnDefinition(c, catalog, model, { budget, reasoningEffort: 'auto' });
+  return trialSingleTurnDefinition(c, catalog, model, { ...turn, reasoningEffort: 'auto' });
 }

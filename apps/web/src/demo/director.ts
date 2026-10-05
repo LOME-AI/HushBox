@@ -17,12 +17,18 @@
 import { shouldReduceMotion } from '@hushbox/ui';
 import {
   DemoVisibilityMessage,
-  MODALITY_ARIA_LABELS,
   PRE_CREATION_CONVERSATION_ID,
   ROUTES,
   TEST_IDS,
   TEST_SIGNALS,
 } from '@hushbox/shared';
+import {
+  MODE_CHIP_SELECTOR,
+  MODE_ITEM_SELECTOR,
+  MODE_MENU_BUTTON_SELECTOR,
+  modeChipSelector,
+  modeMenuItemSelector,
+} from './composer-cues';
 import type { DemoModality } from './mock-backend/fixtures';
 
 const INTRO_DELAY_MS = 600;
@@ -39,6 +45,8 @@ const STREAM_MAX_MS = 25_000;
 const STREAM_SETTLE_MS = 450;
 const GROUP_TYPING_MS = 900;
 const GROUP_GAP_MS = 2000;
+const MODE_MENU_POLL_MS = 50;
+const MODE_MENU_HOLD_MS = 450;
 
 const COMPOSER_SELECTOR = `[data-testid="${TEST_IDS.promptInput}"]`;
 const SEND_SELECTOR = `[data-testid="${TEST_IDS.sendButton}"]`;
@@ -184,12 +192,68 @@ function clickSend(): void {
   if (button && !button.disabled) button.click();
 }
 
-/** Switch the composer to a modality by clicking its real icon (untrusted → passes the user lock). */
-function switchModality(modality: DemoModality): void {
-  const button = document.querySelector<HTMLButtonElement>(
-    `[aria-label="${MODALITY_ARIA_LABELS[modality]}"]`
+/** True while the composer is in `modality`: outside text, its mode chip names it. */
+function isInModality(modality: DemoModality): boolean {
+  return modality === 'text'
+    ? document.querySelector(MODE_CHIP_SELECTOR) === null
+    : document.querySelector(modeChipSelector(modality)) !== null;
+}
+
+/**
+ * Press the "+" as a pointer does. Its menu opens on the press where it is
+ * anchored and on the click where it is a phone sheet, so the press and then
+ * the click open it in either presentation, and neither closes what the other
+ * opened.
+ */
+function pressModeMenuButton(button: HTMLButtonElement): void {
+  button.dispatchEvent(
+    new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 })
   );
-  if (button && !button.disabled) button.click();
+  button.click();
+}
+
+/** The open menu's item for `modality`, once it is choosable. */
+async function waitForModeItem(
+  modality: DemoModality,
+  signal: AbortSignal
+): Promise<HTMLElement | null> {
+  const start = performance.now();
+  for (;;) {
+    if (isAborted(signal)) return null;
+    const item = document.querySelector<HTMLElement>(modeMenuItemSelector(modality));
+    if (item !== null && item.getAttribute('aria-disabled') !== 'true') return item;
+    if (performance.now() - start > COMPOSER_TIMEOUT_MS) return null;
+    await delay(MODE_MENU_POLL_MS);
+  }
+}
+
+/** Close the open mode menu the way a person's Escape does, in either presentation. */
+function closeModeMenu(): void {
+  document
+    .querySelector(MODE_ITEM_SELECTOR)
+    ?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    );
+}
+
+/**
+ * Switch the composer to a modality the way a person does: open the "+" menu,
+ * then choose the mode. Both are synthetic (untrusted) presses, which pass the
+ * guardrails' user lock. A mode that never becomes choosable leaves the
+ * composer where it was, with the menu closed again.
+ */
+async function switchModality(modality: DemoModality, context: PlayContext): Promise<void> {
+  if (isInModality(modality)) return;
+  const button = document.querySelector<HTMLButtonElement>(MODE_MENU_BUTTON_SELECTOR);
+  if (button === null || button.disabled) return;
+  pressModeMenuButton(button);
+  const item = await waitForModeItem(modality, context.signal);
+  if (item !== null) await delay(context.reduce ? 0 : MODE_MENU_HOLD_MS);
+  if (item === null || isAborted(context.signal)) {
+    closeModeMenu();
+    return;
+  }
+  item.click();
 }
 
 /**
@@ -239,7 +303,7 @@ async function leadInOnWelcome(
   await waitUntilOnScreen(context.signal, context.isOnScreen);
   const composer = await waitForComposer(context.signal, onWelcome);
   if (composer === null) return false;
-  if (modality !== undefined) switchModality(modality);
+  if (modality !== undefined) await switchModality(modality, context);
   await delay(context.reduce ? 0 : INTRO_DELAY_MS);
   await typeText(composer, text, context.reduce ? 0 : TYPE_CHAR_MS, context.signal);
   await delay(context.reduce ? 0 : WELCOME_HOLD_MS);
@@ -337,7 +401,7 @@ async function playGroupReplay(conversationId: string, context: PlayContext): Pr
   if ((await waitForComposer(context.signal, inConversation)) === null) return;
   context.backend.resetConversation(conversationId);
   context.invalidate(conversationId);
-  switchModality('text');
+  await switchModality('text', context);
   await delay(context.reduce ? 0 : RESET_SETTLE_MS);
 
   const emit = groupEmitter(conversationId, context);

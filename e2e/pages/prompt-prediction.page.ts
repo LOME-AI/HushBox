@@ -17,7 +17,7 @@ const OVERLAY = '[data-slot="prediction-overlay"]';
 const MIRROR_PREFIX = '[data-slot="prediction-mirror-prefix"]';
 const HINT = '[data-slot="prediction-text"]';
 const SUGGESTION_ROW = '[data-slot="prediction-suggestion-row"]';
-const SUGGESTION_SPACER = '[data-slot="prediction-suggestion-spacer"]';
+const SUGGESTION_LIST = '[data-slot="prediction-suggestion-list"]';
 
 /**
  * The typographic and box properties that decide where a glyph lands. The
@@ -77,26 +77,15 @@ export class PromptPredictionPage {
   readonly hint: Locator;
   /** Every clickable row of the candidate list. */
   readonly suggestionRows: Locator;
-  /**
-   * The reserved copy of the candidate list that holds the composer still.
-   * Invisible, but it lays out — that is its entire job.
-   */
-  readonly suggestionSpacer: Locator;
-  /**
-   * The greeting, located as the spacer's immediate next sibling. Written that
-   * way deliberately: the composer only stays put while the reserved height and
-   * the greeting share a wrapper with nothing between them, so a later edit that
-   * separates the two leaves this locator matching nothing.
-   */
-  readonly greetingBesideSpacer: Locator;
+  /** The candidate list's block under the composer, present with or without rows. */
+  readonly suggestionList: Locator;
 
   constructor(page: Page) {
     this.page = page;
     this.overlay = page.locator(OVERLAY);
     this.hint = page.locator(HINT);
     this.suggestionRows = page.locator(SUGGESTION_ROW);
-    this.suggestionSpacer = page.locator(SUGGESTION_SPACER);
-    this.greetingBesideSpacer = page.locator(`${SUGGESTION_SPACER} + [data-reading]`);
+    this.suggestionList = page.locator(SUGGESTION_LIST);
   }
 
   async expectHintVisible(): Promise<void> {

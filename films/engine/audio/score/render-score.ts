@@ -15,7 +15,7 @@ import type { ScoreRule } from './score-error.js';
 import type { Anchor } from './schema.js';
 
 /** Where one event's sound was placed: the sample its anchor landed on, and which anchor. */
-export interface ScorePlacement {
+interface ScorePlacement {
   track: string;
   cueId: string | null;
   sample: number;

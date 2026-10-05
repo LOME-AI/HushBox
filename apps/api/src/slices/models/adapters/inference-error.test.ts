@@ -5,6 +5,7 @@ import {
   classifyInferenceFailure,
   emptyCompletionError,
   invalidRequestError,
+  noReasoningEndpointsError,
   truncatedStreamError,
 } from './inference-error.js';
 
@@ -232,6 +233,104 @@ describe('classifyInferenceFailure', () => {
   });
 });
 
+describe('classifyInferenceFailure — the status it names', () => {
+  it('names the logical status of a non-stream failure wrapped in a 200 response', () => {
+    const classified = classifyInferenceFailure(
+      apiCallError({ code: 402, message: 'insufficient credits' })
+    );
+
+    expect(classified.status).toBe(402);
+  });
+
+  it('names the numeric code of a mid-stream error part as its status', () => {
+    const classified = classifyInferenceFailure({
+      code: 429,
+      message: 'slow down',
+      type: 'rate_limit_exceeded',
+    });
+
+    expect(classified.status).toBe(429);
+  });
+
+  it('names the transport status of a failure that carries no error body', () => {
+    const error = Object.assign(new Error('service unavailable'), { statusCode: 503 });
+
+    expect(classifyInferenceFailure(error).status).toBe(503);
+  });
+
+  it('names no status for a failure classified by an error type without a logical code', () => {
+    const classified = classifyInferenceFailure(apiCallError({ type: 'rate_limit_exceeded' }));
+
+    expect(classified.status).toBeUndefined();
+  });
+
+  it('names the transport status that classified a failure beside an error body without a logical code', () => {
+    const error = Object.assign(new Error('OpenRouter request failed'), {
+      statusCode: 503,
+      responseBody: JSON.stringify({ error: { message: 'overloaded' } }),
+    });
+
+    const classified = classifyInferenceFailure(error);
+
+    expect([classified.code, classified.status]).toEqual(['upstream_error', 503]);
+  });
+
+  it.each([402, 401, 403])(
+    'names the transport status %i beside an error body without a logical code',
+    (statusCode) => {
+      const error = Object.assign(new Error('OpenRouter request failed'), {
+        statusCode,
+        responseBody: JSON.stringify({ error: { message: 'Insufficient credits' } }),
+      });
+
+      expect(classifyInferenceFailure(error).status).toBe(statusCode);
+    }
+  );
+
+  it('names no status for a 200 transport beside an error body without a logical code', () => {
+    const error = Object.assign(new Error('OpenRouter request failed'), {
+      statusCode: 200,
+      responseBody: JSON.stringify({ error: { message: 'Insufficient credits' } }),
+    });
+
+    expect(classifyInferenceFailure(error).status).toBeUndefined();
+  });
+
+  it('names no status for a 200 transport that carries no recognizable error body', () => {
+    expect(classifyInferenceFailure(apiCallError({ message: 'odd' })).status).toBeUndefined();
+  });
+
+  it.each([200, 401, 503, undefined])(
+    'names the logical code over the transport status %s',
+    (statusCode) => {
+      const error = Object.assign(new Error('OpenRouter request failed'), {
+        statusCode,
+        data: { code: 402, message: 'Insufficient credits' },
+      });
+
+      expect(classifyInferenceFailure(error).status).toBe(402);
+    }
+  );
+
+  it('names no status for a logical code that is not an integer', () => {
+    const classified = classifyInferenceFailure({ code: '502.5', message: 'odd' });
+
+    expect(classified.status).toBeUndefined();
+  });
+
+  it('names no status for a connection failure', () => {
+    expect(classifyInferenceFailure(new TypeError('fetch failed')).status).toBeUndefined();
+  });
+
+  it('names the logical status of a failure classified by its reason', () => {
+    const classified = classifyInferenceFailure(
+      apiCallError({ code: 403, type: 'moderation', message: 'flagged' })
+    );
+
+    expect(classified.status).toBe(403);
+  });
+});
+
 describe('error factories', () => {
   it('builds an aborted error carrying the reason', () => {
     const error = abortedError('hard stop');
@@ -264,5 +363,19 @@ describe('error factories', () => {
   it('builds an invalid request error', () => {
     const error = invalidRequestError('bad param');
     expect(error.code).toBe('invalid_request');
+  });
+
+  it('builds a no-reasoning-endpoints error carrying the status of the error it wraps', () => {
+    const noProviders = classifyInferenceFailure(
+      apiCallError({ code: 503, type: 'no_providers_available', message: 'no endpoints' })
+    );
+
+    const error = noReasoningEndpointsError(noProviders);
+
+    expect([error.code, error.status, error.cause]).toEqual([
+      'no_reasoning_endpoints',
+      503,
+      noProviders,
+    ]);
   });
 });

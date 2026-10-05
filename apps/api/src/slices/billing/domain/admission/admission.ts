@@ -1,7 +1,7 @@
 import { runTimeBounds, spendableFundsNanoUsd } from '@hushbox/shared';
 import { notFoundError, unavailableError } from '../../../../lib/errors/index.js';
 import { errAsync, fromPromise, okAsync } from '../../../../lib/result/index.js';
-import { ADMISSION_SCRIPT, SNAPSHOT_CAS_SCRIPT } from './scripts.js';
+import { ADMISSION_SCRIPT, SETTLED_RELEASE_SCRIPT, SNAPSHOT_CAS_SCRIPT } from './scripts.js';
 import { COST_CIRCUIT_MULTIPLIER, HOLD_TTL_MARGIN_SECONDS } from '../constants.js';
 import { BILLING_KEYS } from '../keys.js';
 import type { DeadlineClass } from '@hushbox/shared';
@@ -19,7 +19,9 @@ import type { RedisClient } from '../keys.js';
  * racy HOLDS state only: spendable − Σ active holds ≥ estimate, the cumulative
  * member/conversation budget scopes, the per-wallet concurrent-run cap — then
  * the TTL hold. The advisory balance is TS-supplied on purpose (the ledger is
- * truth); the hold is not money — it auto-expires.
+ * truth); the Lua first checks that the snapshot it came from is still the
+ * stored one, and admission reads again once when it moved. The hold is not
+ * money — it auto-expires.
  *
  * Redis down ⇒ paid admission fails CLOSED with a typed `unavailable` error
  * (the route/engine maps it to ADMISSION_UNAVAILABLE). There is no degraded
@@ -52,7 +54,10 @@ export interface BudgetScope {
 
 export interface AdmissionRequest {
   readonly walletId: string;
-  /** The run's id — one hold per run, released at settlement or by TTL. */
+  /**
+   * The run's id — one hold per run, released once the run ends, whatever its
+   * outcome, or once its expiry passes (the lazy prune or the hash key's TTL).
+   */
   readonly holdId: string;
   /**
    * Priced at the declared ceiling: max width × iterations, each tool-carrying
@@ -62,7 +67,15 @@ export interface AdmissionRequest {
   /** The run's class: the hold lives until the class's hard stop plus the margin. */
   readonly deadlineClass: DeadlineClass;
   readonly concurrentRunCap: number;
-  readonly budgets: readonly BudgetScope[];
+  /**
+   * Reads the payer wallet's `ledgerSeq`, then the budget scope rows. Every
+   * charge advances that sequence in the same transaction as its scope spends,
+   * so every charge at or below the returned sequence is in the returned rows.
+   */
+  readonly readScopes: () => ResultAsync<
+    { readonly scopes: readonly BudgetScope[]; readonly walletSeq: bigint },
+    DomainError
+  >;
   readonly now: Date;
 }
 
@@ -151,6 +164,7 @@ function spendableFor(balanceNanoUsd: bigint, type: WalletType | undefined): Spe
 interface ResolvedSnapshot {
   readonly balanceNanoUsd: bigint;
   readonly type: WalletType | undefined;
+  readonly ledgerSeq: bigint;
 }
 
 interface StoredSnapshot {
@@ -168,14 +182,22 @@ function readRedisSnapshot(
     redis.get<StoredSnapshot>(BILLING_KEYS.walletSnapshot.buildKey(walletId)),
     redisFailure
   ).map((raw) =>
-    raw === null ? null : { balanceNanoUsd: BigInt(raw.balanceNanoUsd), type: raw.type }
+    raw === null
+      ? null
+      : {
+          balanceNanoUsd: BigInt(raw.balanceNanoUsd),
+          type: raw.type,
+          ledgerSeq: BigInt(raw.ledgerSeq),
+        }
   );
 }
 
 /**
  * Postgres-truth bootstrap on a snapshot miss: read the committed balance,
  * CAS-write it into the Redis snapshot, and return it. Shared by the admission
- * cold path and the post-settlement refresh below.
+ * cold path and {@link refreshWalletSnapshot}. When the CAS loses to a newer
+ * snapshot, the returned sequence is older than the stored one, and admission's
+ * sequence check reads again.
  */
 function bootstrapSnapshot(
   deps: AdmissionDeps,
@@ -191,7 +213,11 @@ function bootstrapSnapshot(
       ledgerSeq: snapshot.ledgerSeq,
       walletType: snapshot.type,
     }).map(
-      (): ResolvedSnapshot => ({ balanceNanoUsd: snapshot.balanceNanoUsd, type: snapshot.type })
+      (): ResolvedSnapshot => ({
+        balanceNanoUsd: snapshot.balanceNanoUsd,
+        type: snapshot.type,
+        ledgerSeq: snapshot.ledgerSeq,
+      })
     );
   });
 }
@@ -207,9 +233,8 @@ function resolveSnapshot(
 }
 
 /**
- * DB-truth snapshot write-through: the post-settlement refresh (best-effort,
- * after the charge commits) that keeps the next admission from gating on a
- * stale balance until the snapshot TTL expires.
+ * DB-truth snapshot write-through for a balance that moved outside a run. A
+ * run's release writes the run's charge through itself ({@link releaseHold}).
  */
 export function refreshWalletSnapshot(
   deps: AdmissionDeps,
@@ -218,15 +243,24 @@ export function refreshWalletSnapshot(
   return bootstrapSnapshot(deps, walletId).map((): void => undefined);
 }
 
+/** What one admission pass priced from: the balance side, its sequence, and the scope read. */
+interface AdmissionPricing {
+  readonly spendable: SpendableDecision;
+  readonly snapshotSeq: bigint;
+  readonly walletSeq: bigint;
+  readonly scopes: readonly BudgetScope[];
+}
+
 function runAdmissionScript(
   deps: AdmissionDeps,
   request: AdmissionRequest,
   ttlSeconds: number,
-  spendable: SpendableDecision
+  pricing: AdmissionPricing
 ): ResultAsync<string, DomainError> {
   const keys = [
+    BILLING_KEYS.walletSnapshot.buildKey(request.walletId),
     BILLING_KEYS.walletHolds.buildKey(request.walletId),
-    ...request.budgets.map((budget) => BILLING_KEYS.scopeHolds.buildKey(budget.scopeId)),
+    ...pricing.scopes.map((budget) => BILLING_KEYS.scopeHolds.buildKey(budget.scopeId)),
   ];
   const args = [
     request.holdId,
@@ -234,13 +268,41 @@ function runAdmissionScript(
     String(request.now.getTime()),
     String(ttlSeconds),
     String(request.concurrentRunCap),
-    spendable.effectiveSpendableNanoUsd.toString(10),
-    spendable.applyBalanceCheck ? '1' : '0',
-    ...request.budgets.map((budget) => budget.remainingNanoUsd.toString(10)),
+    pricing.spendable.effectiveSpendableNanoUsd.toString(10),
+    pricing.spendable.applyBalanceCheck ? '1' : '0',
+    pricing.snapshotSeq.toString(10),
+    pricing.walletSeq.toString(10),
+    ...pricing.scopes.map((budget) => budget.remainingNanoUsd.toString(10)),
   ];
   return fromPromise(
     deps.redis.createScript(ADMISSION_SCRIPT).exec(keys, args) as Promise<string>,
     redisFailure
+  );
+}
+
+/** The script's answer when the snapshot moved after the balance was read. */
+const STALE_OUTCOME = 'stale';
+
+interface PassResult {
+  readonly outcome: string;
+  readonly scopes: readonly BudgetScope[];
+}
+
+/** One admission pass: the snapshot, then the scope read, then the script. */
+function admissionPass(
+  deps: AdmissionDeps,
+  request: AdmissionRequest,
+  ttlSeconds: number
+): ResultAsync<PassResult, DomainError> {
+  return resolvePricedSnapshot(deps, request.walletId).andThen((priced) =>
+    request.readScopes().andThen(({ scopes, walletSeq }) =>
+      runAdmissionScript(deps, request, ttlSeconds, {
+        spendable: priced.spendable,
+        snapshotSeq: priced.ledgerSeq,
+        walletSeq,
+        scopes,
+      }).map((outcome): PassResult => ({ outcome, scopes }))
+    )
   );
 }
 
@@ -258,14 +320,17 @@ export function admitRun(
   assertAdmissible(request);
   const ttlSeconds =
     runTimeBounds(request.deadlineClass).hardStopAfterMs / 1000 + HOLD_TTL_MARGIN_SECONDS;
-  const decide = (outcome: string): ResultAsync<AdmissionDecision, DomainError> => {
+  const decide = (
+    outcome: string,
+    budgets: readonly BudgetScope[]
+  ): ResultAsync<AdmissionDecision, DomainError> => {
     if (outcome === 'admitted') {
       return okAsync({
         admitted: true,
         hold: {
           holdId: request.holdId,
           walletId: request.walletId,
-          scopeIds: request.budgets.map((budget) => budget.scopeId),
+          scopeIds: budgets.map((budget) => budget.scopeId),
           estimateNanoUsd: request.estimateNanoUsd,
           costCircuitMultiplier: COST_CIRCUIT_MULTIPLIER,
           costCircuitLimitNanoUsd: request.estimateNanoUsd * COST_CIRCUIT_MULTIPLIER,
@@ -277,7 +342,7 @@ export function admitRun(
       return okAsync({ admitted: false, reason: outcome });
     }
     if (outcome.startsWith(BUDGET_REFUSAL_PREFIX)) {
-      const bound = request.budgets[Number(outcome.slice(BUDGET_REFUSAL_PREFIX.length))];
+      const bound = budgets[Number(outcome.slice(BUDGET_REFUSAL_PREFIX.length))];
       if (bound === undefined) {
         return errAsync(
           unavailableError('admission script named a budget scope the request did not carry')
@@ -287,9 +352,17 @@ export function admitRun(
     }
     return errAsync(unavailableError('admission script returned an unknown outcome'));
   };
-  return resolveEffectiveSpendable(deps, request.walletId)
-    .andThen((spendable) => runAdmissionScript(deps, request, ttlSeconds, spendable))
-    .andThen(decide);
+  // A snapshot that moved under the first pass is read again once; one that
+  // moves under the second as well fails closed rather than pricing at all.
+  return admissionPass(deps, request, ttlSeconds)
+    .andThen((first) =>
+      first.outcome === STALE_OUTCOME ? admissionPass(deps, request, ttlSeconds) : okAsync(first)
+    )
+    .andThen(({ outcome, scopes }) =>
+      outcome === STALE_OUTCOME
+        ? errAsync(unavailableError('admission refused: the wallet snapshot kept moving'))
+        : decide(outcome, scopes)
+    );
 }
 
 /**
@@ -302,9 +375,18 @@ export function resolveEffectiveSpendable(
   deps: AdmissionDeps,
   walletId: string
 ): ResultAsync<SpendableDecision, DomainError> {
-  return resolveSnapshot(deps, walletId).map((snapshot) =>
-    spendableFor(snapshot.balanceNanoUsd, snapshot.type)
-  );
+  return resolvePricedSnapshot(deps, walletId).map((priced) => priced.spendable);
+}
+
+/** The balance-side decision and the snapshot sequence it was priced from. */
+function resolvePricedSnapshot(
+  deps: AdmissionDeps,
+  walletId: string
+): ResultAsync<{ readonly spendable: SpendableDecision; readonly ledgerSeq: bigint }, DomainError> {
+  return resolveSnapshot(deps, walletId).map((snapshot) => ({
+    spendable: spendableFor(snapshot.balanceNanoUsd, snapshot.type),
+    ledgerSeq: snapshot.ledgerSeq,
+  }));
 }
 
 interface ReleaseHoldArgs {
@@ -314,22 +396,36 @@ interface ReleaseHoldArgs {
 }
 
 /**
- * Early release at settlement — best-effort by design: a lost release just
- * leaves the hold to its TTL (the hold is not money).
+ * A run's release, at its terminal: reads the payer wallet's committed snapshot
+ * from Postgres, then writes it through and removes the hold in one atomic
+ * script ({@link SETTLED_RELEASE_SCRIPT}). A failed read, or a wallet with no
+ * row, releases nothing and leaves the hold to its TTL: a release never removes
+ * a hold without a snapshot that carries its run's charge.
  */
 export function releaseHold(
-  redis: RedisClient,
+  deps: AdmissionDeps,
   args: ReleaseHoldArgs
 ): ResultAsync<void, DomainError> {
-  return fromPromise(
-    Promise.all([
-      redis.hdel(BILLING_KEYS.walletHolds.buildKey(args.walletId), args.holdId),
-      ...args.scopeIds.map((scopeId) =>
-        redis.hdel(BILLING_KEYS.scopeHolds.buildKey(scopeId), args.holdId)
-      ),
-    ]),
-    redisFailure
-  ).map((): void => undefined);
+  return deps.stores.readWalletSnapshot(deps.db, args.walletId).andThen((wallet) => {
+    if (wallet === null) {
+      return errAsync(notFoundError('release: wallet does not exist'));
+    }
+    const keys = [
+      BILLING_KEYS.walletSnapshot.buildKey(args.walletId),
+      BILLING_KEYS.walletHolds.buildKey(args.walletId),
+      ...args.scopeIds.map((scopeId) => BILLING_KEYS.scopeHolds.buildKey(scopeId)),
+    ];
+    const snapshot = snapshotArgs({
+      walletId: args.walletId,
+      balanceNanoUsd: wallet.balanceNanoUsd,
+      ledgerSeq: wallet.ledgerSeq,
+      walletType: wallet.type,
+    });
+    return fromPromise(
+      deps.redis.createScript(SETTLED_RELEASE_SCRIPT).exec(keys, [...snapshot, args.holdId]),
+      redisFailure
+    ).map((): void => undefined);
+  });
 }
 
 interface SnapshotWrite {
@@ -353,18 +449,23 @@ export function writeThroughSnapshot(
   redis: RedisClient,
   write: SnapshotWrite
 ): ResultAsync<boolean, DomainError> {
-  const payload = JSON.stringify({
-    balanceNanoUsd: write.balanceNanoUsd.toString(10),
-    ledgerSeq: Number(write.ledgerSeq),
-    type: write.walletType,
-  });
   return fromPromise(
     redis
       .createScript(SNAPSHOT_CAS_SCRIPT)
       .exec(
         [BILLING_KEYS.walletSnapshot.buildKey(write.walletId)],
-        [payload, String(write.ledgerSeq), String(BILLING_KEYS.walletSnapshot.ttlSeconds)]
+        snapshotArgs(write)
       ) as Promise<number>,
     redisFailure
   ).map((written) => written === 1);
+}
+
+/** The snapshot CAS fragment's arguments: the snapshot JSON, its sequence, its TTL. */
+function snapshotArgs(write: SnapshotWrite): string[] {
+  const payload = JSON.stringify({
+    balanceNanoUsd: write.balanceNanoUsd.toString(10),
+    ledgerSeq: Number(write.ledgerSeq),
+    type: write.walletType,
+  });
+  return [payload, String(write.ledgerSeq), String(BILLING_KEYS.walletSnapshot.ttlSeconds)];
 }

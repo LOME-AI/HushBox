@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
 import * as React from 'react';
 import { SECOND_MS, TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
@@ -24,6 +24,11 @@ vi.mock('@/hooks/billing/use-prompt-budget', () => ({
   usePromptBudget: () => ({ sendRefusal: undefined }),
 }));
 
+// The list mounts Virtuoso only once the markdown renderer's module has settled.
+vi.mock('@/components/chat/message/markdown-renderer', () => ({
+  MarkdownRenderer: (): null => null,
+}));
+
 vi.mock('@/components/chat/message/message-item', () => ({
   MessageItem: ({ message }: { message: { id: string } }): React.JSX.Element => (
     <div data-testid="seeded-item">{message.id}</div>
@@ -31,10 +36,15 @@ vi.mock('@/components/chat/message/message-item', () => ({
 }));
 
 import { MessageList } from '@/components/chat/message/message-list';
+import { loadMarkdownRenderer } from '@/components/chat/segments/segment-renderers';
 import type { Message } from '@/lib/api/api';
 
 const originalResizeObserver = globalThis.ResizeObserver;
 const originalScrollTo = Element.prototype.scrollTo;
+
+beforeAll(async () => {
+  await loadMarkdownRenderer();
+});
 
 beforeEach(() => {
   globalThis.ResizeObserver = class {

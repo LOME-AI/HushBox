@@ -39,6 +39,7 @@ import { okAsync } from '../lib/result/index.js';
 import { applyPipeline } from '../middleware/pipeline.js';
 import { SESSION_COOKIE_NAME } from '../middleware/pipeline-session.js';
 import { normalizeCatalog } from '../slices/models/domain/index.js';
+import { zdrEndpointFixture } from '../slices/models/domain/catalog/gateway-fixtures.js';
 import { createBillingStores } from '../slices/billing/index.js';
 import { createConversationsStores } from '../slices/conversations/index.js';
 import { createLinkResolutionAdapter } from '../composition/bindings/link-resolution.js';
@@ -218,14 +219,16 @@ function ingestedTextDescriptor(
         outputModalities: ['text'],
         supportedParameters: gateway.supportedParameters ?? [],
         contextLength: TEXT_CONTEXT_LENGTH,
-        pricing: gateway.pricing ?? CHEAP_GATEWAY_RATES,
         // Outside the trial premium-recency window, so a seeded text model is
         // eligible on that leg; `recentReleaseSeconds` seeds the contrast.
         releasedAt: OLD_RELEASE_SECONDS,
         deprecated: false,
       },
     ],
-    new Set([modelId]),
+    // One ZDR endpoint at the fixture's rates, so it anchors at exactly them.
+    new Map([
+      [modelId, [zdrEndpointFixture({ pricing: { ...(gateway.pricing ?? CHEAP_GATEWAY_RATES) } })]],
+    ]),
     Date.now()
   );
   const entry = entries[0];
@@ -409,6 +412,7 @@ export async function seedImageGateModel(modelId: string): Promise<void> {
     // at ingestion, so the spec is a condition of the row existing.
     parameters: mediaParameterSpecs({ aspectRatio: ['1:1', '4:3'] }),
     pricing: { kind: 'perImage', anchor: '40000000', dearest: '40000000' },
+    zdrPin: ['test-provider'],
   });
 }
 

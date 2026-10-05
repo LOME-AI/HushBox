@@ -1,8 +1,9 @@
+import * as React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { TEST_IDS } from '@hushbox/shared';
 
-import { PageBody } from './page-body';
+import { PageBody, PinnedBandHeightContext } from './page-body';
 
 class ResizeObserverFake implements ResizeObserver {
   static readonly instances: ResizeObserverFake[] = [];
@@ -56,6 +57,15 @@ function layOut({ band, scroller }: { band: number; scroller: number }): void {
   bandObserver().fire();
 }
 
+function PublishedHeight(): React.JSX.Element {
+  const height = React.useContext(PinnedBandHeightContext);
+  return <output aria-label="Published height">{String(height)}</output>;
+}
+
+function publishedHeight(): string | null {
+  return screen.getByLabelText('Published height').textContent;
+}
+
 function isPinned(): boolean {
   const classes = new Set(pinnedBand().className.split(' '));
   return classes.has('md:sticky') && classes.has('md:top-0');
@@ -69,6 +79,7 @@ describe('PageBody pinned band fit', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it('watches the band and the scroller for size changes', () => {
@@ -132,6 +143,180 @@ describe('PageBody pinned band fit', () => {
     layOut({ band: 300, scroller: 1000 });
     layOut({ band: 701, scroller: 1000 });
     expect(screen.getByTestId('page-body').style.scrollPaddingTop).toBe('');
+  });
+
+  it("publishes the pinned band's height to the page's subtree", () => {
+    render(<PageBody pinned={<PublishedHeight />}>content</PageBody>);
+    layOut({ band: 300, scroller: 1000 });
+    expect(publishedHeight()).toBe('300');
+  });
+
+  it('publishes no height once the band scrolls with the page', () => {
+    render(<PageBody pinned={<PublishedHeight />}>content</PageBody>);
+    layOut({ band: 701, scroller: 1000 });
+    expect(publishedHeight()).toBe('null');
+  });
+
+  it('publishes no height on a page without a band', () => {
+    render(
+      <PageBody>
+        <PublishedHeight />
+      </PageBody>
+    );
+    expect(publishedHeight()).toBe('null');
+  });
+
+  describe('below 768, where the band has no box', () => {
+    /** A band that lays out boxless, holding a part that sticks on its own `height` px tall. */
+    function renderStickyPart({ sticks }: { sticks: boolean }): HTMLElement {
+      render(
+        <PageBody
+          pinned={
+            <>
+              <nav aria-label="Links">links</nav>
+              <div data-page-pinned-sticky="" aria-label="Preview">
+                preview
+              </div>
+            </>
+          }
+        >
+          <PublishedHeight />
+        </PageBody>
+      );
+      const part = screen.getByLabelText('Preview');
+      part.style.position = sticks ? 'sticky' : '';
+      Object.defineProperty(part, 'offsetHeight', { configurable: true, value: 200 });
+      return part;
+    }
+
+    it('watches the part of the band that sticks on its own', () => {
+      const part = renderStickyPart({ sticks: true });
+      expect(bandObserver().observed).toContain(part);
+    });
+
+    it("pads the scroller's top by the height of the part that sticks", () => {
+      renderStickyPart({ sticks: true });
+      layOut({ band: 0, scroller: 600 });
+      expect(screen.getByTestId('page-body').style.scrollPaddingTop).toBe('200px');
+    });
+
+    it('publishes the height of the part that sticks', () => {
+      renderStickyPart({ sticks: true });
+      layOut({ band: 0, scroller: 600 });
+      expect(publishedHeight()).toBe('200');
+    });
+
+    it('measures the marked part whatever its own position', () => {
+      renderStickyPart({ sticks: false });
+      layOut({ band: 0, scroller: 600 });
+      expect(publishedHeight()).toBe('200');
+    });
+
+    it('publishes no height once the marked part is taller than 70% of the scroller', () => {
+      renderStickyPart({ sticks: true });
+      layOut({ band: 0, scroller: 285 });
+      expect(publishedHeight()).toBe('null');
+    });
+
+    it('drops the padding once the marked part is taller than 70% of the scroller', () => {
+      renderStickyPart({ sticks: true });
+      layOut({ band: 0, scroller: 285 });
+      expect(screen.getByTestId('page-body').style.scrollPaddingTop).toBe('');
+    });
+
+    it('measures nothing on a boxless band with no marked part', () => {
+      render(
+        <PageBody pinned={<nav aria-label="Links">links</nav>}>
+          <PublishedHeight />
+        </PageBody>
+      );
+      layOut({ band: 0, scroller: 600 });
+      expect(publishedHeight()).toBe('0');
+    });
+  });
+
+  describe('keyboard focus under the pinned height', () => {
+    interface FocusScrolls {
+      /** The page body's own scroll, by the distance a focused control lies under the band. */
+      scrollBy: ReturnType<typeof vi.fn>;
+      /** A scroll of every scrolling box around the control, which must not happen. */
+      scrollIntoView: ReturnType<typeof vi.fn>;
+    }
+
+    /** Doubles both scrolls on the scroller and `focused`, and reports `focused` taking focus. */
+    function focusWithScrollDoubles(focused: HTMLElement): FocusScrolls {
+      const scrollBy = vi.fn();
+      const scrollIntoView = vi.fn();
+      screen.getByTestId('page-body').scrollBy = scrollBy;
+      focused.scrollIntoView = scrollIntoView;
+      fireEvent.focusIn(focused);
+      return { scrollBy, scrollIntoView };
+    }
+
+    /**
+     * Focuses a control `top` px below the scroller's top under a 100px pinned band, by keyboard
+     * (it matches `:focus-visible`) or by pointer (it does not).
+     */
+    function focusControlAt(
+      top: number,
+      { byKeyboard = true }: { byKeyboard?: boolean } = {}
+    ): FocusScrolls {
+      render(
+        <PageBody pinned={<button type="button">In the band</button>}>
+          <button type="button">Control</button>
+        </PageBody>
+      );
+      layOut({ band: 100, scroller: 1000 });
+      const control = screen.getByRole('button', { name: 'Control' });
+      vi.spyOn(screen.getByTestId('page-body'), 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(0, 50, 800, 1000)
+      );
+      vi.spyOn(control, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 50 + top, 200, 40));
+      vi.spyOn(control, 'matches').mockImplementation(
+        (selector) => byKeyboard && selector === ':focus-visible'
+      );
+      return focusWithScrollDoubles(control);
+    }
+
+    it('scrolls the page body until a control focused under the pinned band clears it', () => {
+      expect(focusControlAt(60).scrollBy).toHaveBeenCalledWith({ top: -40 });
+    });
+
+    it('rounds that scroll to whole pixels, away from the band', () => {
+      expect(focusControlAt(60.5).scrollBy).toHaveBeenCalledWith({ top: -40 });
+    });
+
+    it('scrolls no box around the page body to clear a focused control', () => {
+      expect(focusControlAt(60).scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('leaves a control focused clear of the pinned band where it is', () => {
+      expect(focusControlAt(100).scrollBy).not.toHaveBeenCalled();
+    });
+
+    it('leaves a control a pointer focuses under the pinned band where it is', () => {
+      expect(focusControlAt(60, { byKeyboard: false }).scrollBy).not.toHaveBeenCalled();
+    });
+
+    it("leaves the band's own controls where they are", () => {
+      render(<PageBody pinned={<button type="button">In the band</button>}>content</PageBody>);
+      layOut({ band: 100, scroller: 1000 });
+      const { scrollBy } = focusWithScrollDoubles(
+        screen.getByRole('button', { name: 'In the band' })
+      );
+      expect(scrollBy).not.toHaveBeenCalled();
+    });
+
+    it('leaves focus alone while the band scrolls with the page', () => {
+      render(
+        <PageBody pinned={<button type="button">In the band</button>}>
+          <button type="button">Control</button>
+        </PageBody>
+      );
+      layOut({ band: 800, scroller: 1000 });
+      const { scrollBy } = focusWithScrollDoubles(screen.getByRole('button', { name: 'Control' }));
+      expect(scrollBy).not.toHaveBeenCalled();
+    });
   });
 
   it('keeps the band boxless below 768 whether or not it fits', () => {

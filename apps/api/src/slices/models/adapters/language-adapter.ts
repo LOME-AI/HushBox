@@ -1,7 +1,7 @@
 import { stepCountIs, streamText, tool, wrapLanguageModel } from 'ai';
 import { match, P } from 'ts-pattern';
 import { z } from 'zod';
-import { ReasoningWire, buildTurnSystemPrompt, languageRoutingOptions } from '@hushbox/shared';
+import { ReasoningWire, languageRoutingOptions, sentSystemPromptOf } from '@hushbox/shared';
 import { toolCallsOfSteps } from '@hushbox/shared/affordability';
 import {
   InferenceError,
@@ -14,7 +14,11 @@ import {
 } from './inference-error.js';
 import { validateInferenceCall } from './inference-boundary.js';
 import { createOpenRouterProvider } from './openrouter-provider.js';
-import { ToolCallLimitError, toolErrorReason } from './tool-error-reason.js';
+import {
+  ToolCallGateClosedError,
+  ToolCallLimitError,
+  toolErrorReason,
+} from './tool-error-reason.js';
 import type { OpenRouterProvider } from '@openrouter/ai-sdk-provider';
 import type {
   AssistantModelMessage,
@@ -36,6 +40,7 @@ import type {
   FilePartMapper,
   InferenceEvent,
   InferenceRequest,
+  MaxPrice,
   ModelDescriptor,
   ToolErrorReason,
   Usage,
@@ -51,8 +56,9 @@ import type {
  * The language-family adapter behind the ModelProvider port: the AI SDK's
  * `streamText` against OpenRouter (`openrouter.chat`). Multi-output models
  * stream `file` parts through this same call-shape — mapped to media events via
- * the injected FilePartMapper. Every call pins the ZDR routing block via the
- * shared `languageRoutingOptions()` and reads the authoritative inline
+ * the injected FilePartMapper. Every call pins the ZDR routing block, under the
+ * request's `max_price`, via the shared `languageRoutingOptions()` and reads
+ * the authoritative inline
  * `providerMetadata.openrouter.usage.cost` off each step and the finish.
  */
 interface CreateLanguageAdapterOptions {
@@ -135,6 +141,24 @@ export class AdapterDefect extends Error {
   }
 }
 
+/**
+ * A language call that reached a provider without its price reservation: no
+ * `max_price` to route under. A defect in whoever built the request, raised
+ * before anything is sent.
+ */
+export class MissingPriceReservation extends AdapterDefect {
+  constructor() {
+    super('a language call reached the provider without its price reservation');
+    this.name = 'MissingPriceReservation';
+  }
+}
+
+/** The call's price reservation, or the defect a request built without one is. */
+export function reservedMaxPrice(request: InferenceRequest): MaxPrice {
+  if (request.routing === undefined) throw new MissingPriceReservation();
+  return request.routing.maxPrice;
+}
+
 const openrouterUsageMetadataSchema = z.looseObject({
   openrouter: z
     .looseObject({
@@ -185,22 +209,26 @@ const NEVER_ABORTED = new AbortController().signal;
 
 /**
  * Every tool is client-executed: its `execute` runs inside the SDK's loop with
- * the SDK's abort signal. A call the budget does not admit is refused with a
- * {@link ToolCallLimitError} before the definition's `execute` is reached.
+ * the SDK's abort signal. A call the spend gate refuses is refused with a
+ * {@link ToolCallGateClosedError}, and one the budget does not admit with a
+ * {@link ToolCallLimitError}, before the definition's `execute` is reached.
  */
 export function buildToolset(
   registry: ToolSelection,
-  admits: (toolCallId: string) => boolean
+  admits: (toolCallId: string) => boolean,
+  mayExecuteTool: () => boolean
 ): ToolSet {
   const tools: ToolSet = {};
   for (const [name, definition] of Object.entries(registry)) {
     tools[name] = tool({
       description: definition.description,
       inputSchema: definition.inputSchema,
-      execute: (input: unknown, { toolCallId, abortSignal }) =>
-        admits(toolCallId)
+      execute: (input: unknown, { toolCallId, abortSignal }) => {
+        if (!mayExecuteTool()) return Promise.reject(new ToolCallGateClosedError());
+        return admits(toolCallId)
           ? definition.execute(input, { signal: abortSignal ?? NEVER_ABORTED })
-          : Promise.reject(new ToolCallLimitError()),
+          : Promise.reject(new ToolCallLimitError());
+      },
     });
   }
   return tools;
@@ -403,10 +431,31 @@ function prepareLoopStep(plan: ToolLoopPlan): PrepareStepFunction<ToolSet> {
 
 interface ToolLoopRun {
   readonly middleware: LanguageModelMiddleware;
+  /** Set once the spend gate refuses the loop its next step. */
+  readonly gate: { stopped: boolean };
   readonly settings: {
     readonly tools: ToolSet;
     readonly stopWhen: StopCondition<ToolSet>[];
     readonly prepareStep: PrepareStepFunction<ToolSet>;
+  };
+}
+
+/**
+ * The stop condition that asks the spend gate for the loop's next step. The SDK
+ * evaluates it after a step's tools have run and before the next step starts,
+ * so the gate learns each completed step's cost inside the SDK's own control
+ * flow, however fast the stream is consumed.
+ */
+function gateStop(
+  continuation: InferOptions['continuation'],
+  gate: { stopped: boolean }
+): StopCondition<ToolSet> {
+  return ({ steps }): boolean => {
+    if (continuation === undefined) return false;
+    const costs = steps.map((step) => extractStepCost(step.providerMetadata));
+    if (continuation.mayStartNextStep(costs)) return false;
+    gate.stopped = true;
+    return true;
   };
 }
 
@@ -416,11 +465,12 @@ interface ToolLoopRun {
  * prices every step at. A call with no tools has no loop.
  */
 function planToolLoop(
-  loop: ToolLoopOptions | undefined,
+  options: InferOptions,
   parameters: CallParameters,
   descriptor: ModelDescriptor,
   system: string | undefined
 ): ToolLoopRun | undefined {
+  const { tools: loop, continuation } = options;
   if (loop === undefined) return undefined;
   const contextWindow = descriptor.limits['contextLength'];
   const stepCeiling = parameters.maxOutputTokens;
@@ -435,11 +485,21 @@ function planToolLoop(
     latestModelCallStart: 0,
   };
   const guard = { tripped: false };
+  const gate = { stopped: false };
   return {
     middleware: ledgerMiddleware(ledger),
+    gate,
     settings: {
-      tools: buildToolset(loop.registry, (toolCallId) => admitsCall(ledger, toolCallId)),
-      stopWhen: [stepCountIs(loop.maxSteps), (): boolean => guard.tripped],
+      tools: buildToolset(
+        loop.registry,
+        (toolCallId) => admitsCall(ledger, toolCallId),
+        () => continuation?.mayExecuteTool() ?? true
+      ),
+      stopWhen: [
+        stepCountIs(loop.maxSteps),
+        (): boolean => guard.tripped,
+        gateStop(continuation, gate),
+      ],
       prepareStep: prepareLoopStep({ loop, ledger, contextWindow, stepCeiling, system, guard }),
     },
   };
@@ -506,7 +566,10 @@ function mapToolCall(
   return [{ kind: 'tool-call', id: part.toolCallId, name: part.toolName, args: part.input }];
 }
 
-/** A call that produced no result, as its reason alone; an aborted run emits nothing. */
+/**
+ * A call that produced no result, as its reason alone; an aborted run, and a
+ * call the spend gate refused, emit nothing.
+ */
 function mapToolError(
   part: { toolCallId: string; toolName: string; error: unknown },
   state: StreamState,
@@ -515,6 +578,7 @@ function mapToolError(
   const cause = state.invalidCallErrors.has(part.toolCallId)
     ? state.invalidCallErrors.get(part.toolCallId)
     : part.error;
+  if (cause instanceof ToolCallGateClosedError) return [];
   const reason = toolErrorReason(cause, signal);
   if (reason === undefined) return [];
   state.toolErrorReason = reason;
@@ -662,14 +726,20 @@ function unrecoveredToolError(reason: ToolErrorReason): InferenceError {
 }
 
 /**
- * Terminal decision table for a turn that produced no visible output: an
- * unrecovered tool error surfaces by its reason alone; an empty `length`
- * finish is BILLABLE TRUNCATION — a valid terminal state the caller persists
- * and charges — so it falls through to the finish event; anything else
- * (tool-call exhaustion, content filter, bare stop) is an empty completion.
+ * Terminal decision table for a turn that produced no visible output: a loop
+ * the spend gate stopped ends with its finish, for the caller to settle as a
+ * drained partial; an unrecovered tool error surfaces by its reason alone; an
+ * empty `length` finish is BILLABLE TRUNCATION — a valid terminal state the
+ * caller persists and charges — so it falls through to the finish event;
+ * anything else (tool-call exhaustion, content filter, bare stop) is an empty
+ * completion.
  */
-function throwForEmptyTurn(state: StreamState, finishReason: FinishReason): void {
-  if (state.sawText || state.sawMedia) return;
+function throwForEmptyTurn(
+  state: StreamState,
+  finishReason: FinishReason,
+  toolLoop: ToolLoopRun | undefined
+): void {
+  if (state.sawText || state.sawMedia || toolLoop?.gate.stopped === true) return;
   if (state.toolErrorReason !== undefined) throw unrecoveredToolError(state.toolErrorReason);
   if (finishReason === 'length') return;
   throw emptyCompletionError(finishReason);
@@ -741,21 +811,16 @@ function streamFailure(error: unknown, parameters: CallParameters): Error {
  * included, by decision rather than omission.
  */
 function systemPromptFor(request: InferenceRequest): string | undefined {
-  if (request.routingOnly === true) return undefined;
-  return buildTurnSystemPrompt({
-    utcDay: request.utcDay,
-    ...(request.customInstructions === undefined
-      ? {}
-      : { customInstructions: request.customInstructions }),
-  });
+  return sentSystemPromptOf(request);
 }
 
 /**
  * `.chat()` (not the callable `openrouter(model)`, whose overloads infer the
- * completion model). The routing settings pin ZDR + no-collection +
- * no-fallbacks and enable inline usage/cost accounting; a reasoning call
- * additionally pins the require-parameters routing guard so an endpoint can
- * never silently drop the reasoning config. A tool loop's model counts its
+ * completion model). The routing settings are one provider block for the whole
+ * call, every step included: ZDR, no collection, cheapest-first with fallbacks
+ * under the call's `max_price`, and inline usage/cost accounting; a reasoning
+ * call additionally pins the require-parameters routing guard so an endpoint
+ * can never silently drop the reasoning config. A tool loop's model counts its
  * calls as they stream.
  */
 function chatModelFor(
@@ -766,7 +831,10 @@ function chatModelFor(
 ): LanguageModel {
   const model = provider.chat(
     request.model,
-    languageRoutingOptions({ reasoning: parameters.reasoning !== undefined })
+    languageRoutingOptions({
+      reasoning: parameters.reasoning !== undefined,
+      maxPrice: reservedMaxPrice(request),
+    })
   );
   return toolLoop === undefined
     ? model
@@ -779,7 +847,7 @@ async function* inferLanguage(input: InferStreamInput): AsyncGenerator<Inference
   const content = toUserContent(request.inputs);
 
   const system = systemPromptFor(request);
-  const toolLoop = planToolLoop(options.tools, parameters, descriptor, system);
+  const toolLoop = planToolLoop(options, parameters, descriptor, system);
 
   const result = streamText({
     model: chatModelFor(provider, request, parameters, toolLoop),
@@ -825,7 +893,7 @@ async function* inferLanguage(input: InferStreamInput): AsyncGenerator<Inference
 
   const finishPart = state.finishPart;
   if (finishPart === undefined) throw truncatedStreamError();
-  throwForEmptyTurn(state, finishPart.finishReason);
+  throwForEmptyTurn(state, finishPart.finishReason, toolLoop);
 
   // Single-step runs carry the generationId on the terminal finish; on
   // multi-step runs each step-finish already carried its own. The terminal
@@ -854,6 +922,7 @@ export function createLanguageAdapter(options: CreateLanguageAdapterOptions): Mo
       inferOptions: InferOptions = {}
     ): AsyncIterable<InferenceEvent> {
       validateInferenceCall(request, descriptor);
+      reservedMaxPrice(request);
       return inferLanguage({ provider, request, descriptor, options: inferOptions });
     },
   };

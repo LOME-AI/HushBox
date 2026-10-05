@@ -754,6 +754,7 @@ describe('compileAutoEffortTurn (pinned model + auto effort)', () => {
   ): WorkflowDefinition {
     const build = compileAutoEffortTurn(catalog, model, {
       budget: turnBudget,
+      catalogGeneration: '0123456789abcdef',
       hooks: CHAT_TURN_HOOKS,
       now: new Date(NOW_MS),
     })._unsafeUnwrap();
@@ -818,6 +819,7 @@ describe('compileAutoEffortTurn (pinned model + auto effort)', () => {
     expect(
       compileAutoEffortTurn([capless, cheapText], 'capless-model', {
         budget: budget,
+        catalogGeneration: '0123456789abcdef',
         hooks: CHAT_TURN_HOOKS,
         now: new Date(NOW_MS),
       })._unsafeUnwrap()
@@ -836,6 +838,7 @@ describe('compileAutoEffortTurn (pinned model + auto effort)', () => {
     expect(
       compileAutoEffortTurn([mandatory, cheapText], 'mandatory-model', {
         budget: budget,
+        catalogGeneration: '0123456789abcdef',
         hooks: CHAT_TURN_HOOKS,
         now: new Date(NOW_MS),
       })._unsafeUnwrap()
@@ -849,6 +852,7 @@ describe('compileAutoEffortTurn (pinned model + auto effort)', () => {
     expect(
       compileAutoEffortTurn([minOnly, cheapText], 'min-only', {
         budget: budget,
+        catalogGeneration: '0123456789abcdef',
         hooks: CHAT_TURN_HOOKS,
         now: new Date(NOW_MS),
       })._unsafeUnwrap()
@@ -862,6 +866,7 @@ describe('compileAutoEffortTurn (pinned model + auto effort)', () => {
     expect(
       compileAutoEffortTurn([plain, cheapText], 'plain-model', {
         budget: budget,
+        catalogGeneration: '0123456789abcdef',
         hooks: CHAT_TURN_HOOKS,
         now: new Date(NOW_MS),
       })._unsafeUnwrap()
@@ -872,6 +877,7 @@ describe('compileAutoEffortTurn (pinned model + auto effort)', () => {
     expect(
       compileAutoEffortTurn([cheapText], 'ghost-model', {
         budget: budget,
+        catalogGeneration: '0123456789abcdef',
         hooks: CHAT_TURN_HOOKS,
         now: new Date(NOW_MS),
       })._unsafeUnwrap()
@@ -890,6 +896,7 @@ describe('compileAutoEffortTurn (pinned model + auto effort)', () => {
     };
     const error = compileAutoEffortTurn([rateless], 'rateless-model', {
       budget: budget,
+      catalogGeneration: '0123456789abcdef',
       hooks: CHAT_TURN_HOOKS,
       now: new Date(NOW_MS),
     })._unsafeUnwrapErr();
@@ -911,6 +918,7 @@ describe('compileAutoEffortTurn (pinned model + auto effort)', () => {
     expect(
       compileAutoEffortTurn([pinned, cheapText], 'pinned-model', {
         budget: broke,
+        catalogGeneration: '0123456789abcdef',
         hooks: CHAT_TURN_HOOKS,
         now: new Date(NOW_MS),
       })._unsafeUnwrap()
@@ -951,6 +959,7 @@ describe('an auto turn on a model that cannot turn reasoning off is refused belo
   function serverKind(spendable: bigint): AutoEffortTurnBuild['kind'] {
     return compileAutoEffortTurn(catalog, pro.id, {
       budget: budgetOf(spendable),
+      catalogGeneration: '0123456789abcdef',
       hooks: CHAT_TURN_HOOKS,
       now: new Date(NOW_MS),
     })._unsafeUnwrap().kind;
@@ -1013,6 +1022,7 @@ describe('the pinned-model auto build offers the classifier its own menu', () =>
   function compiled(turnBudget: TurnBudget): MultiModelTurnBuild {
     const build = compileAutoEffortTurn(catalog, sonnet.id, {
       budget: turnBudget,
+      catalogGeneration: '0123456789abcdef',
       hooks: CHAT_TURN_HOOKS,
       now: new Date(NOW_MS),
     })._unsafeUnwrap();
@@ -1100,6 +1110,7 @@ describe('the pinned-model auto build offers the classifier its own menu', () =>
     function compileTrialAt(outputPerToken: bigint): AutoEffortTurnBuild {
       return compileAutoEffortTurn([answerAt(outputPerToken), trialEngine], 'trial/answer', {
         budget: trialBudget,
+        catalogGeneration: '0123456789abcdef',
         hooks: TRIAL_TURN_HOOKS,
         now: new Date(NOW_MS),
       })._unsafeUnwrap();
@@ -1149,6 +1160,7 @@ describe('the pinned-model auto build offers the classifier its own menu', () =>
         if (availableRungsOf(options).length !== 1 || options.holdNanoUsd === undefined) continue;
         const build = compileAutoEffortTurn(catalogAt, 'trial/answer', {
           budget: promptBudget,
+          catalogGeneration: '0123456789abcdef',
           hooks: TRIAL_TURN_HOOKS,
           now: new Date(NOW_MS),
         })._unsafeUnwrap();
@@ -1189,6 +1201,7 @@ function browserMenu(
       modality: 'text',
       pinned: {},
       webSearch: false,
+      effortAuto: true,
     },
     { models: smartModelPool(catalog), nowMs: NOW_MS }
   );
@@ -1231,6 +1244,7 @@ describe('compileAutoEffortTurn on the trial policy', () => {
   function compileTrial(catalog: readonly ModelDescriptor[], model: string): AutoEffortTurnBuild {
     return compileAutoEffortTurn(catalog, model, {
       budget: budget,
+      catalogGeneration: '0123456789abcdef',
       hooks: TRIAL_TURN_HOOKS,
       now: new Date(NOW_MS),
     })._unsafeUnwrap();

@@ -1,13 +1,8 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { Document } from '@/lib/chat/document-parser';
-
-const MIN_PANEL_WIDTH = 300;
-const DEFAULT_PANEL_WIDTH = 400;
 
 interface DocumentState {
   isPanelOpen: boolean;
-  panelWidth: number;
   activeDocumentId: string | null;
   activeDocument: Document | null;
   /**
@@ -25,57 +20,50 @@ interface DocumentState {
   setActiveDocument: (document: Document) => void;
   /** Replaces the open document with a newer parse of the same selection. */
   refreshActiveDocument: (document: Document) => void;
-  setPanelWidth: (width: number, maxWidth: number) => void;
   toggleFullscreen: () => void;
 }
 
-export const useDocumentStore = create<DocumentState>()(
-  persist(
-    (set) => ({
+export const useDocumentStore = create<DocumentState>()((set) => ({
+  isPanelOpen: false,
+  activeDocumentId: null,
+  activeDocument: null,
+  activeSelectionId: 0,
+  isFullscreen: false,
+
+  openPanel: () => {
+    set({ isPanelOpen: true });
+  },
+
+  closePanel: () => {
+    set({
       isPanelOpen: false,
-      panelWidth: DEFAULT_PANEL_WIDTH,
       activeDocumentId: null,
       activeDocument: null,
-      activeSelectionId: 0,
       isFullscreen: false,
+    });
+  },
 
-      openPanel: () => set({ isPanelOpen: true }),
+  togglePanel: () => {
+    set((state) => ({
+      isPanelOpen: !state.isPanelOpen,
+      ...(state.isPanelOpen ? { activeDocumentId: null, activeDocument: null } : {}),
+    }));
+  },
 
-      closePanel: () =>
-        set({
-          isPanelOpen: false,
-          activeDocumentId: null,
-          activeDocument: null,
-          isFullscreen: false,
-        }),
+  setActiveDocument: (document) => {
+    set((state) => ({
+      activeDocumentId: document.id,
+      activeDocument: document,
+      activeSelectionId: state.activeSelectionId + 1,
+      isPanelOpen: true,
+    }));
+  },
 
-      togglePanel: () =>
-        set((state) => ({
-          isPanelOpen: !state.isPanelOpen,
-          ...(state.isPanelOpen ? { activeDocumentId: null, activeDocument: null } : {}),
-        })),
+  refreshActiveDocument: (document) => {
+    set({ activeDocumentId: document.id, activeDocument: document });
+  },
 
-      setActiveDocument: (document) =>
-        set((state) => ({
-          activeDocumentId: document.id,
-          activeDocument: document,
-          activeSelectionId: state.activeSelectionId + 1,
-          isPanelOpen: true,
-        })),
-
-      refreshActiveDocument: (document) =>
-        set({ activeDocumentId: document.id, activeDocument: document }),
-
-      setPanelWidth: (width, maxWidth) =>
-        set({
-          panelWidth: Math.min(maxWidth, Math.max(MIN_PANEL_WIDTH, width)),
-        }),
-
-      toggleFullscreen: () => set((state) => ({ isFullscreen: !state.isFullscreen })),
-    }),
-    {
-      name: 'hushbox-document-storage',
-      partialize: (state) => ({ panelWidth: state.panelWidth }),
-    }
-  )
-);
+  toggleFullscreen: () => {
+    set((state) => ({ isFullscreen: !state.isFullscreen }));
+  },
+}));

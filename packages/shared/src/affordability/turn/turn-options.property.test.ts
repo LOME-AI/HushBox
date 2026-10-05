@@ -153,6 +153,7 @@ const selections: fc.Arbitrary<Selection> = fc
       modality: 'text',
       pinned: pin === undefined ? {} : { effort: pin },
       webSearch,
+      effortAuto: pin === undefined,
     };
   });
 
@@ -379,6 +380,7 @@ describe('a pinned sibling is graded on a monotone arrangement', () => {
     modality: 'text',
     pinned: {},
     webSearch: false,
+    effortAuto: true,
   };
 
   const LONG_BASIS: PromptBasis = {

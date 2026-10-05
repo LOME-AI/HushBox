@@ -2,10 +2,13 @@ import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render as renderInDom, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { serializeSegments, TEST_IDS } from '@hushbox/shared';
+import { friendlyErrorMessage, serializeSegments, TEST_IDS } from '@hushbox/shared';
 import { TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
 import { useTtsPlaybackStore } from '@hushbox/ui/accessibility/store';
-import { AIMessageBlock } from '@/components/chat/message/ai-message-block';
+import {
+  AIMessageBlock,
+  type ComparePresentation,
+} from '@/components/chat/message/ai-message-block';
 import { chatKeys } from '@/hooks/chat/chat';
 import { memberKeys } from '@/hooks/realtime/use-conversation-members';
 import { linkKeys } from '@/hooks/realtime/use-conversation-links';
@@ -19,7 +22,7 @@ import type {
   ConversationMembersData,
 } from '@/hooks/chat/use-replying-to-name';
 import type { ModelsData } from '@/hooks/models/models';
-import type { MessageResponse, Model, Segment, WebSearchRow } from '@hushbox/shared';
+import type { MessageResponse, Model, NoticeReason, Segment, WebSearchRow } from '@hushbox/shared';
 
 /** The query client every render gets; a test seeds it with the conversation's reads. */
 let queryClient = new QueryClient();
@@ -72,7 +75,14 @@ function message(content: string, extra: Partial<Message> = {}): Message {
 
 async function draw(
   content: string,
-  options: { isStreaming?: boolean; extra?: Partial<Message>; models?: ModelsData } = {}
+  options: {
+    isStreaming?: boolean;
+    extra?: Partial<Message>;
+    models?: ModelsData;
+    compare?: ComparePresentation;
+    onRegenerate?: () => void;
+    regenerateRefusal?: NoticeReason;
+  } = {}
 ): Promise<ReturnType<typeof render>> {
   const view = render(
     <AIMessageBlock
@@ -80,6 +90,11 @@ async function draw(
       isStreaming={options.isStreaming}
       modelName={undefined}
       models={options.models}
+      {...(options.compare !== undefined && { compare: options.compare })}
+      {...(options.onRegenerate !== undefined && { onRegenerate: options.onRegenerate })}
+      {...(options.regenerateRefusal !== undefined && {
+        regenerateRefusal: options.regenerateRefusal,
+      })}
     />
   );
   await act(async () => {
@@ -99,8 +114,15 @@ describe('AIMessageBlock: a search made during reasoning', () => {
   it('rolls the search into the reasoning one-liner while collapsed', async () => {
     await draw(NESTED_CONTENT);
     const toggle = screen.getByTestId(TEST_IDS.thinkingDisclosureToggle);
-    expect(toggle).toHaveTextContent('Reasoning · Searched 3 sources');
+    expect(toggle).toHaveTextContent(/^Reasoned · Searched 3 sources$/);
     expect(screen.queryByTestId(TEST_IDS.webSearchRow)).not.toBeInTheDocument();
+  });
+
+  it('reads how long the reply reasoned and its tokens ahead of the search', async () => {
+    await draw(NESTED_CONTENT, { extra: { reasoningDurationMs: 14_000, reasoningTokens: 1240 } });
+    expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(
+      /^Reasoned for 14s · 1,240 tokens · Searched 3 sources$/
+    );
   });
 
   it('shows the search nested inside the opened reasoning, after the thought it followed', async () => {
@@ -206,6 +228,55 @@ describe('AIMessageBlock: a stopped live tile', () => {
     expect(row).toHaveTextContent('Search stopped');
     expect(row.compareDocumentPosition(error) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
+    );
+  });
+});
+
+describe('AIMessageBlock: a failed model', () => {
+  function slot(): HTMLElement {
+    const text = screen.getByTestId(TEST_IDS.modelErrorMessage);
+    const box = text.closest<HTMLElement>('[data-severity]');
+    if (box === null) throw new Error('the error text sits in no notice');
+    return box;
+  }
+
+  it("draws the failure as a notice whose text is the code's sentence", async () => {
+    await draw('', { extra: { errorCode: 'STREAM_ERROR' } });
+    expect(screen.getByTestId(TEST_IDS.modelErrorMessage)).toHaveTextContent(
+      friendlyErrorMessage('STREAM_ERROR')
+    );
+    expect(slot()).toHaveAttribute('data-severity', 'circle');
+  });
+
+  it('draws the slot under the failed reply’s nameplate', async () => {
+    await draw('', { extra: { modelName: SONNET_ID, errorCode: 'STREAM_ERROR' }, models: CATALOG });
+    const nameplate = screen.getByTestId(TEST_IDS.modelNametagContainer);
+    expect(nameplate.compareDocumentPosition(slot()) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+  });
+
+  it('puts Regenerate inside the slot and calls the handler from it', async () => {
+    const onRegenerate = vi.fn();
+    await draw('', { extra: { errorCode: 'STREAM_ERROR' }, onRegenerate });
+    fireEvent.click(within(slot()).getByRole('button', { name: 'Regenerate' }));
+    expect(onRegenerate).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws no Regenerate in the slot without a handler', async () => {
+    await draw('', { extra: { errorCode: 'STREAM_ERROR' } });
+    expect(within(slot()).queryByRole('button', { name: 'Regenerate' })).not.toBeInTheDocument();
+  });
+
+  it("refuses the slot's Regenerate with the re-run's refusal", async () => {
+    await draw('', {
+      extra: { errorCode: 'STREAM_ERROR' },
+      onRegenerate: vi.fn(),
+      regenerateRefusal: 'insufficient_funds',
+    });
+    expect(within(slot()).getByRole('button', { name: 'Regenerate' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
     );
   });
 });
@@ -402,6 +473,64 @@ describe('AIMessageBlock: the nameplate', () => {
   });
 });
 
+describe('AIMessageBlock: in a compare group', () => {
+  /** A swatch other than the model's own, as the group gives a model whose own one is taken. */
+  const ASSIGNED: ComparePresentation = {
+    swatch: modelSwatch(SONNET_ID) === 1 ? 2 : 1,
+    sidePadding: 'px-0',
+    textScale: 'text-body-sub',
+  };
+
+  it('draws the swatch the group assigns', async () => {
+    const { container } = await draw('Answer', {
+      extra: { modelName: SONNET_ID },
+      models: CATALOG,
+      compare: ASSIGNED,
+    });
+    expect(container.querySelector('[data-slot="swatch"]')).toHaveClass(
+      `bg-model-${String(ASSIGNED.swatch)}`
+    );
+  });
+
+  it('rules off the head', async () => {
+    await draw('Answer', { extra: { modelName: SONNET_ID }, models: CATALOG, compare: ASSIGNED });
+    expect(screen.getByTestId(TEST_IDS.modelNametagContainer)).toHaveClass('border-b');
+  });
+
+  it('draws no head rule outside a compare group', async () => {
+    await draw('Answer', { extra: { modelName: SONNET_ID }, models: CATALOG });
+    expect(screen.getByTestId(TEST_IDS.modelNametagContainer)).not.toHaveClass('border-b');
+  });
+
+  it("sets the answer at the group's text scale", async () => {
+    await draw('Answer', { compare: ASSIGNED });
+    expect(screen.getByTestId(TEST_IDS.aiMessageLiveRegion)).toHaveClass('text-body-sub');
+  });
+});
+
+describe('AIMessageBlock: a presentation that names its head spacing', () => {
+  const SPACED: ComparePresentation = {
+    swatch: modelSwatch(SONNET_ID),
+    sidePadding: 'px-0',
+    textScale: 'text-body-sub',
+    headSpacing: 'mb-2',
+  };
+
+  it('draws no head rule', async () => {
+    await draw('Answer', { extra: { modelName: SONNET_ID }, models: CATALOG, compare: SPACED });
+    const head = screen.getByTestId(TEST_IDS.modelNametagContainer);
+    expect(head).not.toHaveClass('border-b');
+    expect(head).not.toHaveClass('pb-2');
+  });
+
+  it('spaces the head from the answer by the spacing it names, in place of the thread gap', async () => {
+    await draw('Answer', { extra: { modelName: SONNET_ID }, models: CATALOG, compare: SPACED });
+    const head = screen.getByTestId(TEST_IDS.modelNametagContainer);
+    expect(head).toHaveClass('mb-2');
+    expect(head).not.toHaveClass('mb-2.5');
+  });
+});
+
 describe('AIMessageBlock: when the nameplate shows', () => {
   it('shows no nameplate on a settled reply with nothing in it', async () => {
     await draw('');
@@ -419,7 +548,19 @@ describe('AIMessageBlock: when the nameplate shows', () => {
     expect(screen.getByTestId(TEST_IDS.modelNametagContainer)).toBeInTheDocument();
   });
 
-  it("names a reply that carries no model by the turn's selected model", () => {
+  it("names a streaming reply that carries no model by the turn's selected model", () => {
+    render(
+      <AIMessageBlock
+        primaryMessage={message('Answer', { modelName: null })}
+        isStreaming={true}
+        modelName={SONNET_ID}
+        models={CATALOG}
+      />
+    );
+    expect(screen.getByTestId(TEST_IDS.modelNametag)).toHaveTextContent('Claude Sonnet 4.5');
+  });
+
+  it("never names a stored reply that carries no model by the turn's selected model", () => {
     render(
       <AIMessageBlock
         primaryMessage={message('Answer', { modelName: null })}
@@ -428,7 +569,7 @@ describe('AIMessageBlock: when the nameplate shows', () => {
         models={CATALOG}
       />
     );
-    expect(screen.getByTestId(TEST_IDS.modelNametag)).toHaveTextContent('Claude Sonnet 4.5');
+    expect(screen.getByTestId(TEST_IDS.modelNametag)).not.toHaveTextContent('Claude Sonnet 4.5');
   });
 });
 
@@ -518,6 +659,7 @@ describe('AIMessageBlock: replying to', () => {
       linkId: null,
     },
     forks: [],
+    memberCount: 1,
   };
 
   function seed(members: ConversationMembersData): void {

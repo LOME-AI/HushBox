@@ -34,8 +34,8 @@ import {
 import { useChatPageState } from '@/hooks/chat/use-chat-page';
 import {
   useChatStream,
-  ChatRequestError,
-  type RegenerateStreamRequest,
+  type AuthenticatedStreamRequest,
+  type InferenceMessage,
   type ModelResult,
   type StartEventData,
 } from '@/hooks/chat/use-chat-stream';
@@ -47,7 +47,7 @@ import { type QueuedMessage } from '@/stores/chat/message-queue';
 import { useModelStore, getPrimaryModel } from '@/stores/model';
 import { useWebSearch } from '@/hooks/chat/use-web-search';
 import { useReasoningEffort } from '@/hooks/chat/use-reasoning-effort';
-import { useChatErrorStore, MAIN_FORK_KEY } from '@/stores/chat/error';
+import { useChatErrorStore, MAIN_FORK_KEY, type FailedTurnRetry } from '@/stores/chat/error';
 import { billingKeys } from '@/hooks/billing/billing';
 import {
   subscribe as epochCacheSubscribe,
@@ -62,14 +62,16 @@ import { useForks } from '@/hooks/chat/forks';
 import { useForkMessages } from '@/hooks/chat/use-fork-messages';
 import { idempotentHeaders } from '@/lib/api/idempotent-mutation';
 import { client, fetchJson } from '@/lib/api-client';
-import {
-  BALANCE_STALE_REFUSAL_CODES,
-  handleTurnError,
-  turnErrorContent,
-} from '@/hooks/chat/turn-error';
+import { turnErrorContent } from '@/hooks/chat/turn-error';
 import { useTurnStreamCallbacks } from '@/hooks/chat/use-turn-stream-callbacks';
 import { useMessageQueueDrain } from '@/hooks/chat/use-message-queue-drain';
 import { useCreateConversationFlow } from '@/hooks/chat/use-create-conversation-flow';
+import {
+  dispatchFailedTurnRetry,
+  mergeStoredIds,
+  recordFailedTurn,
+  useFailedTurnReconcile,
+} from '@/hooks/chat/failed-turn-retry';
 import {
   addEditedUserOptimistic,
   adoptOptimisticUserRow,
@@ -135,6 +137,9 @@ interface UseAuthenticatedChatResult {
 function isInputDisabled(disabledBySeat: boolean, verdict: EpochVerdict | undefined): boolean {
   return disabledBySeat || verdict?.rotationPending === true || verdict?.rotation === 'bad';
 }
+
+type SendRetry = Extract<FailedTurnRetry, { kind: 'send' }>;
+type RegenerateRetry = Extract<FailedTurnRetry, { kind: 'regenerate' }>;
 
 /** The ids of a turn's tiles as a run start keyed them. */
 function tileIdsOf(data: StartEventData): string[] {
@@ -285,11 +290,9 @@ export function useAuthenticatedChat({
     });
 
   interface ExecuteStreamParams {
-    convId: string;
-    userMessageData: { content: string };
-    messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
-    fundingSource: FundingSource;
-    forkId?: string;
+    request: AuthenticatedStreamRequest;
+    /** The object the turn's Idempotency-Key is minted from. */
+    turn: object;
     /**
      * Receives the user message id the run start named, before any tile exists,
      * and again when a same-key re-execution names a new one.
@@ -305,36 +308,22 @@ export function useAuthenticatedChat({
 
   const executeStream = React.useCallback(
     async (params: ExecuteStreamParams): Promise<{ models: ModelResult[] }> => {
-      const { convId, userMessageData, messagesForInference, fundingSource, forkId } = params;
+      const convId = params.request.conversationId;
       const callbacks = createOptimisticStreamCallbacks(convId);
-      const { models } = await startStream(
-        {
-          conversationId: convId,
-          modality: activeModality,
-          models: selectedModels.map((m) => m.id),
-          userMessage: userMessageData,
-          messagesForInference,
-          fundingSource,
-          webSearchEnabled,
-          ...(reasoningEffort !== undefined && { reasoningEffort }),
-          ...(customInstructions != null && { customInstructions }),
-          ...(forkId != null && { forkId }),
-          ...buildModalityConfigPayload(activeModality, imageConfig, videoConfig, audioConfig),
+      const { models } = await startStream(params.request, {
+        ...callbacks,
+        turn: params.turn,
+        onStart: (data: StartEventData) => {
+          params.onUserMessageId(data.userMessageId);
+          callbacks.onStart(data);
+          params.onPlaceholders(data.models.map((m) => m.assistantMessageId));
         },
-        {
-          ...callbacks,
-          onStart: (data: StartEventData) => {
-            params.onUserMessageId(data.userMessageId);
-            callbacks.onStart(data);
-            params.onPlaceholders(data.models.map((m) => m.assistantMessageId));
-          },
-          onRekey: (data) => {
-            params.onUserMessageId(data.userMessageId);
-            callbacks.onRekey(data);
-            params.onPlaceholders(tileIdsOf(data));
-          },
-        }
-      );
+        onRekey: (data) => {
+          params.onUserMessageId(data.userMessageId);
+          callbacks.onRekey(data);
+          params.onPlaceholders(tileIdsOf(data));
+        },
+      });
       // run-finished settled server-side: costs and media render from the
       // persisted rows this refetch loads (billed cost is never on the wire).
       await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(convId) });
@@ -342,20 +331,7 @@ export function useAuthenticatedChat({
 
       return { models };
     },
-    [
-      createOptimisticStreamCallbacks,
-      startStream,
-      selectedModels,
-      webSearchEnabled,
-      reasoningEffort,
-      customInstructions,
-      state,
-      queryClient,
-      activeModality,
-      imageConfig,
-      videoConfig,
-      audioConfig,
-    ]
+    [createOptimisticStreamCallbacks, startStream, queryClient]
   );
 
   useCreateConversationFlow({
@@ -434,47 +410,25 @@ export function useAuthenticatedChat({
     inferenceSourceRef.current = { forkFilteredDecrypted, optimisticMessages };
   }, [forkFilteredDecrypted, optimisticMessages]);
 
+  const failureContext = React.useMemo(
+    () => ({ forkKey: errorForkKey, queryClient, promptInputRef }),
+    [errorForkKey, queryClient]
+  );
+
   /**
-   * Send one specific message text through the run path and resolve once it has
-   * FULLY settled: `{ ok: true }` when the run committed, `{ ok: false }` when it
-   * refused/failed (error already surfaced). Takes explicit `content` rather than
-   * reading `inputValue`, so the drain can send a dequeued message without the
-   * `setInputValue`-then-send race (setState is async and may not have applied).
+   * Runs a send's request under its turn and resolves once it has FULLY settled:
+   * `{ ok: true }` when the run committed, `{ ok: false }` when it refused or
+   * failed, the failure recorded with the request and turn a retry re-posts.
    */
-  const executeSend = React.useCallback(
+  const runSend = React.useCallback(
     async (
-      content: string,
-      convId: string,
-      fundingSource: FundingSource
+      retry: SendRetry,
+      earlierStoredIds: readonly string[] = []
     ): Promise<{ ok: boolean }> => {
-      // Read the live message set (see `inferenceSourceRef`), not this callback's
-      // creation-time closure. On a drained N+1 this synchronous read lands on the
-      // microtask after N resolved, while N's optimistic turn is still committed —
-      // so it carries messages 1..N for history and parentage.
-      const { forkFilteredDecrypted: currentDecrypted, optimisticMessages: currentOptimistic } =
-        inferenceSourceRef.current;
-
-      // Resolve parent: last message in the current view (fork-filtered + optimistic)
-      const allCurrentMessages = [...currentDecrypted, ...currentOptimistic];
-      const lastMessage = allCurrentMessages.at(-1);
+      const convId = retry.request.conversationId;
       // On its local key until the run start names the id the server stores it under.
-      const optimistic = {
-        row: createUserMessage(convId, content, callerId, lastMessage?.id ?? null),
-      };
+      const optimistic = { row: retry.question };
       addOptimisticMessage(optimistic.row);
-
-      // Build messagesForInference from fork-filtered decrypted messages + new user message
-      const messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[] = [
-        ...currentDecrypted.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-        ...currentOptimistic.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-        { role: 'user' as const, content },
-      ];
 
       // This turn's assistant tile ids, captured from the `start` event and
       // replaced on a re-key. Scoped locally (not via a shared ref) so an
@@ -484,10 +438,8 @@ export function useAuthenticatedChat({
 
       try {
         const { models: modelResults } = await executeStream({
-          convId,
-          userMessageData: { content },
-          messagesForInference,
-          fundingSource,
+          request: retry.request,
+          turn: retry.turn,
           onUserMessageId: (userMessageId) => {
             optimistic.row = adoptOptimisticUserRow(optimistic.row, userMessageId, {
               addOptimisticMessage,
@@ -495,7 +447,6 @@ export function useAuthenticatedChat({
             });
           },
           onPlaceholders: (ids) => placeholderIds.splice(0, placeholderIds.length, ...ids),
-          ...(activeForkId != null && { forkId: activeForkId }),
         });
         // A tile that errored has no stored row to replace it, so it stays.
         dropRowsWithoutStoredTwin(convId, [
@@ -504,11 +455,13 @@ export function useAuthenticatedChat({
         ]);
         return { ok: true };
       } catch (error: unknown) {
-        if (error instanceof ChatRequestError && BALANCE_STALE_REFUSAL_CODES.has(error.code)) {
-          await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
-        }
-        handleTurnError(error, content, errorForkKey, promptInputRef);
-        requestEpochMaintenanceOnRefusal(convId, error);
+        // The question is drawn from the record above its notice (see
+        // `mergeMessages`), never kept as an optimistic row the next send would
+        // carry in its history.
+        // The question keeps the id it was first drawn under, which the first
+        // turn's local row also carries, so a retry's new id never draws it twice.
+        const storedIds = mergeStoredIds(earlierStoredIds, [optimistic.row.id, ...placeholderIds]);
+        await recordFailedTurn(error, { retry, storedIds }, failureContext);
 
         // Stream threw after `start` fired: drop the AI placeholders that
         // `onStart` added optimistically. Without this, each placeholder
@@ -520,20 +473,78 @@ export function useAuthenticatedChat({
 
         removeOptimisticMessage(optimistic.row.id);
         state.stopStreaming(placeholderIds);
+        // A run the client saw fail may have settled; the reconcile reads this refetch.
+        await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(convId) });
         return { ok: false };
       }
     },
     [
-      callerId,
       addOptimisticMessage,
       removeOptimisticMessage,
       dropRowsWithoutStoredTwin,
       executeStream,
-      activeForkId,
-      errorForkKey,
+      failureContext,
       state,
       queryClient,
-      promptInputRef,
+    ]
+  );
+
+  /**
+   * Send one specific message text through the run path and resolve once it has
+   * FULLY settled (see `runSend`). Takes explicit `content` rather than
+   * reading `inputValue`, so the drain can send a dequeued message without the
+   * `setInputValue`-then-send race (setState is async and may not have applied).
+   */
+  const executeSend = React.useCallback(
+    (content: string, convId: string, fundingSource: FundingSource): Promise<{ ok: boolean }> => {
+      // Read the live message set (see `inferenceSourceRef`), not this callback's
+      // creation-time closure. On a drained N+1 this synchronous read lands on the
+      // microtask after N resolved, while N's optimistic turn is still committed —
+      // so it carries messages 1..N for history and parentage.
+      const { forkFilteredDecrypted: currentDecrypted, optimisticMessages: currentOptimistic } =
+        inferenceSourceRef.current;
+      const allCurrentMessages = [...currentDecrypted, ...currentOptimistic];
+      const messagesForInference: InferenceMessage[] = [
+        ...allCurrentMessages.map((m) => ({ role: m.role, content: m.content })),
+        { role: 'user', content },
+      ];
+      return runSend({
+        kind: 'send',
+        request: {
+          conversationId: convId,
+          modality: activeModality,
+          models: selectedModels.map((m) => m.id),
+          userMessage: { content },
+          messagesForInference,
+          fundingSource,
+          webSearchEnabled,
+          ...(reasoningEffort !== undefined && { reasoningEffort }),
+          ...(customInstructions != null && { customInstructions }),
+          ...(activeForkId != null && { forkId: activeForkId }),
+          ...buildModalityConfigPayload(activeModality, imageConfig, videoConfig, audioConfig),
+        },
+        turn: {},
+        // Parented to the last message in the current view (fork-filtered + optimistic).
+        question: createUserMessage(
+          convId,
+          content,
+          callerId,
+          allCurrentMessages.at(-1)?.id ?? null
+        ),
+      });
+    },
+    [
+      runSend,
+      callerId,
+      activeForkId,
+      activeModality,
+      selectedModels,
+      webSearchEnabled,
+      reasoningEffort,
+      customInstructions,
+      imageConfig,
+      videoConfig,
+      audioConfig,
     ]
   );
 
@@ -588,7 +599,137 @@ export function useAuthenticatedChat({
     realConversationId,
   ]);
 
-  const handleRegenerate = React.useCallback(
+  /**
+   * Runs a regenerate or edit request under its turn: the replies it replaces are
+   * hidden while it runs and come back if it fails, and the failure is recorded
+   * with the request and turn a retry re-posts.
+   */
+  const runRegenerate = React.useCallback(
+    (retry: RegenerateRetry, earlierStoredIds: readonly string[] = []): void => {
+      const { request } = retry;
+      const conversationId = request.conversationId;
+      const allMsgs = [...forkFilteredDecrypted, ...optimisticMessages];
+
+      // Regenerating on this fork — clear any prior error tile for this fork
+      // before kicking off the new request.
+      useChatErrorStore.getState().clearError(errorForkKey);
+
+      applyPrune({
+        allMsgs,
+        targetMessageId: request.targetMessageId,
+        action: request.action,
+        replaceAssistantId: request.replaceAssistantId,
+        conversationId,
+        setRetryPrunedIds,
+        setLocalMessages,
+        queryClient,
+      });
+
+      // An edit's replacement row, on its local key until the run start names its id.
+      const edited = {
+        row:
+          request.action === 'edit'
+            ? addEditedUserOptimistic({
+                allMsgs,
+                targetMessageId: request.targetMessageId,
+                userContent: request.userMessage.content,
+                conversationId,
+                callerId,
+                addOptimisticMessage,
+              })
+            : null,
+      };
+
+      // Adopt the multi-model send's optimistic callback set. Single-model
+      // regenerate is structurally a special case of N=1, so it reuses the
+      // same per-tile routing without divergent code paths.
+      const callbacks = createOptimisticStreamCallbacks(conversationId);
+      // Populated synchronously inside onStart (which fires during the await
+      // below, before stream completion). Safe to read post-await — the
+      // stream resolves strictly after onStart, so the array is fully
+      // populated by then.
+      const placeholderIds: string[] = [];
+      const adoptEditedRow = (userMessageId: string | null): void => {
+        if (edited.row === null) return;
+        edited.row = adoptOptimisticUserRow(edited.row, userMessageId, {
+          addOptimisticMessage,
+          removeOptimisticMessage,
+        });
+      };
+
+      void (async () => {
+        try {
+          const { models: results } = await startRegenerateStream(request, {
+            ...callbacks,
+            turn: retry.turn,
+            onStart: (data) => {
+              adoptEditedRow(data.userMessageId);
+              callbacks.onStart(data);
+              for (const m of data.models) placeholderIds.push(m.assistantMessageId);
+            },
+            onRekey: (data) => {
+              adoptEditedRow(data.userMessageId);
+              callbacks.onRekey(data);
+              placeholderIds.splice(0, placeholderIds.length, ...tileIdsOf(data));
+            },
+          });
+
+          state.stopStreaming(placeholderIds);
+
+          await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(conversationId) });
+          setRetryPrunedIds(new Set());
+          void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
+
+          // A column that errored has no stored row to replace it, so it stays.
+          const errored = new Set(
+            results.filter((r) => r.errorCode).map((r) => r.assistantMessageId)
+          );
+          dropRowsWithoutStoredTwin(conversationId, [
+            ...placeholderIds.filter((id) => !errored.has(id)),
+            ...(edited.row === null ? [] : [edited.row.id]),
+          ]);
+        } catch (error: unknown) {
+          state.stopStreaming(placeholderIds);
+          // A retry's question is its stored anchor; an edit's is the text the user
+          // wrote, kept from the attempt that first drew it.
+          const question = retry.question ?? edited.row;
+          const latest = [...(edited.row === null ? [] : [edited.row.id]), ...placeholderIds];
+          await recordFailedTurn(
+            error,
+            {
+              retry: { ...retry, question },
+              storedIds: mergeStoredIds(earlierStoredIds, latest),
+            },
+            failureContext
+          );
+
+          await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(conversationId) });
+          setRetryPrunedIds(new Set());
+
+          for (const id of placeholderIds) removeOptimisticMessage(id);
+          if (edited.row !== null) removeOptimisticMessage(edited.row.id);
+        }
+      })();
+    },
+    [
+      errorForkKey,
+      forkFilteredDecrypted,
+      optimisticMessages,
+      startRegenerateStream,
+      removeOptimisticMessage,
+      dropRowsWithoutStoredTwin,
+      addOptimisticMessage,
+      callerId,
+      createOptimisticStreamCallbacks,
+      state,
+      queryClient,
+      failureContext,
+      setRetryPrunedIds,
+      setLocalMessages,
+    ]
+  );
+
+  const regenerateTurn = React.useCallback(
     (
       targetMessageId: string,
       action: RegenerateAction,
@@ -608,137 +749,43 @@ export function useAuthenticatedChat({
       const userContent = resolveUserContent(action, editedContent, allMsgs, targetMessageId);
       if (userContent === null) return;
 
-      // Regenerating on this fork — clear any prior error tile for this fork
-      // before kicking off the new request.
-      useChatErrorStore.getState().clearError(errorForkKey);
-
-      // Build messagesForInference from fork-filtered decrypted messages up to the target
-      const messagesForInference = buildMessagesForRegeneration(
-        allMsgs,
-        targetMessageId,
-        action,
-        editedContent
-      );
-
-      applyPrune({
-        allMsgs,
-        targetMessageId,
-        action,
-        replaceAssistantId,
-        conversationId: realConversationId,
-        setRetryPrunedIds,
-        setLocalMessages,
-        queryClient,
-      });
-
-      // An edit's replacement row, on its local key until the run start names its id.
-      const edited = {
-        row:
-          action === 'edit'
-            ? addEditedUserOptimistic({
-                allMsgs,
-                targetMessageId,
-                userContent,
-                conversationId: realConversationId,
-                callerId,
-                addOptimisticMessage,
-              })
-            : null,
-      };
-
       const modality = inferRegenerateModality(targetMessageId, allMsgs);
-      const models = resolveRegenerateModels(
-        allMsgs,
-        targetMessageId,
-        replaceAssistantId,
-        getPrimaryModel(selectedModels).id
-      );
-
-      const request: RegenerateStreamRequest = {
-        conversationId: realConversationId,
-        targetMessageId,
-        action,
-        modality,
-        models,
-        ...(replaceAssistantId !== undefined && { replaceAssistantId }),
-        userMessage: { content: userContent },
-        messagesForInference,
-        fundingSource: 'personal_balance',
-        ...(activeForkId != null && { forkId: activeForkId }),
-        ...(webSearchEnabled && { webSearchEnabled }),
-        ...(reasoningEffort !== undefined && { reasoningEffort }),
-        ...(customInstructions != null && { customInstructions }),
-        ...buildModalityConfigPayload(modality, imageConfig, videoConfig, audioConfig),
-      };
-
-      // Adopt the multi-model send's optimistic callback set. Single-model
-      // regenerate is structurally a special case of N=1, so it reuses the
-      // same per-tile routing without divergent code paths.
-      const callbacks = createOptimisticStreamCallbacks(realConversationId);
-      // Populated synchronously inside onStart (which fires during the await
-      // below, before stream completion). Safe to read post-await — the
-      // stream resolves strictly after onStart, so the array is fully
-      // populated by then.
-      const placeholderIds: string[] = [];
-      const adoptEditedRow = (userMessageId: string | null): void => {
-        if (edited.row === null) return;
-        edited.row = adoptOptimisticUserRow(edited.row, userMessageId, {
-          addOptimisticMessage,
-          removeOptimisticMessage,
-        });
-      };
-
-      void (async () => {
-        try {
-          await startRegenerateStream(request, {
-            ...callbacks,
-            onStart: (data) => {
-              adoptEditedRow(data.userMessageId);
-              callbacks.onStart(data);
-              for (const m of data.models) placeholderIds.push(m.assistantMessageId);
-            },
-            onRekey: (data) => {
-              adoptEditedRow(data.userMessageId);
-              callbacks.onRekey(data);
-              placeholderIds.splice(0, placeholderIds.length, ...tileIdsOf(data));
-            },
-          });
-
-          state.stopStreaming(placeholderIds);
-
-          await queryClient.invalidateQueries({
-            queryKey: chatKeys.conversation(realConversationId),
-          });
-          setRetryPrunedIds(new Set());
-          void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
-
-          dropRowsWithoutStoredTwin(realConversationId, [
-            ...placeholderIds,
-            ...(edited.row === null ? [] : [edited.row.id]),
-          ]);
-        } catch (error: unknown) {
-          state.stopStreaming(placeholderIds);
-
-          if (error instanceof ChatRequestError && BALANCE_STALE_REFUSAL_CODES.has(error.code)) {
-            await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
-          }
-          handleTurnError(error, userContent, errorForkKey, promptInputRef);
-          requestEpochMaintenanceOnRefusal(realConversationId, error);
-
-          await queryClient.invalidateQueries({
-            queryKey: chatKeys.conversation(realConversationId),
-          });
-          setRetryPrunedIds(new Set());
-
-          for (const id of placeholderIds) removeOptimisticMessage(id);
-          if (edited.row !== null) removeOptimisticMessage(edited.row.id);
-        }
-      })();
+      runRegenerate({
+        kind: 'regenerate',
+        request: {
+          conversationId: realConversationId,
+          targetMessageId,
+          action,
+          modality,
+          models: resolveRegenerateModels(
+            allMsgs,
+            targetMessageId,
+            replaceAssistantId,
+            getPrimaryModel(selectedModels).id
+          ),
+          ...(replaceAssistantId !== undefined && { replaceAssistantId }),
+          userMessage: { content: userContent },
+          // Fork-filtered decrypted messages up to the target.
+          messagesForInference: buildMessagesForRegeneration(
+            allMsgs,
+            targetMessageId,
+            action,
+            editedContent
+          ),
+          fundingSource: 'personal_balance',
+          ...(activeForkId != null && { forkId: activeForkId }),
+          ...(webSearchEnabled && { webSearchEnabled }),
+          ...(reasoningEffort !== undefined && { reasoningEffort }),
+          ...(customInstructions != null && { customInstructions }),
+          ...buildModalityConfigPayload(modality, imageConfig, videoConfig, audioConfig),
+        },
+        turn: {},
+        question: null,
+      });
     },
     [
       realConversationId,
       activeForkId,
-      errorForkKey,
       forkFilteredDecrypted,
       optimisticMessages,
       isInstructionsReadUnresolved,
@@ -749,17 +796,7 @@ export function useAuthenticatedChat({
       imageConfig,
       videoConfig,
       audioConfig,
-      startRegenerateStream,
-      removeOptimisticMessage,
-      dropRowsWithoutStoredTwin,
-      addOptimisticMessage,
-      callerId,
-      createOptimisticStreamCallbacks,
-      state,
-      queryClient,
-      promptInputRef,
-      setRetryPrunedIds,
-      setLocalMessages,
+      runRegenerate,
     ]
   );
 
@@ -814,14 +851,15 @@ export function useAuthenticatedChat({
     retryPrunedIds,
   ]);
 
-  // Counted over the trimmed replay, because that is what the send carries and
-  // what the server counts: an assistant turn's stored reasoning never reaches
-  // the provider, so it must never enter the budget basis either. A turn-notice
-  // row is display only: the send never carries it.
-  const historyCharacters = React.useMemo(() => {
-    const carried = allMessages.filter((m) => m.turnNotice === undefined);
-    return historyCharacterCount(stripReplayHistory(carried));
-  }, [allMessages]);
+  // Counted over the rows `executeSend` builds the next send's history from, as
+  // the trimmed replay the server counts: an assistant turn's stored reasoning
+  // never reaches the provider. A turn-notice row and a failed first turn's
+  // local row are display only, so neither enters the budget basis.
+  const historyCharacters = React.useMemo(
+    () =>
+      historyCharacterCount(stripReplayHistory([...forkFilteredDecrypted, ...optimisticMessages])),
+    [forkFilteredDecrypted, optimisticMessages]
+  );
 
   const isDecryptionPending = checkDecryptionPending(
     isCreateMode,
@@ -897,6 +935,21 @@ export function useAuthenticatedChat({
     executeSend,
   });
 
+  const sendAndDrain = React.useCallback(
+    (send: () => Promise<{ ok: boolean }>): void => {
+      void (async () => {
+        const result = await send();
+        // A user send that fully settles drains the next queued message. On
+        // failure the queue is preserved (the drain does not start), so nothing
+        // is lost and nothing auto-sends behind a failure.
+        if (result.ok) {
+          onUserSendSettled();
+        }
+      })();
+    },
+    [onUserSendSettled]
+  );
+
   const handleSend = React.useCallback(
     (fundingSource: FundingSource) => {
       // Ahead of `prepareMessageInput`, which clears the composer: a message the
@@ -906,17 +959,39 @@ export function useAuthenticatedChat({
       if (!prepared) {
         return;
       }
-      void (async () => {
-        const result = await executeSend(prepared.content, prepared.convId, fundingSource);
-        // A user send that fully settles drains the next queued message. On
-        // failure the queue is preserved (the drain does not start), so nothing
-        // is lost and nothing auto-sends behind a failure.
-        if (result.ok) {
-          onUserSendSettled();
-        }
-      })();
+      sendAndDrain(() => executeSend(prepared.content, prepared.convId, fundingSource));
     },
-    [isInstructionsReadUnresolved, prepareMessageInput, executeSend, onUserSendSettled]
+    [isInstructionsReadUnresolved, prepareMessageInput, sendAndDrain, executeSend]
+  );
+
+  useFailedTurnReconcile(chatError, errorForkKey, decryptedApiMessages);
+
+  /**
+   * Regenerate on a turn notice re-posts the failed turn's own request under its
+   * own turn's key, through the executor it first ran through, so the server's
+   * key row decides: a turn that settled after all replays and is never stored
+   * or billed twice, and the original models and settings are re-asked.
+   */
+  const handleRegenerate = React.useCallback(
+    (
+      targetMessageId: string,
+      action: RegenerateAction,
+      editedContent?: string,
+      replaceAssistantId?: string
+    ): void => {
+      if (chatError?.id !== targetMessageId) {
+        regenerateTurn(targetMessageId, action, editedContent, replaceAssistantId);
+        return;
+      }
+      useChatErrorStore.getState().clearError(errorForkKey);
+      dispatchFailedTurnRetry(chatError.failedTurn, {
+        send: (retry, storedIds) => {
+          sendAndDrain(() => runSend(retry, storedIds));
+        },
+        regenerate: runRegenerate,
+      });
+    },
+    [chatError, regenerateTurn, errorForkKey, sendAndDrain, runSend, runRegenerate]
   );
 
   return {

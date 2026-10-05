@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { NEUTRAL_POST, assertPost, framePost, gaussianKernel } from './post.js';
+import { NEUTRAL_POST } from './post-test-support.js';
+import { assertPost, framePost, gaussianKernel } from './post.js';
 
 import type { PostSettings } from './post.js';
 

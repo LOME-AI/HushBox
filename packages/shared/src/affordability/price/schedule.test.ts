@@ -9,6 +9,7 @@ import { expectCompileTimeProof } from '../../testing/test-assertions.ts';
 import { nanoUSD } from '../money/nano-usd.ts';
 import {
   ceilingOf,
+  listsResolution,
   mediaRatesFor,
   ModelPricingSchema,
   PRICE_CEILING_MULTIPLE,
@@ -36,7 +37,11 @@ describe('a price written field by field as a literal', () => {
   it('is not a ModelPricing', () => {
     expectCompileTimeProof(() => {
       // @ts-expect-error a field-by-field literal carries no brand
-      const pricing: ModelPricing = { kind: 'tokens', anchor: schedule };
+      const pricing: ModelPricing = {
+        kind: 'tokens',
+        anchor: schedule,
+        anchorContextTokens: 1_000_000,
+      };
       return pricing;
     });
   });
@@ -44,7 +49,11 @@ describe('a price written field by field as a literal', () => {
   it('is not a TokenPricing', () => {
     expectCompileTimeProof(() => {
       // @ts-expect-error a field-by-field literal carries no brand
-      const pricing: TokenPricing = { kind: 'tokens', anchor: schedule };
+      const pricing: TokenPricing = {
+        kind: 'tokens',
+        anchor: schedule,
+        anchorContextTokens: 1_000_000,
+      };
       return pricing;
     });
   });
@@ -177,6 +186,30 @@ describe('mediaRatesFor', () => {
   });
 });
 
+describe('listsResolution', () => {
+  const video = perSecondPricingFixture({
+    anchor: { '720p': 128_800_000n },
+    dearest: { '720p': 193_200_000n },
+  });
+
+  it('is true for a resolution the per-second price lists', () => {
+    expect(listsResolution(video, '720p')).toBe(true);
+  });
+
+  it('is false for a resolution the per-second price does not list', () => {
+    expect(listsResolution(video, '4k')).toBe(false);
+  });
+
+  it('is false for a name the rates inherit rather than list', () => {
+    expect(listsResolution(video, 'toString')).toBe(false);
+  });
+
+  it('is false for a per-image price, which lists no resolution', () => {
+    const image = perImagePricingFixture({ anchor: 51_750_000n, dearest: 103_500_000n });
+    expect(listsResolution(image, '720p')).toBe(false);
+  });
+});
+
 describe('ModelPricingSchema', () => {
   const wireSchedule = {
     base: { input: '100', output: '400' },
@@ -187,15 +220,23 @@ describe('ModelPricingSchema', () => {
   };
 
   it('parses a token schedule into branded amounts', () => {
-    expect(ModelPricingSchema.parse({ kind: 'tokens', anchor: wireSchedule })).toEqual({
+    expect(
+      ModelPricingSchema.parse({
+        kind: 'tokens',
+        anchor: wireSchedule,
+        anchorContextTokens: 400_000,
+      })
+    ).toEqual({
       kind: 'tokens',
       anchor: twoTiers,
+      anchorContextTokens: 400_000,
     });
   });
 
   it('parses a schedule with no tiers', () => {
     const parsed = ModelPricingSchema.safeParse({
       kind: 'tokens',
+      anchorContextTokens: 400_000,
       anchor: { base: { input: '1', output: '1' }, tiers: [] },
     });
     expect(parsed.success).toBe(true);
@@ -204,6 +245,7 @@ describe('ModelPricingSchema', () => {
   it('parses a tier that keeps the rates of the tier below it', () => {
     const parsed = ModelPricingSchema.safeParse({
       kind: 'tokens',
+      anchorContextTokens: 400_000,
       anchor: {
         base: { input: '100', output: '400' },
         tiers: [{ abovePromptTokens: 128_000, rates: { input: '100', output: '400' } }],
@@ -235,6 +277,7 @@ describe('ModelPricingSchema', () => {
   it('refuses tier thresholds that are not strictly ascending', () => {
     const parsed = ModelPricingSchema.safeParse({
       kind: 'tokens',
+      anchorContextTokens: 400_000,
       anchor: {
         ...wireSchedule,
         tiers: [
@@ -249,6 +292,7 @@ describe('ModelPricingSchema', () => {
   it('refuses a first tier whose rate falls below base', () => {
     const parsed = ModelPricingSchema.safeParse({
       kind: 'tokens',
+      anchorContextTokens: 400_000,
       anchor: {
         base: { input: '100', output: '400' },
         tiers: [{ abovePromptTokens: 128_000, rates: { input: '150', output: '399' } }],
@@ -260,6 +304,7 @@ describe('ModelPricingSchema', () => {
   it('refuses a later tier whose input rate falls below the tier before it', () => {
     const parsed = ModelPricingSchema.safeParse({
       kind: 'tokens',
+      anchorContextTokens: 400_000,
       anchor: {
         ...wireSchedule,
         tiers: [
@@ -274,6 +319,7 @@ describe('ModelPricingSchema', () => {
   it('refuses a later tier whose output rate falls below the tier before it', () => {
     const parsed = ModelPricingSchema.safeParse({
       kind: 'tokens',
+      anchorContextTokens: 400_000,
       anchor: {
         ...wireSchedule,
         tiers: [
@@ -288,6 +334,7 @@ describe('ModelPricingSchema', () => {
   it.each(['0', '-1'])('refuses a token rate of %s', (input) => {
     const parsed = ModelPricingSchema.safeParse({
       kind: 'tokens',
+      anchorContextTokens: 400_000,
       anchor: { base: { input, output: '400' }, tiers: [] },
     });
     expect(parsed.success).toBe(false);
@@ -296,6 +343,7 @@ describe('ModelPricingSchema', () => {
   it('refuses a token rate that is not a canonical decimal', () => {
     const parsed = ModelPricingSchema.safeParse({
       kind: 'tokens',
+      anchorContextTokens: 400_000,
       anchor: { base: { input: '1.5', output: '400' }, tiers: [] },
     });
     expect(parsed.success).toBe(false);
@@ -370,12 +418,27 @@ describe('ModelPricingSchema', () => {
   it('refuses a fractional tier threshold', () => {
     const parsed = ModelPricingSchema.safeParse({
       kind: 'tokens',
+      anchorContextTokens: 400_000,
       anchor: {
         ...wireSchedule,
         tiers: [{ abovePromptTokens: 1.5, rates: { input: '150', output: '500' } }],
       },
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it('refuses a token price that names no anchor context', () => {
+    const parsed = ModelPricingSchema.safeParse({ kind: 'tokens', anchor: wireSchedule });
+    expect(parsed.error?.issues.map((issue) => issue.path)).toEqual([['anchorContextTokens']]);
+  });
+
+  it.each([0, -1, 1.5])('refuses an anchor context of %s tokens', (anchorContextTokens) => {
+    const parsed = ModelPricingSchema.safeParse({
+      kind: 'tokens',
+      anchor: wireSchedule,
+      anchorContextTokens,
+    });
+    expect(parsed.error?.issues.map((issue) => issue.path)).toEqual([['anchorContextTokens']]);
   });
 
   it('refuses an unknown pricing kind', () => {

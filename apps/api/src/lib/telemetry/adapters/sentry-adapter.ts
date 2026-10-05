@@ -1,6 +1,6 @@
 import { CloudflareClient, createTransport } from '@sentry/cloudflare';
 import { scrubSentryEvent } from './sentry-scrub.js';
-import type { ScheduleCheckIn } from '../check-in.js';
+import type { CheckInStatus, ScheduleCheckIn } from '../check-in.js';
 import type { Telemetry } from '../port.js';
 
 export type SentryClientOptions = ConstructorParameters<typeof CloudflareClient>[0];
@@ -47,6 +47,11 @@ const MONITOR_SLUG = 'jobs-health';
  * than the schedule's period, so a late or hung pass is reported before the next one starts. */
 const CHECK_IN_MARGIN_MINUTES = 5;
 const MAX_RUNTIME_MINUTES = 10;
+
+/** Consecutive failed or missed check-ins before the monitor opens an issue, and passing ones
+ * before it resolves it. Two, so one failed pass, which the next pass retries, pages no one. */
+const FAILURE_ISSUE_THRESHOLD = 2;
+const RECOVERY_THRESHOLD = 1;
 
 /** Binary envelopes are copied over a fresh ArrayBuffer, satisfying BodyInit
  * (the SDK hands over Uint8Array<ArrayBufferLike>, which the fetch typings
@@ -193,7 +198,7 @@ export function createSentryTelemetry(
         // nowhere safer to report a telemetry failure than not at all.
       }
     },
-    checkIn(status: 'in_progress' | 'ok'): void {
+    checkIn(status: CheckInStatus): void {
       try {
         if (client === undefined) {
           return;
@@ -207,6 +212,8 @@ export function createSentryTelemetry(
                   schedule: { type: 'crontab', value: options.monitorCrontab },
                   checkinMargin: CHECK_IN_MARGIN_MINUTES,
                   maxRuntime: MAX_RUNTIME_MINUTES,
+                  failureIssueThreshold: FAILURE_ISSUE_THRESHOLD,
+                  recoveryThreshold: RECOVERY_THRESHOLD,
                   timezone: 'UTC',
                 }
           );

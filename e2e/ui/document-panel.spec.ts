@@ -1,4 +1,4 @@
-import { isMobileWidth, TEST_IDS } from '@hushbox/shared';
+import { TEST_IDS } from '@hushbox/shared';
 
 import { test, expect } from '../fixtures.js';
 import { matrix } from '../../scripts/lib/playwright/browser-matrix.js';
@@ -134,6 +134,8 @@ test.describe('Document Panel', SPEC_MATRIX, () => {
     });
 
     await test.step('download button triggers file download', async () => {
+      // Download stays at every width, phones included.
+      await expect(documentPanel.downloadButton).toBeVisible();
       const downloadPromise = authenticatedPage.waitForEvent('download');
       await documentPanel.downloadButton.click();
       const download = await downloadPromise;
@@ -193,20 +195,20 @@ test.describe('Document Panel', SPEC_MATRIX, () => {
 
       await documentPanel.expectTitle('Graph Diagram');
       await documentPanel.waitForMermaidRendered();
-      await expect(documentPanel.showRawButton()).toBeVisible();
+      await expect(documentPanel.outputView()).toBeChecked();
     });
 
-    await test.step('raw/rendered toggle', async () => {
-      await documentPanel.showRawButton().click();
+    await test.step('output/code toggle', async () => {
+      await documentPanel.codeView().click();
 
       await expect(documentPanel.highlightedCode).toBeVisible();
       await expect(documentPanel.mermaidDiagram).not.toBeVisible();
-      await expect(documentPanel.showRenderedButton()).toBeVisible();
+      await expect(documentPanel.codeView()).toBeChecked();
 
-      await documentPanel.showRenderedButton().click();
+      await documentPanel.outputView().click();
 
       await documentPanel.waitForMermaidRendered();
-      await expect(documentPanel.showRawButton()).toBeVisible();
+      await expect(documentPanel.outputView()).toBeChecked();
     });
 
     await test.step('switch to SQL card', async () => {
@@ -218,19 +220,19 @@ test.describe('Document Panel', SPEC_MATRIX, () => {
       await documentPanel.clickCardInMessage(chatPage, sqlMessageIndex);
       await documentPanel.waitForPanelOpen();
 
-      // After panel opens (100% width on mobile), Virtuoso recalculates and may
-      // remove the card from DOM. Verify via panel title instead of card attribute.
+      // After panel opens (over the thread in a narrow main column), Virtuoso recalculates and
+      // may remove the card from DOM. Verify via panel title instead of card attribute.
       await documentPanel.expectTitle('SQL');
-      // The toggle exists only where there is something to switch to: mermaid,
+      // The views exist only where there is something to switch to: mermaid,
       // rendered in the app, or a kind that runs in the sandbox iframe. SQL is
       // neither, so the panel offers source only. Python would not prove this —
-      // it runs in the sandbox and does get the toggle.
-      await expect(documentPanel.showRawButton()).not.toBeVisible();
-      await expect(documentPanel.showRenderedButton()).not.toBeVisible();
+      // it runs in the sandbox and does get the views.
+      await expect(documentPanel.outputView()).not.toBeVisible();
+      await expect(documentPanel.codeView()).not.toBeVisible();
     });
 
-    await test.step('switch back to mermaid resets raw toggle', async () => {
-      // Close panel so message list cards are accessible (mobile = 100% width panel)
+    await test.step('switch back to mermaid returns to the output view', async () => {
+      // Close panel so message list cards are accessible (over the thread in a narrow column)
       await documentPanel.closePanel();
       await expect(documentPanel.panel).not.toBeVisible();
 
@@ -241,13 +243,16 @@ test.describe('Document Panel', SPEC_MATRIX, () => {
       // After close+reopen, mermaid remounts from scratch (async import + SVG render).
       // Under CI load on iPad Pro WebKit this can exceed the default 15s timeout.
       await documentPanel.waitForMermaidRendered(TIMEOUTS.MEDIA_DECODE);
-      await expect(documentPanel.showRawButton()).toBeVisible();
+      await expect(documentPanel.outputView()).toBeChecked();
     });
 
     await test.step('fullscreen toggle', async () => {
-      // Fullscreen is desktop-only (useIsMobile() hides it on mobile viewports)
-      const viewport = authenticatedPage.viewportSize();
-      if (viewport && isMobileWidth(viewport.width)) return;
+      // A panel over the thread, or filling a phone, already covers all it could, so only a
+      // docked one offers Fullscreen.
+      if (!(await documentPanel.isDocked())) {
+        await expect(documentPanel.fullscreenButton()).toBeHidden();
+        return;
+      }
 
       const initialWidth = await documentPanel.getPanelWidth();
 

@@ -1,20 +1,11 @@
 export { canvasLayer } from './canvas-layer.driver.js';
-export {
-  lookModuleOf,
-  lookRandom,
-  splitLookBoxes,
-  textBoxesOf,
-  uiPlacementOf,
-} from './contract.js';
+export { lookModuleOf, lookRandom, textBoxesOf, uiPlacementOf } from './contract.js';
 export type {
   LoadedLook,
   LogoBox,
   LookBox,
-  LookCanvas,
   LookContext,
   LookLogo,
-  LookLogoPart,
-  LookSurface,
   RenderFrame,
   TextBox,
   UiContext,

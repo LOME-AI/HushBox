@@ -136,6 +136,7 @@ function selectionAt(pinned: readonly PriceableModel[], pin: EffortChoice | unde
     modality: 'text',
     pinned: pin === undefined ? {} : { effort: pin },
     webSearch: false,
+    effortAuto: pin === undefined,
   };
 }
 

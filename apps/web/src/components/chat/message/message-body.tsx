@@ -16,21 +16,17 @@ const BUBBLE_VARIANT_CLASS: Record<MessageBodyVariant, string> = {
 
 interface MessageBodyProps {
   variant: MessageBodyVariant;
-  /**
-   * Text region, composed by the caller: the chat passes its nametag / live
-   * region / streaming placeholders; the share view passes rendered markdown.
-   */
+  /** Text region, composed by the caller. */
   children?: React.ReactNode;
   /** Position-sorted media for the message; empty → no media block renders. */
   media: RenderableMedia[];
   /**
    * Error from resolving the message content key (missing/rotated epoch key).
    * Forwarded to the media list so undecryptable media shows an error instead of
-   * a perpetual spinner. Optional: callers that can't fail key resolution
-   * (e.g. the public share view) omit it.
+   * a perpetual spinner.
    */
   contentKeyError?: Error | null;
-  /** Accessibility prefix forwarded to each media item ("Generated" | "Shared"). */
+  /** Accessibility prefix forwarded to each media item's label. */
   ariaPrefix: string;
   /**
    * The sender deleted their account and the server erased the content: the
@@ -47,10 +43,8 @@ interface MessageBodyProps {
 }
 
 /**
- * The single message bubble shared by the authenticated chat (`MessageItem`)
- * and the public share view. Owns the bubble frame and the media list; the
- * caller composes the text region. Keeping this one component means a shared
- * message renders byte-for-byte like the same message in chat.
+ * A message's bubble. Owns the bubble frame and the media list; the caller
+ * composes the text region.
  */
 export function MessageBody({
   variant,
@@ -85,8 +79,7 @@ export function MessageBody({
 
   return (
     // data-reading flips this bubble's subtree to the editorial serif (twin of
-    // data-chrome). One tag covers chat (MessageItem) and the public share view,
-    // which both compose their text region as children here.
+    // data-chrome), so one tag covers whatever text region the caller composes.
     <div data-reading="" className={cn(BUBBLE_VARIANT_CLASS[variant], className)}>
       {children}
       <MessageMediaList

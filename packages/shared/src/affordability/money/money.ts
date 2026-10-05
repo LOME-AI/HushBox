@@ -80,7 +80,8 @@ export function applyMarkupCeil(baseCostNanoUsd: bigint): bigint {
   return (exact + BASIS - 1n) / BASIS;
 }
 
-const DECIMAL_USD_PATTERN = /^\d+(?:\.\d+)?$/;
+/** A non-negative decimal USD amount as a vendor lists it: digits, and a point only before more digits. */
+export const DECIMAL_USD_PATTERN = /^\d+(?:\.\d+)?$/;
 
 /**
  * {@link applyMarkupCeil} over a vendor's decimal USD rate string, taken whole:

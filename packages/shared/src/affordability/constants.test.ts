@@ -15,8 +15,6 @@ import {
   STORAGE_COST_PER_1K_CHARS,
   MEDIA_MONTHLY_COST_PER_GB,
   MEDIA_STORAGE_COST_PER_BYTE,
-  ESTIMATED_IMAGE_BYTES,
-  ESTIMATED_VIDEO_BYTES_PER_SECOND,
   MAX_MODEL_AGE_MS,
   MIN_PRICE_PER_1K_TOKENS_NANO,
   TOP_CONTEXT_PERCENTILE,
@@ -194,35 +192,6 @@ describe('Media Storage Cost Constants', () => {
       const costPer4MB = MEDIA_STORAGE_COST_PER_BYTE * 4_000_000;
       expect(costPer4MB).toBeCloseTo(0.072, 2);
     });
-  });
-});
-
-describe('ESTIMATED_IMAGE_BYTES', () => {
-  it('is 8 MB', () => {
-    expect(ESTIMATED_IMAGE_BYTES).toBe(8_000_000);
-  });
-
-  it('is a positive integer', () => {
-    expect(Number.isInteger(ESTIMATED_IMAGE_BYTES)).toBe(true);
-    expect(ESTIMATED_IMAGE_BYTES).toBeGreaterThan(0);
-  });
-});
-
-describe('ESTIMATED_VIDEO_BYTES_PER_SECOND', () => {
-  it('is 5_000_000 (~5 MB/s worst-case 1080p)', () => {
-    expect(ESTIMATED_VIDEO_BYTES_PER_SECOND).toBe(5_000_000);
-  });
-
-  it('is a positive integer', () => {
-    expect(Number.isInteger(ESTIMATED_VIDEO_BYTES_PER_SECOND)).toBe(true);
-    expect(ESTIMATED_VIDEO_BYTES_PER_SECOND).toBeGreaterThan(0);
-  });
-
-  it('scales linearly with clip length', () => {
-    // Eight seconds is an illustrative length, not a cap: how long a clip may be
-    // is per model, declared in the catalog's own duration ParamSpec.
-    const EXAMPLE_CLIP_SECONDS = 8;
-    expect(ESTIMATED_VIDEO_BYTES_PER_SECOND * EXAMPLE_CLIP_SECONDS).toBe(40_000_000);
   });
 });
 

@@ -1,10 +1,20 @@
 import * as React from 'react';
-import { X, Code, Eye, Copy, Check, Download, Maximize2, Minimize2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { TEST_IDS } from '@hushbox/shared';
-import { Button, cn, useCopyToClipboard, useIsMobile } from '@hushbox/ui';
+import { cn, useCopyToClipboard } from '@hushbox/ui';
+import { IconButton } from '@hushbox/ui/button';
+import { Check, Copy, Download, Maximize2, Minimize2, X } from '@hushbox/ui/icons';
+import { getTypeLabel } from '@/components/chat/media/document-card';
 import { MermaidDiagram } from '@/components/chat/message/mermaid-diagram';
+import { PageShellContext } from '@/components/shared/page-shell';
+import { downloadTextFile } from '@/lib/download-text-file';
 import { useDocumentStore } from '../../stores/document';
-import { DocumentSandbox } from './document-sandbox';
+import {
+  DocumentBar,
+  DocumentSandbox,
+  DocumentScroll,
+  type DocumentView,
+} from './document-sandbox';
 import { HighlightedSource } from './highlighted-source';
 import { DocumentRenderStatus, PENDING_PREVIEW_TEXT } from './document-render-status';
 import { getFileExtension, isRunnableDocument } from '../../lib/chat/document-parser';
@@ -14,144 +24,77 @@ interface DocumentPanelProps {
   className?: string;
 }
 
-interface ResizeHandleProps {
-  isResizing: boolean;
-  onResizeStart: (e: React.MouseEvent) => void;
-}
-
-function ResizeHandle({
-  isResizing,
-  onResizeStart,
-}: Readonly<ResizeHandleProps>): React.JSX.Element {
-  return (
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- mouse-only resize handle: keyboard users have alternative panel sizing controls
-    <div
-      data-testid={TEST_IDS.resizeHandle}
-      role="separator"
-      aria-orientation="vertical"
-      onMouseDown={onResizeStart}
-      className={cn(
-        'group absolute top-0 left-0 z-10 flex h-full w-2 cursor-ew-resize items-center justify-center',
-        'hover:bg-primary/10 transition-colors',
-        isResizing && 'bg-primary/20'
-      )}
-    >
-      <div
-        data-testid={TEST_IDS.resizeIndicator}
-        className={cn(
-          'bg-border group-hover:bg-primary/50 h-8 w-0.5 rounded-full transition-colors',
-          isResizing && 'bg-primary/50'
-        )}
-      />
-    </div>
-  );
-}
-
 interface PanelHeaderProps {
-  title: string;
+  document: Document;
   copied: boolean;
-  showRaw: boolean;
-  supportsRawToggle: boolean;
   isFullscreen: boolean;
-  showFullscreenToggle: boolean;
   onCopy: () => void;
   onDownload: () => void;
-  onToggleRaw: () => void;
   onToggleFullscreen: () => void;
   onClose: () => void;
 }
 
+/** "python · 58 lines": what the document is written in, and how long it is. */
+function documentSubtitle(document: Document): string {
+  return `${getTypeLabel(document)} · ${String(document.lineCount)} lines`;
+}
+
+// Fullscreen acts only on a docked panel: below the dock line, and on a phone, the panel
+// already lies over everything it could cover.
+const DOCKED_ONLY_CLASS = 'max-md:hidden @max-panehost-dock/panehost:hidden';
+
 function PanelHeader({
-  title,
+  document,
   copied,
-  showRaw,
-  supportsRawToggle,
   isFullscreen,
-  showFullscreenToggle,
   onCopy,
   onDownload,
-  onToggleRaw,
   onToggleFullscreen,
   onClose,
 }: Readonly<PanelHeaderProps>): React.JSX.Element {
   return (
-    <div className="border-border flex items-center justify-between gap-2 border-b px-4 py-3">
-      <h2 className="text-primary min-w-0 flex-1 truncate text-sm font-medium">{title}</h2>
-      <div className="flex shrink-0 items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
+    <div className="border-border flex min-h-(--app-header-height) shrink-0 items-center gap-1 border-b py-1 ps-4 pe-2">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <h2 className="text-foreground truncate font-sans text-sm font-semibold">
+          {document.title}
+        </h2>
+        <p className="text-muted-foreground truncate font-mono text-xs">
+          {documentSubtitle(document)}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <IconButton
+          type="button"
+          icon={copied ? Check : Copy}
+          hitArea="extend"
           onClick={onCopy}
           aria-label={copied ? 'Copied' : 'Copy code'}
-        >
-          {copied ? (
-            <Check className="h-4 w-4" aria-hidden="true" />
-          ) : (
-            <Copy className="h-4 w-4" aria-hidden="true" />
-          )}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
+        />
+        <IconButton
+          type="button"
+          icon={Download}
+          hitArea="extend"
           onClick={onDownload}
           aria-label="Download file"
-        >
-          <Download className="h-4 w-4" aria-hidden="true" />
-        </Button>
-        {showFullscreenToggle && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={onToggleFullscreen}
-            aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-          >
-            {isFullscreen ? (
-              <Minimize2 className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <Maximize2 className="h-4 w-4" aria-hidden="true" />
-            )}
-          </Button>
-        )}
-        {supportsRawToggle && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={onToggleRaw}
-            aria-label={showRaw ? 'Show rendered' : 'Show raw'}
-          >
-            {showRaw ? (
-              <Eye className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <Code className="h-4 w-4" aria-hidden="true" />
-            )}
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
+        />
+        <IconButton
+          type="button"
+          icon={isFullscreen ? Minimize2 : Maximize2}
+          hitArea="extend"
+          className={DOCKED_ONLY_CLASS}
+          onClick={onToggleFullscreen}
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        />
+        <IconButton
+          type="button"
+          icon={X}
+          hitArea="extend"
           onClick={onClose}
           aria-label="Close panel"
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </Button>
+        />
       </div>
     </div>
   );
-}
-
-interface DocumentContentProps {
-  document: Document;
-  showRaw: boolean;
-}
-
-/** Whether this document type has a preview to switch to at all. */
-function hasPreview(type: Document['type']): boolean {
-  return type === 'mermaid' || isRunnableDocument(type);
 }
 
 /** The source, plus the line explaining why no preview is on screen yet. */
@@ -167,9 +110,19 @@ function PendingSourceView({ document }: Readonly<{ document: Document }>): Reac
   );
 }
 
-function DocumentContent({ document, showRaw }: Readonly<DocumentContentProps>): React.JSX.Element {
-  if (document.type === 'mermaid') {
-    if (showRaw) {
+interface DocumentBodyProps {
+  document: Document;
+  view: DocumentView;
+  onViewChange: (view: DocumentView) => void;
+}
+
+function MermaidBody({
+  document,
+  view,
+  onViewChange,
+}: Readonly<DocumentBodyProps>): React.JSX.Element {
+  const content = (): React.JSX.Element => {
+    if (view === 'code') {
       return <HighlightedSource content={document.content} language="mermaid" />;
     }
     // Mermaid draws in-app and reports nothing back, so a half-written diagram
@@ -185,11 +138,26 @@ function DocumentContent({ document, showRaw }: Readonly<DocumentContentProps>):
       );
     }
     return <MermaidDiagram chart={document.content} />;
-  }
+  };
+  return (
+    <>
+      <DocumentBar view={view} onViewChange={onViewChange} />
+      <DocumentScroll>{content()}</DocumentScroll>
+    </>
+  );
+}
 
-  // html/js/react/python execute in the sandbox iframe when Rendered; Raw shows
-  // the highlighted source, mirroring the mermaid toggle.
-  if (isRunnableDocument(document.type) && !showRaw) {
+function DocumentBody({
+  document,
+  view,
+  onViewChange,
+}: Readonly<DocumentBodyProps>): React.JSX.Element {
+  if (document.type === 'mermaid') {
+    return <MermaidBody document={document} view={view} onViewChange={onViewChange} />;
+  }
+  // html/js/react/python execute in the sandbox iframe, which owns the bar
+  // because its status and its Run sit there.
+  if (isRunnableDocument(document.type)) {
     return (
       <DocumentSandbox
         kind={document.type}
@@ -197,82 +165,57 @@ function DocumentContent({ document, showRaw }: Readonly<DocumentContentProps>):
         title={document.title}
         isStreaming={document.isStreaming}
         pendingView={<PendingSourceView document={document} />}
+        view={view}
+        onViewChange={onViewChange}
+        codeView={<HighlightedSource content={document.content} language={document.language} />}
       />
     );
   }
-
-  return <HighlightedSource content={document.content} language={document.language} />;
+  return (
+    <DocumentScroll>
+      <HighlightedSource content={document.content} language={document.language} />
+    </DocumentScroll>
+  );
 }
 
+// A phone gets the whole screen. From 768 the panel lies over the thread at the main column's
+// full width, or docks beside it at 45% of the column wherever that leaves the panel a phone's
+// width and the thread a readable one. The column decides, in rem so it follows the reader's text
+// size, never the window. Fullscreen keeps the panel over the thread.
+const OVER_THREAD_CLASS =
+  'absolute inset-0 z-drawer max-md:fixed max-md:pt-[env(safe-area-inset-top,0px)]';
+const DOCKED_CLASS =
+  'md:@panehost-dock/panehost:relative md:@panehost-dock/panehost:inset-auto md:@panehost-dock/panehost:z-auto md:@panehost-dock/panehost:w-[45cqi] md:@panehost-dock/panehost:shrink-0 md:@panehost-dock/panehost:border-l';
+
+/**
+ * The open document. It docks inside the page shell's pane host, the `panehost` container the
+ * docking rule above measures.
+ */
 export function DocumentPanel({
   className,
 }: Readonly<DocumentPanelProps>): React.JSX.Element | null {
   const {
     isPanelOpen,
-    panelWidth,
     activeDocument,
     activeSelectionId,
     isFullscreen,
     closePanel,
-    setPanelWidth,
     toggleFullscreen,
   } = useDocumentStore();
-  const [isResizing, setIsResizing] = React.useState(false);
-  const [showRaw, setShowRaw] = React.useState(false);
+  const [view, setView] = React.useState<DocumentView>('output');
   const { copy, copied } = useCopyToClipboard();
-  const panelRef = React.useRef<HTMLDivElement>(null);
-  const isMobile = useIsMobile();
+  const shell = React.useContext(PageShellContext);
 
   // Keyed on the selection, not the document id: the id is a content hash that
   // mutates while a message streams, and re-anchoring must not discard the
   // view the user picked.
   React.useEffect(() => {
-    setShowRaw(false);
+    setView('output');
   }, [activeSelectionId]);
-
-  React.useEffect(() => {
-    if (!isResizing || isMobile) return;
-
-    const handleMouseMove = (e: MouseEvent): void => {
-      /* v8 ignore next -- the effect only attaches this listener while the panel (panelRef) is mounted, so the null-guard never fires */
-      if (!panelRef.current) return;
-      const panelRect = panelRef.current.getBoundingClientRect();
-      /* v8 ignore next -- parentElement.clientWidth is always a number in a mounted panel; the ?. and ?? panelRect.width only satisfy the optional type */
-      const maxWidth = panelRef.current.parentElement?.clientWidth ?? panelRect.width;
-      const newWidth = panelRect.right - e.clientX;
-      setPanelWidth(newWidth, maxWidth);
-    };
-
-    const handleMouseUp = (): void => {
-      setIsResizing(false);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizing, isMobile, setPanelWidth]);
 
   if (!isPanelOpen || !activeDocument) {
     return null;
   }
-
-  const handleResizeStart = (e: React.MouseEvent): void => {
-    e.preventDefault();
-    if (isFullscreen) {
-      // Sync stored width to current rendered width so exiting fullscreen doesn't jump
-      /* v8 ignore next -- panelRef is mounted here, so getBoundingClientRect().width is always a number; the ?. and ?? panelWidth only satisfy the optional type */
-      const currentWidth = panelRef.current?.getBoundingClientRect().width ?? panelWidth;
-      /* v8 ignore next -- parentElement.clientWidth is always a number in a mounted panel; the ?. and ?? currentWidth only satisfy the optional type */
-      const maxWidth = panelRef.current?.parentElement?.clientWidth ?? currentWidth;
-      setPanelWidth(currentWidth, maxWidth);
-      toggleFullscreen();
-    }
-    setIsResizing(true);
-  };
 
   const handleCopy = async (): Promise<void> => {
     await copy(activeDocument.content);
@@ -280,76 +223,50 @@ export function DocumentPanel({
 
   const handleDownload = (): void => {
     const extension = activeDocument.language ? getFileExtension(activeDocument.language) : 'txt';
-    const filename = `${activeDocument.title}.${extension}`;
-    const blob = new Blob([activeDocument.content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    // The browser claims the blob while it is still handling the click, so the
-    // release waits for the next task rather than racing it. Nothing cancels
-    // this: the callback is queued from the handler itself and holds only the
-    // URL string, so the URL is released one turn later, never not at all.
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-    }, 0);
+    downloadTextFile(`${activeDocument.title}.${extension}`, activeDocument.content);
   };
 
-  const supportsRawToggle = hasPreview(activeDocument.type);
-
-  return (
-    <div
-      ref={panelRef}
+  const panel = (
+    <aside
       // Literal HTML `id` (a distinct mechanism from `data-testid`) so the mobile
       // Maestro flow can select this singleton panel container — Maestro's `id:`
       // selector matches an `id` attribute, not `data-testid`.
       id="document-panel"
+      aria-label="Document"
       data-testid={TEST_IDS.documentPanel}
       data-chrome=""
       className={cn(
-        'bg-background border-border relative flex h-full flex-col border-l',
-        isResizing && 'select-none',
-        !isResizing && !isMobile && 'transition-[width] duration-300 ease-in-out',
+        'bg-background border-border @container/docpane flex h-full flex-col',
+        OVER_THREAD_CLASS,
+        !isFullscreen && DOCKED_CLASS,
         className
       )}
-      style={{ width: isMobile || isFullscreen ? '100%' : `${String(panelWidth)}px` }}
     >
-      {!isMobile && <ResizeHandle isResizing={isResizing} onResizeStart={handleResizeStart} />}
-
       <PanelHeader
-        title={activeDocument.title}
+        document={activeDocument}
         copied={copied}
-        showRaw={showRaw}
-        supportsRawToggle={supportsRawToggle}
         isFullscreen={isFullscreen}
-        showFullscreenToggle={!isMobile}
         onCopy={() => void handleCopy()}
         onDownload={handleDownload}
-        onToggleRaw={() => {
-          setShowRaw(!showRaw);
-        }}
         onToggleFullscreen={toggleFullscreen}
         onClose={closePanel}
       />
-
-      <div data-testid={TEST_IDS.documentPanelScroll} className="flex-1 overflow-auto">
-        {/* `h-full` is load-bearing, not cosmetic: the sandbox iframe is a
-            replaced element, so when this wrapper is auto-height the `h-full`
-            below it resolves to auto, the iframe's `flex-1` basis cannot
-            resolve against an indefinite main size, and the frame falls back to
-            its 300x150 intrinsic size — a rendered document ends up 150px tall
-            however tall the panel is. Taller content still scrolls, on the
-            `overflow-auto` above. */}
-        <div className="h-full">
-          {/* Keyed by the selection, not the document id: opening another
-              document remounts the content, tearing the sandbox iframe down and
-              killing anything running in it, while a streaming document — whose
-              content-hash id changes every token — keeps the frame it is
-              already driving. */}
-          <DocumentContent key={activeSelectionId} document={activeDocument} showRaw={showRaw} />
-        </div>
-      </div>
-    </div>
+      {/* Keyed by the selection, not the document id: opening another
+          document remounts the content, tearing the sandbox iframe down and
+          killing anything running in it, while a streaming document — whose
+          content-hash id changes every token — keeps the frame it is
+          already driving. */}
+      <DocumentBody
+        key={activeSelectionId}
+        document={activeDocument}
+        view={view}
+        onViewChange={setView}
+      />
+    </aside>
   );
+
+  // Inside the page shell the panel stands in its pane slot, so it docks beside, or lies over,
+  // the header row as well as the thread; elsewhere it renders where it is.
+  if (shell === null) return panel;
+  return shell.slots.pane === null ? null : createPortal(panel, shell.slots.pane);
 }

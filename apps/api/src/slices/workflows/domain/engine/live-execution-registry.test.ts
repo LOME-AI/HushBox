@@ -3,7 +3,7 @@ import { Node as NodeSchema, textTag } from '@hushbox/shared';
 import { TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
 import { tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
 import { ok } from '../../../../lib/result/index.js';
-import { createToolRegistry } from '../../../models/index.js';
+import { callMaxPrice, createToolRegistry } from '../../../models/index.js';
 import { createValueStore } from './value-store.js';
 import { createLiveExecutionRegistry } from './live-execution-registry.js';
 import type { InferenceEvent, ModelDescriptor, Node } from '@hushbox/shared';
@@ -37,6 +37,8 @@ const binding: ModelBinding = {
   descriptor,
   ports: { in: [textTag()], out: textTag() },
   price: () => ok(1n),
+  reserveMedia: () => ok(1n),
+  maxPrice: (bound) => callMaxPrice(descriptor.pricing, bound),
 };
 
 const provider: ModelProvider = {
@@ -160,6 +162,8 @@ function makeCtx(): NodeRunContext {
     clock: { now: () => 0 },
     rng: { random: () => 0.5 },
     signal: new AbortController().signal,
+    spend: { isOpen: () => true, report: () => undefined },
+    runId: undefined,
   };
 }
 

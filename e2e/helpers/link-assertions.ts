@@ -1,4 +1,4 @@
-import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { ROUTES, TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { expect } from './expect.js';
 import { TIMEOUTS } from '../config/timeouts.js';
@@ -35,14 +35,28 @@ export async function expectNoDecryptionErrors(page: Page): Promise<void> {
   await expect(page.getByText('[decryption failed')).not.toBeVisible();
 }
 
-/** Assert the send/message input is visible but disabled (read-only privilege). */
-export async function expectSendInputDisabled(
+/**
+ * Assert a read-only link guest's guest bar: the read-only notice in the composer's
+ * place, no message input, and Sign Up only for a visitor who is not signed in.
+ */
+export async function expectGuestBar(
   page: Page,
-  inputName: string | RegExp = /message/i
+  { signedIn }: Readonly<{ signedIn: boolean }>
 ): Promise<void> {
-  const sendInput = page.getByRole('textbox', { name: inputName });
-  await expect(sendInput).toBeVisible();
-  await expect(sendInput).toBeDisabled();
+  const guestBar = page.getByTestId(TEST_IDS.guestBar);
+  await expect(guestBar).toBeVisible({ timeout: TIMEOUTS.ASSERT });
+  await expect(
+    guestBar.getByTestId(TEST_ID_BUILDERS.budgetMessage('conversation_read_only'))
+  ).toBeVisible();
+  await expect(page.getByRole('textbox', { name: /message/i })).toHaveCount(0);
+
+  const signUp = guestBar.getByTestId(TEST_IDS.guestBarSignUp);
+  if (signedIn) {
+    await expect(signUp).toHaveCount(0);
+    return;
+  }
+  await expect(signUp).toBeVisible();
+  await expect(signUp).toHaveAttribute('href', ROUTES.SIGNUP);
 }
 
 /** Assert the read-only notice is visible and no trial/guest errors are shown. */

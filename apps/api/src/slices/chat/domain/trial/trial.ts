@@ -103,8 +103,8 @@ export function createTrialAdmissionHook(
   };
 }
 
-/** The no-op commit body: persists nothing, charges nothing (closes over nothing). */
-const trialSettlementCommit: SettlementCommit = () => Promise.resolve();
+/** The no-op commit body: persists nothing, charges nothing, so it posted nothing (closes over nothing). */
+const trialSettlementCommit: SettlementCommit = () => Promise.resolve([]);
 
 /**
  * The trial settlement commit: no-persist / no-charge. It writes NOTHING — no
@@ -193,8 +193,9 @@ export function createTrialSettlementHook(
     commit: createTrialSettlementCommit(),
   });
   return async (request) => {
-    await fenced(request);
+    const receipt = await fenced(request);
     await recordTrialSpend(deps, clock(), request.charges);
+    return receipt;
   };
 }
 

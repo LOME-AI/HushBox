@@ -50,7 +50,7 @@ import type { Database } from '@hushbox/db';
 import type { AppEnv, Bindings } from '../../lib/context/index.js';
 import type { TelemetryEnv } from '../../lib/telemetry/index.js';
 import type { MockPaymentProvider } from './adapters/payment-mock.js';
-import type { WebhookDeliveryLifetime } from './domain/index.js';
+import type { BudgetScope, WebhookDeliveryLifetime } from './domain/index.js';
 import type { BillingRouteDeps } from './routes.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
@@ -173,6 +173,19 @@ async function billingPortalCookie(userId: string): Promise<string> {
 
 const WEBHOOK_VERIFIER = 'c2VjcmV0LXNlY3JldC1zZWNyZXQ=';
 const stores = createBillingStores();
+
+/** Admission's scope read: the wallet's committed sequence, then `scopes`. */
+function scopesAt(
+  deps: Parameters<typeof admitRun>[0],
+  walletId: string,
+  scopes: readonly BudgetScope[] = []
+): Parameters<typeof admitRun>[1]['readScopes'] {
+  return () =>
+    deps.stores.readWalletSnapshot(deps.db, walletId).map((row) => {
+      if (row === null) throw new Error('scope read: the wallet does not exist');
+      return { scopes, walletSeq: row.ledgerSeq };
+    });
+}
 /** Mirrors the pipeline's request Redis so tests can place real admission holds. */
 const testRedis = new Redis({
   url: testEnv.UPSTASH_REDIS_REST_URL,
@@ -493,7 +506,7 @@ describe('GET /billing/spendable', () => {
         estimateNanoUsd: estimate,
         deadlineClass: 'text',
         concurrentRunCap: SPENDABLE_RUN_CAP,
-        budgets: [],
+        readScopes: scopesAt({ redis: testRedis, db, stores }, walletId),
         now: new Date(),
       }
     );

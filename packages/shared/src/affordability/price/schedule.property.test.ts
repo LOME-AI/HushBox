@@ -24,6 +24,7 @@ const thresholdArb = fc.oneof(fc.constantFrom(0, 1), fc.integer({ min: -1000, ma
 function descriptorAccepts(abovePromptTokens: number): boolean {
   return ModelPricingSchema.safeParse({
     kind: 'tokens',
+    anchorContextTokens: 1_000_000,
     anchor: {
       base: { input: '3450', output: '17250' },
       tiers: [{ abovePromptTokens, rates: { input: '6900', output: '25875' } }],

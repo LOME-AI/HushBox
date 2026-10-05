@@ -473,13 +473,12 @@ const reasoningDisplayFields = {
   reasoningTokens: z.number().int().nullable(),
   /**
    * The level the generation behind this item reasoned at, or null when none
-   * was recorded. It qualifies the settled reasoning row's label
-   * (`apps/web/src/components/chat/message/thinking-disclosure.tsx`); null
-   * leaves that label unqualified. Deliberate disclosure: this field is served
-   * on the unauthenticated share read as well as the member history read, so a
-   * share link publishes the rung its author's turn ran at. Nothing outside
-   * that row surfaces it, so an item rendering no reasoning row publishes no
-   * level however this is populated.
+   * was recorded. It is the reply head's effort tag (`effortTagOf` in
+   * `apps/web/src/components/chat/message/model-nameplate.tsx`), shown only
+   * beside a settled reasoning row; null shows no tag. Deliberate disclosure:
+   * this field is served on the unauthenticated share read as well as the
+   * member history read, so a share link publishes the rung its author's turn
+   * ran at, whether or not the share surface draws a reply head to show it.
    */
   reasoningEffort: ResolvedReasoningEffort.nullable(),
   /**
@@ -725,6 +724,8 @@ export const getConversationResponseSchema = z.object({
   conversation: conversationResponseSchema,
   membership: membershipViewSchema,
   forks: z.array(forkResponseSchema).default([]),
+  /** What `memberCount` on a list item counts, read for this one conversation. */
+  memberCount: z.number().int().positive(),
 });
 
 export type GetConversationResponse = z.infer<typeof getConversationResponseSchema>;

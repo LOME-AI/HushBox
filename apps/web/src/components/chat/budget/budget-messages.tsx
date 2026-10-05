@@ -1,134 +1,102 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, Info, X } from 'lucide-react';
-import { cn, IconButton } from '@hushbox/ui';
 import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
-import type { BudgetError, MessageSegment } from '@hushbox/shared';
+import { Collapse, Presence } from '@hushbox/ui/motion';
+import { Notice, NoticeDismiss, NoticeStack } from '@hushbox/ui/notice';
+import { NOTICE_SHAPES, composerNoticeShape } from '@/lib/chat/notice-shape';
+import type { BudgetError } from '@hushbox/shared';
 
 interface BudgetMessagesProps {
-  /** Array of budget errors/warnings/info to display */
-  errors: BudgetError[];
-  /** Additional CSS classes */
+  /** The composer's notices, in the order they show. */
+  errors: readonly BudgetError[];
   className?: string;
 }
 
-function getBorderColor(type: BudgetError['type']): string {
-  switch (type) {
-    case 'error': {
-      return 'border-l-destructive';
-    }
-    case 'warning': {
-      return 'border-l-warning';
-    }
-    case 'info': {
-      return 'border-l-info';
-    }
-  }
-}
-
-function getIconColor(type: BudgetError['type']): string {
-  switch (type) {
-    case 'error': {
-      return 'text-destructive';
-    }
-    case 'warning': {
-      return 'text-warning';
-    }
-    case 'info': {
-      return 'text-info';
-    }
-  }
-}
-
-function getIcon(type: BudgetError['type']): React.ComponentType<{ className?: string }> {
-  switch (type) {
-    case 'error':
-    case 'warning': {
-      return AlertTriangle;
-    }
-    case 'info': {
-      return Info;
-    }
-  }
-}
-
-function isDismissible(type: BudgetError['type']): boolean {
-  return type !== 'error';
-}
-
-function renderMessageContent(error: BudgetError): React.JSX.Element {
-  if (!error.segments || error.segments.length === 0) {
-    return <>{error.message}</>;
-  }
-
+/**
+ * Plain text whose last two words wrap as one, so the notice's last line never holds a word
+ * alone. `text-wrap: pretty` alone still leaves one at a phone's width: in Chromium at large
+ * text sizes, and in Firefox at the default size too.
+ */
+function WithJoinedTail({ text }: Readonly<{ text: string }>): React.JSX.Element {
+  const tail = /\S+\s+\S+\s*$/.exec(text);
+  if (tail === null) return <>{text}</>;
   return (
     <>
-      {error.segments.map((segment: MessageSegment, index: number) => {
-        if (segment.link) {
+      {text.slice(0, tail.index)}
+      <span className="whitespace-nowrap">{tail[0]}</span>
+    </>
+  );
+}
+
+function MessageText({ error }: Readonly<{ error: BudgetError }>): React.JSX.Element {
+  const segments =
+    error.segments === undefined || error.segments.length === 0
+      ? [{ text: error.message }]
+      : error.segments;
+  const last = segments.length - 1;
+  return (
+    <>
+      {segments.map((segment, index) => {
+        if (segment.link !== undefined) {
           return (
-            <Link key={index} to={segment.link} className="text-primary hover:underline">
+            <Link key={index} to={segment.link}>
               {segment.text}
             </Link>
           );
         }
-        return <React.Fragment key={index}>{segment.text}</React.Fragment>;
+        return index === last ? (
+          <WithJoinedTail key={index} text={segment.text} />
+        ) : (
+          <React.Fragment key={index}>{segment.text}</React.Fragment>
+        );
       })}
     </>
   );
 }
 
-function renderBudgetIcon(error: BudgetError): React.JSX.Element {
-  const Icon = getIcon(error.type);
-  return (
-    <Icon
-      data-testid={TEST_ID_BUILDERS.budgetMessageIcon(error.id)}
-      className={cn('h-4 w-4 shrink-0', getIconColor(error.type))}
-    />
-  );
-}
-
-function BudgetMessageBody({
+function BudgetNotice({
   error,
   onDismiss,
 }: Readonly<{
   error: BudgetError;
-  onDismiss: (id: string) => void;
+  onDismiss: (id: BudgetError['id']) => void;
 }>): React.JSX.Element {
-  const canDismiss = isDismissible(error.type);
+  const shape = composerNoticeShape(error);
+  const { tone, icon } = NOTICE_SHAPES[shape];
   return (
-    <div
-      data-testid={TEST_ID_BUILDERS.budgetMessage(error.id)}
-      role="alert"
-      className={cn(
-        'flex items-center gap-2 rounded px-3 py-2 text-sm',
-        'bg-muted/50 text-foreground border-l-3',
-        getBorderColor(error.type)
-      )}
-    >
-      {renderBudgetIcon(error)}
-      <span className="flex-1">{renderMessageContent(error)}</span>
-      {canDismiss && (
-        <IconButton
-          data-testid={TEST_ID_BUILDERS.budgetDismiss(error.id)}
-          aria-label="Dismiss notification"
-          onClick={() => {
-            onDismiss(error.id);
-          }}
-        >
-          <X className="h-3 w-3" aria-hidden="true" />
-        </IconButton>
-      )}
+    <div data-severity={shape}>
+      <Notice
+        tone={tone}
+        icon={icon}
+        placement="composer"
+        data-testid={TEST_ID_BUILDERS.budgetMessage(error.id)}
+        {...(error.type !== 'error' && {
+          end: (
+            <NoticeDismiss
+              onDismiss={() => {
+                onDismiss(error.id);
+              }}
+              data-testid={TEST_ID_BUILDERS.budgetDismiss(error.id)}
+            />
+          ),
+        })}
+      >
+        <MessageText error={error} />
+      </Notice>
     </div>
   );
 }
 
+/**
+ * The composer's notice stack. A dismissed notice stays hidden until it leaves the list,
+ * so the same condition arising again shows again.
+ */
 export function BudgetMessages({
   errors,
   className,
 }: Readonly<BudgetMessagesProps>): React.JSX.Element {
-  const [dismissedIds, setDismissedIds] = React.useState<Set<string>>(new Set());
-  const previousErrorIds = React.useRef<Set<string>>(new Set());
+  const [dismissedIds, setDismissedIds] = React.useState<ReadonlySet<string>>(new Set());
+  const previousErrorIds = React.useRef<ReadonlySet<string>>(new Set());
 
   React.useEffect(() => {
     const currentIds = new Set<string>(errors.map((e) => e.id));
@@ -158,24 +126,25 @@ export function BudgetMessages({
   return (
     <div
       data-testid={TEST_IDS.budgetMessages}
-      className={cn('flex flex-col gap-2', className)}
+      className={className}
       role="region"
       aria-live="polite"
     >
-      <AnimatePresence>
-        {visibleErrors.map((error) => (
-          <motion.div
-            key={error.id}
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3, ease: 'easeOut' }}
-            className="overflow-hidden"
-          >
-            <BudgetMessageBody error={error} onDismiss={handleDismiss} />
-          </motion.div>
-        ))}
-      </AnimatePresence>
+      {/* A dismiss's touch target reaches past its notice's edge. The padding keeps it inside
+          the height tween's clip at the stack's top and bottom; the margin gives the room back. */}
+      <div className="-my-0.5">
+        <Collapse open={visibleErrors.length > 0}>
+          <div className="py-0.5">
+            <NoticeStack>
+              <Presence>
+                {visibleErrors.map((error) => (
+                  <BudgetNotice key={error.id} error={error} onDismiss={handleDismiss} />
+                ))}
+              </Presence>
+            </NoticeStack>
+          </div>
+        </Collapse>
+      </div>
     </div>
   );
 }

@@ -7,9 +7,11 @@ import {
   PREMIUM_PRICE_PERCENTILE,
   PREMIUM_RECENCY_MS,
   TRIAL_AFFORDABILITY_MULTIPLIER,
+  TRIAL_CLASSIFICATION_PROMPT_CHARS,
   combinedRateNanoUsd,
   exceedsTrialBudget,
   isPremiumModel,
+  isTrialPremiumModel,
   premiumPriceThresholdNanoUsd,
 } from './premium.ts';
 import { TEST_DAY_START } from '../../testing/test-time.ts';
@@ -185,6 +187,47 @@ describe('exceedsTrialBudget', () => {
 
   it('rejects a negative system-prompt length rather than pricing it', () => {
     expect(() => exceedsTrialBudget(modelFor(), -1)).toThrow(RangeError);
+  });
+});
+
+describe('TRIAL_CLASSIFICATION_PROMPT_CHARS', () => {
+  it('is 1000 characters', () => {
+    expect(TRIAL_CLASSIFICATION_PROMPT_CHARS).toBe(1000);
+  });
+});
+
+describe('isTrialPremiumModel', () => {
+  /** Inside the cap at the classification size, past it at 7,500 characters. */
+  const PROMPT_SENSITIVE = modelFor({
+    pricing: tokenPricingFixture({ input: nanoUSD(4200n), output: nanoUSD(1n) }),
+  });
+
+  it('counts a model premium by recency', () => {
+    expect(isTrialPremiumModel({ model: modelFor({ releasedAtMs: NOW_MS }), nowMs: NOW_MS })).toBe(
+      true
+    );
+  });
+
+  it('counts a model premium by price', () => {
+    expect(
+      isTrialPremiumModel({
+        model: modelFor(),
+        priceThresholdNanoUsd: nanoUSD(3000n),
+        nowMs: NOW_MS,
+      })
+    ).toBe(true);
+  });
+
+  it('counts a model whose classification exchange runs past the trial cap', () => {
+    const model = modelFor({
+      pricing: tokenPricingFixture({ input: nanoUSD(2300n), output: nanoUSD(9200n) }),
+    });
+    expect(isTrialPremiumModel({ model, nowMs: NOW_MS })).toBe(true);
+  });
+
+  it('prices the classification exchange, never a longer prompt', () => {
+    expect(exceedsTrialBudget(PROMPT_SENSITIVE, 7500)).toBe(true);
+    expect(isTrialPremiumModel({ model: PROMPT_SENSITIVE, nowMs: NOW_MS })).toBe(false);
   });
 });
 

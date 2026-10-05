@@ -927,12 +927,6 @@ importers:
       '@remotion/cli':
         specifier: 4.0.488
         version: 4.0.488(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@remotion/layout-utils':
-        specifier: 4.0.488
-        version: 4.0.488
-      '@remotion/paths':
-        specifier: 4.0.488
-        version: 4.0.488
       '@remotion/renderer':
         specifier: 4.0.488
         version: 4.0.488(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -4597,9 +4591,6 @@ packages:
     peerDependencies:
       eslint: '>=7.0.0'
 
-  '@remotion/layout-utils@4.0.488':
-    resolution: {integrity: sha512-TrgyBvtaXy318ZVEEU45kNjnZJmRLYZRqHeU9afeol4N/kEVe82B11PcVWVaUR6fVcOqxRuJhPS2tCG9ZZKViQ==}
-
   '@remotion/licensing@4.0.488':
     resolution: {integrity: sha512-5jVmxoOzpeZMnLX7qLQUteOA0vbj+uPYHH8G3nuD87xnPPWDGMy/t8bA8GuImfLn55aM6jaNLP4ngi3IorlvgA==}
 
@@ -4611,9 +4602,6 @@ packages:
     peerDependencies:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
-
-  '@remotion/paths@4.0.488':
-    resolution: {integrity: sha512-MyF1vol5fM7RUBzoNgiGC/wo+6beqXqTqeWvA7Fmn3WU5+EVu1KoZBMM0IV2wKLF5oXNC6gbtanp2urfuD1W1g==}
 
   '@remotion/player@4.0.488':
     resolution: {integrity: sha512-bP9y6PFHtP79ikR2zxFiMwR11Cc5BoN9+PEP1YEdMXhkf4o+zDj6PzNw/Va2SjWhozrOTgVshgs1QZfQYleEkg==}
@@ -15249,8 +15237,6 @@ snapshots:
       - supports-color
       - typescript
 
-  '@remotion/layout-utils@4.0.488': {}
-
   '@remotion/licensing@4.0.488': {}
 
   '@remotion/media-parser@4.0.488': {}
@@ -15261,8 +15247,6 @@ snapshots:
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
       remotion: 4.0.488(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-
-  '@remotion/paths@4.0.488': {}
 
   '@remotion/player@4.0.488(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:

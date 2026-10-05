@@ -44,7 +44,16 @@ export type TierIndex = number & { readonly [tierIndexBrand]: true };
 export type ModelPricing = PricingShapes & z.$brand<'ModelPricing'>;
 
 type PricingShapes =
-  | { readonly kind: 'tokens'; readonly anchor: TokenPriceSchedule }
+  | {
+      readonly kind: 'tokens';
+      readonly anchor: TokenPriceSchedule;
+      /**
+       * The anchor endpoint's own context length. A tier at or beyond it is a
+       * larger-context endpoint's segment; every tier below it is the
+       * anchor's own.
+       */
+      readonly anchorContextTokens: number;
+    }
   | { readonly kind: 'perImage'; readonly anchor: NanoUSD; readonly dearest: NanoUSD }
   | {
       readonly kind: 'perSecond';
@@ -144,7 +153,11 @@ const PerSecondPricingSchema = z
 
 export const ModelPricingSchema: z.core.$ZodBranded<z.ZodType<PricingShapes>, 'ModelPricing'> = z
   .discriminatedUnion('kind', [
-    z.object({ kind: z.literal('tokens'), anchor: TokenPriceScheduleSchema }),
+    z.object({
+      kind: z.literal('tokens'),
+      anchor: TokenPriceScheduleSchema,
+      anchorContextTokens: z.number().int().positive(),
+    }),
     PerImagePricingSchema,
     PerSecondPricingSchema,
   ])
@@ -243,4 +256,13 @@ export function mediaRatesFor(
   use: PriceUse
 ): NanoUSD | Readonly<Record<string, NanoUSD>> {
   return PRICE_SIDES[use].media === 'anchor' ? pricing.anchor : pricing.dearest;
+}
+
+/**
+ * Whether a per-second price lists a resolution as its own rate. The anchor
+ * names every resolution the price charges, and the dearest side prices each of
+ * them, so a resolution the anchor lists has a rate on every side.
+ */
+export function listsResolution(pricing: MediaPricing, resolution: string): boolean {
+  return pricing.kind === 'perSecond' && Object.hasOwn(pricing.anchor, resolution);
 }

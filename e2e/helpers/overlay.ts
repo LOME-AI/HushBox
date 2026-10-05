@@ -1,6 +1,6 @@
 import { MOBILE_BREAKPOINT, TEST_IDS } from '@hushbox/shared';
 import { expect } from './expect.js';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 /**
  * The overlay variant the page's width gives, whatever the pointer: `Overlay` presents as a
@@ -16,9 +16,14 @@ export async function closeOverlay(page: Page): Promise<void> {
   await page.locator('[data-slot="overlay-close"]').click();
 }
 
-/** Asserts the rendered overlay variant matches the page's width. */
-export async function expectCorrectOverlayVariant(page: Page): Promise<void> {
+/**
+ * Asserts the rendered overlay variant matches the page's width. Given `within`, it checks the
+ * overlay that holds that element, since another overlay can stay open beneath it; otherwise the
+ * page's single overlay.
+ */
+export async function expectCorrectOverlayVariant(page: Page, within?: Locator): Promise<void> {
   const variant = await expectedOverlayVariant(page);
-  const content = page.getByTestId(TEST_IDS.overlayContent);
+  const overlays = page.getByTestId(TEST_IDS.overlayContent);
+  const content = within === undefined ? overlays : overlays.filter({ has: within });
   await expect(content).toHaveAttribute('data-overlay-variant', variant);
 }

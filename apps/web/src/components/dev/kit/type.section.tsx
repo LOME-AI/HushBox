@@ -19,6 +19,7 @@ const HEADINGS: readonly Sample[] = [
   { role: 'auth-title', text: 'Two-Factor Authentication', heading: 3 },
   { role: 'header-title', text: 'Lisbon trip planning', heading: 4 },
   { role: 'chat-greeting', text: 'Good morning', heading: 2 },
+  { role: 'share-title', text: 'Shared reply', heading: 2 },
 ];
 
 const SITE_HEADINGS: readonly Sample[] = [

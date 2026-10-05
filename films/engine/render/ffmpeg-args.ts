@@ -25,7 +25,8 @@ export function deliveryConversionFilter(): string {
 /**
  * The bundled ffmpeg's arguments for the delivered MP4: frames read from stdin,
  * H.264 High at CRF 17 with no B-frames tagged BT.709, the master padded and
- * encoded as AAC, and no edit list on any track. x264's output bytes depend on
+ * encoded as AAC, no edit list on any track, and nothing naming the toolchain
+ * that made it, which the repo privacy gate fails. x264's output bytes depend on
  * its thread count, so the count is pinned. The muxer warns that it writes no
  * edit list where one would be required; the log level keeps that visible.
  */
@@ -36,7 +37,18 @@ export function muxArguments({ frameFormat, audio, output }: MuxOptions): string
   const audioEncode =
     audio === null
       ? []
-      : ['-af', `adelay=${String(PAD_SAMPLES)}S:all=1`, '-c:a', 'aac', '-b:a', '320k'];
+      : [
+          '-af',
+          `adelay=${String(PAD_SAMPLES)}S:all=1`,
+          '-c:a',
+          'aac',
+          '-b:a',
+          '320k',
+          // Without it the AAC encoder writes its build banner into one frame in every 256;
+          // the bits that frees go to the frames after it, so the encoded sound changes too.
+          '-flags:a',
+          '+bitexact',
+        ];
   return [
     '-hide_banner',
     '-nostats',
@@ -72,7 +84,20 @@ export function muxArguments({ frameFormat, audio, output }: MuxOptions): string
     'colorprim=bt709:transfer=bt709:colormatrix=bt709',
     '-color_range',
     'tv',
+    // Under these settings (no HRD, open GOP or intra refresh) x264's only SEI is its build banner.
+    '-bsf:v',
+    'filter_units=remove_types=6',
+    // ffmpeg refills an empty encoder tag with its own name, and the sample
+    // entry's compressor name is copied from that tag; ISO/IEC 14496-15
+    // recommends this value, the format's name.
+    '-metadata:s:v',
+    'encoder=AVC Coding',
     ...audioEncode,
+    '-map_metadata',
+    '-1',
+    // Keeps the muxer's own name out of the file's metadata.
+    '-fflags',
+    '+bitexact',
     '-use_editlist',
     '0',
     '-avoid_negative_ts',

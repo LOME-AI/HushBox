@@ -138,9 +138,9 @@ jobs:
           VERSION_NAME: ${{ inputs.version-name }}
           VERSION_CODE: ${{ inputs.version-code }}
 
-      # ── output=ipa-artifact ───────────────────────────────
-      - name: Build IPA only
-        if: inputs.output == 'ipa-artifact'
+      # Every output builds the same IPA; publishing it is a separate step, so
+      # the sweep below reads what is about to leave the job.
+      - name: Build IPA
         working-directory: apps/web/ios
         run: bundle exec fastlane build
         env:
@@ -151,6 +151,76 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
 
+      # The IPA, unpacked and read between its build and its first publish: any
+      # production value this job holds, or a credential shape gitleaks reports,
+      # fails the build with nothing uploaded.
+      - name: Sweep the built app for secrets
+        run: pnpm tsx scripts/sweep-shipped-artifacts.ts apps/web/ios/build/HushBox.ipa
+        env:
+          # BEGIN GENERATED: artifact-sweep-env
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          RATE_LIMIT_KEY_SECRET: ${{ secrets.RATE_LIMIT_KEY_SECRET }}
+          IDEMPOTENCY_BODY_HASH_SECRET: ${{ secrets.IDEMPOTENCY_BODY_HASH_SECRET }}
+          OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
+          OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
+          TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
+          TOTP_ENCRYPTION_SECRET_NEXT: ${{ secrets.TOTP_ENCRYPTION_SECRET_NEXT }}
+          ENUMERATION_DECOY_SECRET: ${{ secrets.ENUMERATION_DECOY_SECRET }}
+          IRON_SESSION_SECRET: ${{ secrets.IRON_SESSION_SECRET }}
+          CF_ACCESS_TEAM_DOMAIN: ${{ secrets.CF_ACCESS_TEAM_DOMAIN }}
+          CF_ACCESS_AUD: ${{ secrets.CF_ACCESS_AUD }}
+          ADMIN_ACTOR_ALLOWLIST: ${{ secrets.ADMIN_ACTOR_ALLOWLIST }}
+          ADMIN_ROLE_MAP: ${{ secrets.ADMIN_ROLE_MAP }}
+          GROWTH_READER_DATABASE_URL: ${{ secrets.GROWTH_READER_DATABASE_URL }}
+          ADMIN_SQL_PANEL_DATABASE_URL: ${{ secrets.ADMIN_SQL_PANEL_DATABASE_URL }}
+          CLOUDFLARE_ACCESS_LOG_API_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_LOG_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GROWTH_HASH_SECRET: ${{ secrets.GROWTH_HASH_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_WEBHOOK_SECRET: ${{ secrets.RESEND_WEBHOOK_SECRET }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY_PRODUCTION }}
+          FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
+          FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          NOTIFICATION_TAG_SECRET: ${{ secrets.NOTIFICATION_TAG_SECRET }}
+          HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}
+          LINEAR_API_KEY_READ: ${{ secrets.LINEAR_API_KEY_READ }}
+          HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          BACKUP_B2_S3_ENDPOINT: ${{ secrets.BACKUP_B2_S3_ENDPOINT }}
+          BACKUP_B2_REGION: ${{ secrets.BACKUP_B2_REGION }}
+          BACKUP_B2_AUDITOR_KEY_ID: ${{ secrets.BACKUP_B2_AUDITOR_KEY_ID }}
+          BACKUP_B2_AUDITOR_KEY: ${{ secrets.BACKUP_B2_AUDITOR_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}
+          R2_ADMIN_SECRET_ACCESS_KEY: ${{ secrets.R2_ADMIN_SECRET_ACCESS_KEY }}
+          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          HUSHBOX_SYNC_PRIVATE_KEY: ${{ secrets.HUSHBOX_SYNC_PRIVATE_KEY }}
+          ESCROW_B2_BUCKET: ${{ secrets.ESCROW_B2_BUCKET }}
+          ESCROW_B2_S3_ENDPOINT: ${{ secrets.ESCROW_B2_S3_ENDPOINT }}
+          ESCROW_B2_KEY_ID: ${{ secrets.ESCROW_B2_KEY_ID }}
+          ESCROW_B2_APPLICATION_KEY: ${{ secrets.ESCROW_B2_APPLICATION_KEY }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLAY_STORE_JSON_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ANDROID_CERT_SHA256_FINGERPRINT: ${{ secrets.ANDROID_CERT_SHA256_FINGERPRINT }}
+          # END GENERATED: artifact-sweep-env
+
+      # ── output=ipa-artifact ───────────────────────────────
       - name: Upload IPA as workflow artifact
         if: inputs.output == 'ipa-artifact'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -160,15 +230,12 @@ jobs:
           if-no-files-found: error
 
       # ── output=testflight | app-store-submit ──────────────
-      - name: Build and upload to App Store Connect
+      - name: Upload to App Store Connect
         if: inputs.output == 'testflight' || inputs.output == 'app-store-submit'
         working-directory: apps/web/ios
-        run: bundle exec fastlane release submit_for_review:"$SUBMIT_FOR_REVIEW"
+        run: bundle exec fastlane upload submit_for_review:"$SUBMIT_FOR_REVIEW"
         env:
           SUBMIT_FOR_REVIEW: ${{ inputs.output == 'app-store-submit' }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
-          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}

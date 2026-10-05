@@ -8,6 +8,7 @@ import {
 } from './backup-audit.js';
 import type { BackupVersionScan } from './backup-audit.js';
 import type { BackupRepositoryReader, BackupVersionCursor } from '../../ports/index.js';
+import type { BackupStoreError } from '../../ports/backup-repository.js';
 import type { Telemetry } from '../../../../lib/telemetry/index.js';
 import type { CronEntry } from '../../../../lib/jobs/index.js';
 
@@ -34,13 +35,22 @@ export interface BackupAuditDeps {
   readonly now: () => Date;
 }
 
+function captureUnreadable(deps: BackupAuditDeps, failure: BackupStoreError): void {
+  const error = new Error(failure.code, { cause: failure });
+  if (failure.status !== undefined) {
+    // The status rides as a property because the Sentry scrub stops its cause
+    // walk at the domain error and drops every message; `sentry-scrub.ts` lifts
+    // this key into a tag. A refusal (a key missing a capability answers 403)
+    // and an outage raise the same code and want different repairs.
+    Object.assign(error, { backupStoreStatus: failure.status });
+  }
+  deps.telemetry.captureError(error, FINGERPRINT_CODES.backupAuditUnavailable);
+}
+
 async function auditFreshness(deps: BackupAuditDeps): Promise<void> {
   const newest = await deps.reader.newestSnapshotAt();
   if (newest.isErr()) {
-    deps.telemetry.captureError(
-      new Error(newest.error.code, { cause: newest.error }),
-      FINGERPRINT_CODES.backupAuditUnavailable
-    );
+    captureUnreadable(deps, newest.error);
     return;
   }
   const finding = judgeSnapshotFreshness(newest.value, deps.now());
@@ -65,10 +75,7 @@ async function auditFreshness(deps: BackupAuditDeps): Promise<void> {
 async function auditLifecycle(deps: BackupAuditDeps): Promise<void> {
   const rules = await deps.reader.lifecycleRules();
   if (rules.isErr()) {
-    deps.telemetry.captureError(
-      new Error(rules.error.code, { cause: rules.error }),
-      FINGERPRINT_CODES.backupAuditUnavailable
-    );
+    captureUnreadable(deps, rules.error);
     return;
   }
   const finding = judgeLifecycleRules(rules.value, deps.reader.repositoryPrefix);
@@ -136,10 +143,7 @@ async function auditRetention(deps: BackupAuditDeps): Promise<void> {
   for (let page = 0; page < BACKUP_VERSION_PAGE_LIMIT; page += 1) {
     const listed = await deps.reader.listObjectVersions(cursor);
     if (listed.isErr()) {
-      deps.telemetry.captureError(
-        new Error(listed.error.code, { cause: listed.error }),
-        FINGERPRINT_CODES.backupAuditUnavailable
-      );
+      captureUnreadable(deps, listed.error);
       return;
     }
     scan = scanVersionPage(listed.value.versions, scan);

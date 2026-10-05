@@ -15,7 +15,7 @@ import type {
   NodeStorage,
   ReservedCallParts,
 } from '@hushbox/shared/affordability/estimate/run-ceiling';
-import type { ModelPricing } from '@hushbox/shared/affordability/price/schedule';
+import type { ModelPricing, PriceUse } from '@hushbox/shared/affordability/price/schedule';
 import type { Result } from '../../../../lib/result/index.js';
 import type { DomainError } from '../../../../lib/errors/index.js';
 
@@ -133,21 +133,45 @@ function videoCallUsage(params: Record<string, unknown>): Result<CallUsage, Doma
 
 /**
  * A media call's BILLABLE deterministic price from the billable catalog rates
- * and request parameters, at the rate an estimated charge bills. Exact by
- * construction for image (charged as-is at settlement); for video it is the
- * pathological-missing-cost fallback and the inline-cost sanity bound. A
- * resolution absent from the price fails closed.
+ * and request parameters, at the side `use` reads. A resolution absent from the
+ * price fails closed.
+ */
+function mediaCallBillableNanoUsd(
+  pricing: ModelPricing,
+  use: PriceUse,
+  family: CallShapeFamily | undefined,
+  params: Record<string, unknown>
+): Result<bigint, DomainError> {
+  return mediaCallUsageFor(family, params).andThen((usage) =>
+    usage.kind === 'media'
+      ? fromEstimate(mediaGenerationNanoUsd(pricing, use, usage))
+      : err(validationError('Deterministic media pricing applies only to image/video calls'))
+  );
+}
+
+/**
+ * {@link mediaCallBillableNanoUsd} at the rate an estimated charge bills: for
+ * image and video alike, the pathological-missing-cost fallback.
  */
 export function priceMediaBillableNanoUsd(
   pricing: ModelPricing,
   family: CallShapeFamily | undefined,
   params: Record<string, unknown>
 ): Result<bigint, DomainError> {
-  return mediaCallUsageFor(family, params).andThen((usage) =>
-    usage.kind === 'media'
-      ? fromEstimate(mediaGenerationNanoUsd(pricing, 'estimatedCharge', usage))
-      : err(validationError('Deterministic media pricing applies only to image/video calls'))
-  );
+  return mediaCallBillableNanoUsd(pricing, 'estimatedCharge', family, params);
+}
+
+/**
+ * {@link mediaCallBillableNanoUsd} at the rate the admission hold reserves (the
+ * dearest image row, or the dearest SKU for the call's video resolution): the
+ * price a returned media cost is held against by the inline-cost sanity bound.
+ */
+export function reserveMediaBillableNanoUsd(
+  pricing: ModelPricing,
+  family: CallShapeFamily | undefined,
+  params: Record<string, unknown>
+): Result<bigint, DomainError> {
+  return mediaCallBillableNanoUsd(pricing, 'reserve', family, params);
 }
 
 function isCount(value: number): boolean {
@@ -210,8 +234,9 @@ export function priceUsageBillableNanoUsd(
 /**
  * One call's reserved parts across the run's declared worst case, via the shared
  * core, surfaced on the domain `Result` channel. With `storage` present the
- * node's output storage (token nodes) or media storage (media nodes) is
- * reserved, unmarked; absent, only provider cost is.
+ * call is marked as persisting and a token call's output storage is reserved,
+ * unmarked; a media call reserves none of its own, because its run reserves
+ * media storage once. Absent, only provider cost is reserved.
  */
 export function reservedCallParts(
   pricing: ModelPricing,

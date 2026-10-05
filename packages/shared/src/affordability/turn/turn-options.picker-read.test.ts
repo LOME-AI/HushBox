@@ -37,6 +37,7 @@ const SELECTION: Selection = {
   modality: 'text',
   pinned: {},
   webSearch: false,
+  effortAuto: true,
 };
 
 /** A second row, unpinned, so the smart slot has a candidate to resolve onto. */

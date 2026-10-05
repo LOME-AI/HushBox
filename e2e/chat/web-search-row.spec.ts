@@ -20,7 +20,7 @@ const MOCK_PAGE_COUNT = 3;
 const MOCK_FIRST_TITLE = 'Example Domain';
 const MOCK_QUERY = 'mock web search 1';
 
-const NESTED_LABEL = `${settledReasoningLabel('high')} · Searched ${String(MOCK_PAGE_COUNT)} sources`;
+const NESTED_LABEL = settledReasoningLabel([`Searched ${String(MOCK_PAGE_COUNT)} sources`]);
 const INLINE_LABEL = `Searched the web · ${String(MOCK_PAGE_COUNT)} sources`;
 
 /**
@@ -202,7 +202,7 @@ test.describe('Web search row', SPEC_MATRIX, () => {
         );
         // The reasoning that came before the answer carries no search of its own.
         await expect(message.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveText(
-          settledReasoningLabel('high')
+          settledReasoningLabel()
         );
       }
     });
@@ -223,12 +223,20 @@ test.describe('Web search row', SPEC_MATRIX, () => {
       const inline = aliceChatPage.messagesByRole('assistant').filter({ hasText: inlinePrompt });
       await expect(nested.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveText(NESTED_LABEL);
       await expect(inline.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveText(
-        settledReasoningLabel('high')
+        settledReasoningLabel()
       );
       await expect(answerRows(inline).getByTestId(TEST_IDS.webSearchRowToggle)).toContainText(
         INLINE_LABEL
       );
-      await answerRows(inline).getByTestId(TEST_IDS.webSearchRowToggle).click();
+      // The reload restores the list's scroll position, and a click while it still moves can
+      // land on whatever slides under the pointer. Clicked only while closed, since a click
+      // on an open toggle closes it.
+      await aliceChatPage.waitForScrollStable();
+      const toggle = answerRows(inline).getByTestId(TEST_IDS.webSearchRowToggle);
+      await expect(async () => {
+        if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: TIMEOUTS.QUICK });
+      }).toPass({ timeout: TIMEOUTS.ASSERT });
       await expect(answerRows(inline).getByTestId(TEST_IDS.webSearchSource)).toHaveCount(
         MOCK_PAGE_COUNT
       );

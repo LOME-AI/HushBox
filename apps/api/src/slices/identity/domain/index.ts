@@ -45,6 +45,7 @@ export {
   totpCodeBodySchema,
   verifyLogin2fa,
 } from './two-factor/totp.js';
+export type { TotpGate } from './two-factor/totp.js';
 export {
   changePasswordFinishBodySchema,
   changePasswordInitBodySchema,

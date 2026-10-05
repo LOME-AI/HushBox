@@ -152,12 +152,22 @@ export interface ModelResult {
   errorCode?: string;
 }
 
-export interface StreamResult {
+interface StreamResultBase {
   /** The id the server stores the turn's user message under; null when it named none. */
   userMessageId: string | null;
   models: ModelResult[];
-  outcome: 'succeeded' | 'stopped' | 'replayed';
 }
+
+export type StreamResult =
+  | (StreamResultBase & { outcome: 'succeeded' | 'stopped' })
+  | (StreamResultBase & {
+      outcome: 'replayed';
+      /**
+       * The answer ids the settled run stored, read off the replay body; empty when
+       * the body names none, as a trial run's does, since it stores nothing.
+       */
+      assistantMessageIds: string[];
+    });
 
 export interface StartModelEntry {
   modelId: string;
@@ -203,6 +213,12 @@ export interface ModelMediaStartData {
 }
 
 export interface StreamOptions {
+  /**
+   * The object the turn's Idempotency-Key is minted from: a caller that hands
+   * the same one again re-posts that turn under its key, and one that hands none
+   * starts a new turn. A trial turn takes none: each one posts under a new key.
+   */
+  turn?: object;
   /** The run was accepted — tiles exist; fires once per logical turn. */
   onStart?: (data: StartEventData) => void;
   /**
@@ -296,7 +312,10 @@ function extractErrorBody(data: unknown): { code: string; details?: Record<strin
   return { code: 'INTERNAL' };
 }
 
-type ParsedRunStart = RunStartResponse & { trialSessionId?: string; userMessageId: string | null };
+type ParsedRunStart = (
+  | Exclude<RunStartResponse, { kind: 'replay' }>
+  | { kind: 'replay'; assistantMessageIds: string[] }
+) & { trialSessionId?: string; userMessageId: string | null };
 
 /** What an authenticated turn has announced of its run starts so far. */
 interface AnnouncedStart {
@@ -305,10 +324,27 @@ interface AnnouncedStart {
   userMessageId: string | null;
   /** The tiles as the latest announced response keyed them; local keys until one names ids. */
   models: StartModelEntry[];
+  /** The answer ids a replay of the settled run named. */
+  replayedAssistantMessageIds: string[];
 }
+
+/** The ids a paid run's replay body names; a trial run's names none. */
+const replayedIdsSchema = runStartedResponseSchema.pick({
+  userMessageId: true,
+  assistantMessageIds: true,
+});
 
 function sameTileIds(a: readonly StartModelEntry[], b: readonly StartModelEntry[]): boolean {
   return a.every((entry, index) => entry.assistantMessageId === b[index]?.assistantMessageId);
+}
+
+/** Keeps the ids a replay of the settled run named, which no callback announces. */
+function recordReplay(
+  response: Extract<ParsedRunStart, { kind: 'replay' }>,
+  announced: AnnouncedStart
+): void {
+  announced.userMessageId = response.userMessageId ?? announced.userMessageId;
+  announced.replayedAssistantMessageIds = response.assistantMessageIds;
 }
 
 /**
@@ -323,7 +359,10 @@ function announceRunStart(
   announced: AnnouncedStart,
   options: StreamOptions | undefined
 ): void {
-  if (response.kind === 'replay') return;
+  if (response.kind === 'replay') {
+    recordReplay(response, announced);
+    return;
+  }
   const models = keyTiles(announced.models, response.assistantMessageIds);
   if (!announced.startFired) {
     announced.startFired = true;
@@ -346,7 +385,7 @@ function announceRunStart(
  * Maps an accepted run-start body that is not a fresh run onto the transport
  * outcome union. 200 `{outcome:'attach'}` = same-key run still live (rejoin),
  * parsed with the shared attach schema; any other 200 = replay of the settled
- * run (treat terminal, refetch).
+ * run (treat terminal, refetch), carrying the ids its body names.
  */
 function parseNonStarted(data: unknown): ParsedRunStart {
   if (typeof data === 'object' && data !== null && 'outcome' in data && data.outcome === 'attach') {
@@ -357,7 +396,10 @@ function parseNonStarted(data: unknown): ParsedRunStart {
       assistantMessageIds: body.assistantMessageIds,
     };
   }
-  return { kind: 'replay', userMessageId: null };
+  const replayed = replayedIdsSchema.safeParse(data);
+  return replayed.success
+    ? { kind: 'replay', ...replayed.data }
+    : { kind: 'replay', userMessageId: null, assistantMessageIds: [] };
 }
 
 /**
@@ -560,9 +602,18 @@ function wireCallbacks(
   };
 }
 
-function toStreamResult(result: ChatRunResult, userMessageId: string | null): StreamResult {
+function toStreamResult(
+  result: ChatRunResult,
+  userMessageId: string | null,
+  replayedAssistantMessageIds: string[]
+): StreamResult {
   if (result.outcome === 'replayed') {
-    return { userMessageId, models: [], outcome: 'replayed' };
+    return {
+      userMessageId,
+      models: [],
+      outcome: 'replayed',
+      assistantMessageIds: replayedAssistantMessageIds,
+    };
   }
   if (result.outcome === 'failed' || result.outcome === 'deadline') {
     throw new ChatRunFailedError(
@@ -610,13 +661,13 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
     async (run: {
       conversationId: string;
       tiles: ChatRunTile[];
-      /** Read once the run ends: the id arrives on the run-start response. */
-      userMessageId: () => string | null;
+      /** Read once the run ends: the ids arrive on the run-start or replay response. */
+      announced: AnnouncedStart;
       primaryAssistantId: PrimaryAssistantId;
       postRun: () => Promise<RunStartResponse>;
       options?: StreamOptions | undefined;
     }): Promise<StreamResult> => {
-      const { conversationId, tiles, userMessageId, primaryAssistantId, postRun, options } = run;
+      const { conversationId, tiles, announced, primaryAssistantId, postRun, options } = run;
       const socket = acquireConversationSocket(conversationId);
       const ttsFeeder = await startChatTtsStream({ messageId: primaryAssistantId });
       try {
@@ -627,7 +678,11 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
           callbacks: wireCallbacks(options, primaryAssistantId, ttsFeeder),
           frames,
         });
-        return toStreamResult(result, userMessageId());
+        return toStreamResult(
+          result,
+          announced.userMessageId,
+          announced.replayedAssistantMessageIds
+        );
       } finally {
         ttsFeeder?.end();
         releaseConversationSocket(conversationId);
@@ -640,11 +695,9 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
     async (
       request: AuthenticatedStreamRequest | RegenerateStreamRequest,
       options: StreamOptions | undefined,
+      turn: object,
       post: (key: string) => Promise<Response>
     ): Promise<StreamResult> => {
-      // The turn's Idempotency-Key is minted from this object, never from the
-      // request: a request resent as a new turn must not replay this one.
-      const turn = {};
       const tiles = buildTiles(request.models);
       const conversationId = request.conversationId;
       // Boxed: changes inside the postRun closure across awaits, which
@@ -658,6 +711,7 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
           modelId: tile.modelId,
           assistantMessageId: tile.assistantMessageId,
         })),
+        replayedAssistantMessageIds: [],
       };
       const localRunIds = new Set<string>();
       const markPending = (): void => {
@@ -692,7 +746,7 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
         return await runAuthenticated({
           conversationId,
           tiles,
-          userMessageId: () => announced.userMessageId,
+          announced,
           primaryAssistantId: () => announced.models[0]?.assistantMessageId ?? null,
           postRun,
           options,
@@ -780,7 +834,7 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
           callbacks: wireCallbacks(options, primaryAssistantId, ttsFeeder),
           frames,
         });
-        return toStreamResult(result, null);
+        return toStreamResult(result, null, []);
       } finally {
         ttsFeeder?.end();
         releaseTrialSocket(trialToken);
@@ -803,6 +857,8 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
     [releaseProcessing]
   );
 
+  // A turn's Idempotency-Key is minted from its turn object, never from the
+  // request: a request resent as a new turn must not replay this one.
   const startStream = useCallback(
     (request: StreamRequest, options?: StreamOptions): Promise<StreamResult> => {
       if (mode === 'trial') {
@@ -810,7 +866,7 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
       }
       const authenticated = request as AuthenticatedStreamRequest;
       return track(() =>
-        runTurn(authenticated, options, (key) => {
+        runTurn(authenticated, options, options?.turn ?? {}, (key) => {
           const body = buildTurnBody(authenticated);
           const headers = { 'Idempotency-Key': key };
           return getLinkGuestAuth()
@@ -825,7 +881,7 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
   const startRegenerateStream = useCallback(
     (request: RegenerateStreamRequest, options?: StreamOptions): Promise<StreamResult> => {
       return track(() =>
-        runTurn(request, options, (key) => {
+        runTurn(request, options, options?.turn ?? {}, (key) => {
           if (request.models.length === 0) throw new ChatRequestError('VALIDATION');
           return client.chat.regenerate.$post(
             {

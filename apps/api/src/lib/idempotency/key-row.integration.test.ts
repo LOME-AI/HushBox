@@ -427,7 +427,8 @@ describe('run settlement fence', () => {
     const row = await expectExecutor(claimKeyRow(db, p));
     const flip = await unwrap(succeedRunKeyRow(db, fenceOf(row), { ok: true }));
     expect(flip).toBe('flipped');
-    expect((await readRow(p.scope)).status).toBe('succeeded');
+    const stored = await readRow(p.scope);
+    expect(stored.status).toBe('succeeded');
   });
 
   it('reports lost when another claimant holds the row', async () => {

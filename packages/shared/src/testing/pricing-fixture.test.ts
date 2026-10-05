@@ -11,6 +11,7 @@ describe('tokenPricingFixture', () => {
   it('builds a schedule with no tiers from base rates alone', () => {
     expect(tokenPricingFixture({ input: 5n, output: 15n })).toEqual({
       kind: 'tokens',
+      anchorContextTokens: 1_000_000,
       anchor: { base: { input: 5n, output: 15n }, tiers: [] },
     });
   });
@@ -24,6 +25,22 @@ describe('tokenPricingFixture', () => {
     expect(pricing.anchor.tiers).toEqual([
       { abovePromptTokens: 200_000, rates: { input: 8625n, output: 32_344n } },
     ]);
+  });
+
+  it('defaults the anchor context past a tier beyond the default context', () => {
+    const pricing = tokenPricingFixture({
+      input: 1n,
+      output: 1n,
+      tiers: [{ abovePromptTokens: 2_000_000, input: 2n, output: 2n }],
+    });
+    expect(pricing.anchorContextTokens).toBe(2_000_001);
+  });
+
+  it('takes the anchor context a test names', () => {
+    expect(
+      tokenPricingFixture({ input: 1n, output: 1n, anchorContextTokens: 400_000 })
+        .anchorContextTokens
+    ).toBe(400_000);
   });
 
   it('refuses a schedule the pricing schema refuses', () => {

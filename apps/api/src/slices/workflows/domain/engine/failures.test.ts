@@ -1,15 +1,20 @@
-import { describe, expect, it } from 'vitest';
-import { ERROR_CODES } from '@hushbox/shared';
+import { describe, expect, it, vi } from 'vitest';
+import { ERROR_CODES, nanoUSD } from '@hushbox/shared';
 import { conflictError, notFoundError } from '../../../../lib/errors/index.js';
 import {
   AbsorbedSettlementRefusal,
   AllBranchesFailedError,
+  BilledSettlementRefusal,
   InfrastructureUnavailableError,
   SettlementConflictError,
   absorbedLossEvent,
   costCircuitTripEvent,
   runFailureCode,
+  settleAgainstHold,
+  settlementAboveHoldEvent,
 } from './failures.js';
+import type { Telemetry } from '../../../../lib/telemetry/index.js';
+import type { SettlementCharge } from '@hushbox/shared';
 
 describe('runFailureCode', () => {
   it('maps invalid run inputs to the validation code', () => {
@@ -131,6 +136,123 @@ describe('AbsorbedSettlementRefusal', () => {
     expect(absorbed.domainError).toBe(refusal.domainError);
     expect(absorbed.message).toBe('settlement refused');
     expect(absorbed.name).toBe('AbsorbedSettlementRefusal');
+  });
+});
+
+describe('BilledSettlementRefusal', () => {
+  const posted: SettlementCharge = {
+    key: 'answer',
+    modelId: 'answer-model',
+    providerName: 'p',
+    modality: 'text',
+    billableCostNanoUsd: 100n,
+    isEstimated: false,
+    storageFeeNanoUsd: 0n,
+  };
+
+  it('is the refusal it wraps, so the engine still reports the refusal code', () => {
+    const refusal = new SettlementConflictError(
+      conflictError('refused', undefined, ERROR_CODES.FORK_TIP_CONFLICT),
+      'settlement refused'
+    );
+    const billed = new BilledSettlementRefusal(refusal, [posted]);
+    expect(billed).toBeInstanceOf(SettlementConflictError);
+    expect(billed.domainError).toBe(refusal.domainError);
+    expect(billed.message).toBe('settlement refused');
+    expect(billed.name).toBe('BilledSettlementRefusal');
+  });
+
+  it('carries the charges the refusal commit posted', () => {
+    const refusal = new SettlementConflictError(conflictError('refused'), 'settlement refused');
+    expect(new BilledSettlementRefusal(refusal, [posted]).billed).toEqual([posted]);
+  });
+});
+
+describe('settlementAboveHoldEvent', () => {
+  const RUN_ID = '0b7f2c1e-4a3d-4f6b-9c2e-8d1a5e7f3b90';
+  const event = settlementAboveHoldEvent({
+    runId: RUN_ID,
+    holdNanoUsd: 900n,
+    billedNanoUsd: 1200n,
+    legs: ['tier-crossed', 'input-above-estimate'],
+    billing: 'inline',
+  });
+
+  it('carries the run, both amounts, the sorted legs and the billing as its only own properties beside its name', () => {
+    expect(event).toBeInstanceOf(Error);
+    expect(event.name).toBe('SettlementAboveHold');
+    expect(Reflect.get(event, 'runId')).toBe(RUN_ID);
+    expect(Reflect.get(event, 'holdNanoUsd')).toBe('900');
+    expect(Reflect.get(event, 'billedNanoUsd')).toBe('1200');
+    expect(Reflect.get(event, 'legs')).toBe('input-above-estimate,tier-crossed');
+    expect(Reflect.get(event, 'billing')).toBe('inline');
+    expect(Object.keys(event)).toEqual([
+      'name',
+      'runId',
+      'holdNanoUsd',
+      'billedNanoUsd',
+      'legs',
+      'billing',
+    ]);
+  });
+
+  it('states the run, both amounts and the legs in its message', () => {
+    expect(event.message).toBe(
+      `settlement billed above its hold: run ${RUN_ID} billed 1200 nano-USD against a 900 nano-USD hold (input-above-estimate,tier-crossed)`
+    );
+  });
+});
+
+describe('settleAgainstHold', () => {
+  const posted: SettlementCharge = {
+    key: 'answer',
+    modelId: 'answer-model',
+    providerName: 'p',
+    modality: 'text',
+    billableCostNanoUsd: 150n,
+    isEstimated: false,
+  };
+  const HOLD = { totalNanoUsd: nanoUSD(100n), calls: [] };
+  const SETTLING = { runKey: 'k', outputs: {}, charges: [] };
+
+  function telemetryThatThrows(): Telemetry {
+    return {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      captureError: vi.fn(() => {
+        throw new Error('sink down');
+      }),
+    };
+  }
+
+  it('warns with no run id when a run that minted none fails to capture', async () => {
+    const telemetry = telemetryThatThrows();
+
+    await settleAgainstHold(
+      { telemetry },
+      { hooks: { admission: vi.fn(), settlement: () => Promise.resolve({ billed: [posted] }) } },
+      HOLD,
+      SETTLING
+    );
+
+    expect(telemetry.warn).toHaveBeenCalledWith('settlement above hold capture failed', {});
+  });
+
+  it('rethrows a settlement failure that is not a refusal without capturing', async () => {
+    const telemetry = telemetryThatThrows();
+    const thrown = new Error('db exploded');
+
+    await expect(
+      settleAgainstHold(
+        { telemetry },
+        { hooks: { admission: vi.fn(), settlement: () => Promise.reject(thrown) } },
+        HOLD,
+        SETTLING
+      )
+    ).rejects.toBe(thrown);
+    expect(telemetry.captureError).not.toHaveBeenCalled();
   });
 });
 

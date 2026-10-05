@@ -31,7 +31,7 @@ import type { CostCurve } from '../price/curve.ts';
 import type { TokenPricing } from '../price/schedule.ts';
 import type { ResolvedReasoningEffort } from '../reasoning-effort.ts';
 import type { ToolLoopBound } from '../tool-loop.ts';
-import type { TurnOptions } from '../turn/turn-types.ts';
+import type { ModelEntry, TurnOptions } from '../turn/turn-types.ts';
 import type { Model } from '../../schemas/api/models.ts';
 
 export interface TextTurnBudgetInput {
@@ -107,6 +107,17 @@ export interface TextTurnBudget {
    * means this figure, never `maxOutputTokens`.
    */
   readonly maxAnswerTokens: number | undefined;
+  /**
+   * Present, and only on a Smart-slot turn, when every runnable candidate and
+   * every runnable named sibling reaches its whole answer room,
+   * `min(providerCap, contextHeadroom)`, both at the ceiling the producer grades
+   * it on and at every ceiling it publishes per effort rung: the balance then
+   * cuts no reply the slot can resolve to and no sibling's reply, at any rung
+   * the turn can run. Absent on a turn without the Smart slot, whose pool is
+   * what the balance funds, on a refused turn, and while the producer has not
+   * answered.
+   */
+  readonly answerHeldByRoom?: true;
   /** Input tokens the prompt is estimated to occupy. */
   readonly estimatedInputTokens: number;
   /** Context usage in tokens: input tokens plus the minimum output reserve. */
@@ -136,20 +147,50 @@ function tokenPriceOf(model: Model): TokenPricing | undefined {
   return pricing === undefined ? undefined : tokenPricingOf(pricing);
 }
 
+/** A turn's output-token pool, and whether answer rooms rather than the balance hold every reply in it. */
+interface OutputPool {
+  readonly tokens: number;
+  readonly heldByRoom: boolean;
+}
+
+/**
+ * Whether the balance cuts none of an entry's ceilings: the one the producer
+ * grades it on and each it publishes per effort rung. The producer publishes a
+ * rung's ceiling only where a reply is capped rung by rung, and every cap the
+ * server applies to a Smart-slot candidate is one of these. A ceiling the
+ * balance binds sits below the model's answer room.
+ */
+function atRoomAtEveryRung(entry: ModelEntry): boolean {
+  const room = entry.answerRoomTokens;
+  return (
+    entry.ceilingTokens >= room && entry.rungCeilings.every((rung) => rung.ceilingTokens >= room)
+  );
+}
+
 /**
  * The Smart slot's answer as the turn producer grades it: the largest ceiling
  * among the admissible set's runnable candidates, 0 when the producer refuses
- * the turn, `undefined` while it has not answered.
+ * the turn, `undefined` while it has not answered. The turn is held by room
+ * only when every runnable candidate and every runnable named sibling is at its
+ * room at every ceiling the producer publishes for it.
  */
-function slotCeilingTokens(options: TurnOptions | undefined): number | undefined {
+function slotAnswer(options: TurnOptions | undefined): OutputPool | undefined {
   if (options === undefined) return undefined;
   const set = options.admissible;
-  if (!set.sendable) return 0;
+  if (!set.sendable) return { tokens: 0, heldByRoom: false };
   let largest = 0;
+  let candidatesAtRoom = true;
+  let siblingsAtRoom = true;
   for (const entry of set.runnable) {
-    if (entry.kind === 'candidate' && entry.ceilingTokens > largest) largest = entry.ceilingTokens;
+    const atRoom = atRoomAtEveryRung(entry);
+    if (entry.kind === 'pinned') {
+      siblingsAtRoom &&= atRoom;
+      continue;
+    }
+    candidatesAtRoom &&= atRoom;
+    largest = Math.max(largest, entry.ceilingTokens);
   }
-  return largest;
+  return { tokens: largest, heldByRoom: candidatesAtRoom && siblingsAtRoom };
 }
 
 /**
@@ -182,14 +223,18 @@ function siblingCurves(
 
 /** The answer figures for an output-token pool, both `undefined` while it waits on the producer. */
 function answerFigures(
-  funded: number | undefined,
+  pool: OutputPool | undefined,
   reasoningBudgetTokens: number
-): Pick<TextTurnBudget, 'maxOutputTokens' | 'maxAnswerTokens'> {
-  if (funded === undefined) return { maxOutputTokens: undefined, maxAnswerTokens: undefined };
+): Pick<TextTurnBudget, 'maxOutputTokens' | 'maxAnswerTokens' | 'answerHeldByRoom'> {
+  if (pool === undefined) return { maxOutputTokens: undefined, maxAnswerTokens: undefined };
   // Funding short of the minimum answer funds no answer at all: the send gate
   // refuses that turn, so the preview offers nothing rather than a stub.
-  const maxOutputTokens = funded >= MINIMUM_OUTPUT_TOKENS ? funded : 0;
-  return { maxOutputTokens, maxAnswerTokens: Math.max(0, maxOutputTokens - reasoningBudgetTokens) };
+  const maxOutputTokens = pool.tokens >= MINIMUM_OUTPUT_TOKENS ? pool.tokens : 0;
+  return {
+    maxOutputTokens,
+    maxAnswerTokens: Math.max(0, maxOutputTokens - reasoningBudgetTokens),
+    ...(pool.heldByRoom && { answerHeldByRoom: true }),
+  };
 }
 
 /**
@@ -222,19 +267,24 @@ export function textTurnBudget(input: TextTurnBudgetInput): TextTurnBudget | und
   const hasSmartSlot = prices.length < input.models.length;
   // The Smart slot's answer is the producer's: its candidates are the models the
   // slot can resolve to beside the pinned siblings, which no rule here restates.
-  const funded = hasSmartSlot
-    ? slotCeilingTokens(input.turnOptions)
-    : largestFundedOutput(
-        sumCurves(siblingCurves(input, prices, promptTokens)),
-        effectiveBalanceNanoUsd(input)
-      );
+  const pool = hasSmartSlot
+    ? slotAnswer(input.turnOptions)
+    : {
+        // Named siblings alone: the pool is what the balance funds, so no answer
+        // room holds it.
+        tokens: largestFundedOutput(
+          sumCurves(siblingCurves(input, prices, promptTokens)),
+          effectiveBalanceNanoUsd(input)
+        ),
+        heldByRoom: false,
+      };
   const capacity = computePromptCapacity({
     promptCharacterCount: input.promptChars,
     modelContextLength: Math.min(...input.models.map((model) => model.contextLength)),
   });
 
   return {
-    ...answerFigures(funded, input.reasoningBudgetTokens),
+    ...answerFigures(pool, input.reasoningBudgetTokens),
     estimatedInputTokens: promptTokens,
     currentUsage: capacity.currentUsage,
     capacityPercent: capacity.capacityPercent,

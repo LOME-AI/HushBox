@@ -197,7 +197,7 @@ const accountLockedEmailPort: AccountLockedEmailPort = {
   },
 };
 
-export const sentTwoFactorLocked: { to: string; lockoutMinutes: number }[] = [];
+export const sentTwoFactorLocked: { to: string; lockoutMinutes: number | undefined }[] = [];
 /**
  * When `shouldFail` is set, the two-factor-locked port errs — exercises the
  * best-effort swallow, which must leave the login 2FA response untouched.

@@ -6,7 +6,7 @@ import { TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
 import { OPENROUTER_BASE_URL } from '../../adapters/openrouter-provider.js';
 import { SHOULD_RUN, processEnvContext } from '../../adapters/integration.setup.js';
 import { fetchGatewayCatalog } from './gateway-metadata.js';
-import { RECOGNIZED_SUPPORTED_PARAMETERS } from './normalize.js';
+import { RECOGNIZED_SUPPORTED_PARAMETERS, normalizeCatalog } from './normalize.js';
 import {
   TEST_GATEWAY_BASE_URL,
   catalogFetch,
@@ -21,6 +21,7 @@ import type {
   ImageMetadata,
   LanguageMetadata,
   VideoMetadata,
+  ZdrEndpoint,
 } from './gateway-metadata.js';
 import type { Database } from '@hushbox/db';
 import type { EnvUtilities } from '@hushbox/shared';
@@ -106,6 +107,7 @@ function expectGatewayWireShape(catalog: GatewayCatalog): void {
   // `/endpoints/zdr` `model_id` — membership is the fail-closed exposure gate.
   expect(catalog.zdrModelIds.size).toBeGreaterThan(0);
 
+  expectZdrWireShape([...catalog.zdrEndpoints.values()].flat());
   expectLanguageWireShape(language);
   expectImageWireShape(images);
   expectVideoWireShape(videos);
@@ -139,13 +141,8 @@ function expectLanguageWireShape(language: readonly LanguageMetadata[]): void {
       (model) => model.maxCompletionTokens !== undefined && model.maxCompletionTokens > 0
     )
   ).toBe(true);
-  // `context_length` — the window, and the price-floor exemption's own input.
+  // `context_length` — the window, one bound of the sold context the exemption reads.
   expect(language.some((model) => model.contextLength !== undefined)).toBe(true);
-
-  // `pricing.*` — the rates every language charge is priced from.
-  expect(language.some((model) => model.pricing?.prompt !== undefined)).toBe(true);
-  expect(language.some((model) => model.pricing?.completion !== undefined)).toBe(true);
-  expect(language.some((model) => model.pricing?.cacheRead !== undefined)).toBe(true);
 
   // `reasoning` and each sub-key effort control derives from positionally.
   expect(language.some((model) => model.reasoning !== undefined)).toBe(true);
@@ -159,6 +156,71 @@ function expectLanguageWireShape(language: readonly LanguageMetadata[]): void {
   expect(language.some((model) => model.description !== undefined)).toBe(true);
 }
 
+/**
+ * `/endpoints/zdr`, every field a text model's anchor schedule is read from.
+ * EMPTIES THE TEXT CATALOG: a renamed `pricing` reads every endpoint as
+ * unreadable, and a renamed `supported_parameters` makes every endpoint
+ * unreachable.
+ */
+function expectZdrWireShape(endpoints: readonly ZdrEndpoint[]): void {
+  const priced = endpoints.flatMap((endpoint) =>
+    endpoint.pricing === 'unreadable' ? [] : [endpoint.pricing]
+  );
+  expect(priced.some((pricing) => typeof pricing['prompt'] === 'string')).toBe(true);
+  expect(priced.some((pricing) => typeof pricing['completion'] === 'string')).toBe(true);
+  // `pricing.overrides[].min_prompt_tokens` — the long-context tiers.
+  expect(
+    endpoints.some((endpoint) =>
+      endpoint.overrides.some((entry) => typeof entry['min_prompt_tokens'] === 'number')
+    )
+  ).toBe(true);
+  // `tag` — its variant names the service tier no request of ours reaches.
+  expect(endpoints.some((endpoint) => endpoint.tag.includes('/'))).toBe(true);
+  expect(endpoints.some((endpoint) => endpoint.providerName.length > 0)).toBe(true);
+  expect(endpoints.some((endpoint) => typeof endpoint.maxCompletionTokens === 'number')).toBe(true);
+  expect(endpoints.some((endpoint) => typeof endpoint.contextLength === 'number')).toBe(true);
+  expect(
+    endpoints.some(
+      (endpoint) =>
+        endpoint.supportedParameters !== 'unreadable' &&
+        endpoint.supportedParameters.includes('max_tokens')
+    )
+  ).toBe(true);
+  expect(endpoints.some((endpoint) => endpoint.implicitCaching)).toBe(true);
+}
+
+/**
+ * The descriptor invariants over every text model the listing normalizes:
+ * tiers strictly ascending, no rate falling as tiers rise (the first tier at
+ * least the base), and every rate a positive nano-USD count.
+ */
+function expectTextScheduleInvariants(catalog: GatewayCatalog, nowMs: number): void {
+  const schedules = normalizeCatalog(catalog.models, catalog.zdrEndpoints, nowMs).flatMap(
+    (entry) =>
+      entry.kind === 'normalized' && entry.content.pricing.kind === 'tokens'
+        ? [entry.content.pricing.anchor]
+        : []
+  );
+  expect(schedules.length).toBeGreaterThan(0);
+  const broken = schedules.filter((schedule) => {
+    const levels = [schedule.base, ...schedule.tiers.map((tier) => tier.rates)];
+    const ascending = schedule.tiers.every(
+      (tier, index) =>
+        index === 0 || tier.abovePromptTokens > (schedule.tiers[index - 1]?.abovePromptTokens ?? 0)
+    );
+    const monotone = levels.every((rates, index) => {
+      const below = levels[index - 1];
+      return (
+        below === undefined ||
+        (BigInt(rates.input) >= BigInt(below.input) && BigInt(rates.output) >= BigInt(below.output))
+      );
+    });
+    const positive = levels.every((rates) => BigInt(rates.input) > 0n && BigInt(rates.output) > 0n);
+    return !(ascending && monotone && positive);
+  });
+  expect(broken).toEqual([]);
+}
+
 /** `/images/models`, plus the N+1 endpoint detail behind each entry. */
 function expectImageWireShape(images: readonly ImageMetadata[]): void {
   // `supported_parameters` — both typed shapes the parser reads, an enum's
@@ -170,9 +232,14 @@ function expectImageWireShape(images: readonly ImageMetadata[]): void {
   // The endpoint detail's `endpoints[].pricing`, and the row's `billable`.
   // EMPTIES THE IMAGE CATALOG: without either, every image model normalizes to
   // the `missing-pricing` exclusion.
-  expect(images.some((model) => model.endpointPricing.length > 0)).toBe(true);
+  const rows = images.flatMap((model) => model.endpoints.flatMap((endpoint) => endpoint.pricing));
+  expect(rows.length).toBeGreaterThan(0);
+  expect(rows.some((row) => row.billable === 'output_image')).toBe(true);
+  // The endpoint detail's `endpoints[].provider_tag`, the slug a call's pin names.
+  // EMPTIES THE IMAGE CATALOG: without it no image endpoint can be pinned, so
+  // every image model normalizes to the `non-zdr` exclusion.
   expect(
-    images.some((model) => model.endpointPricing.some((row) => row.billable === 'output_image'))
+    images.some((model) => model.endpoints.some((endpoint) => endpoint.providerTag !== null))
   ).toBe(true);
 
   expect(images.some((model) => model.releasedAt !== undefined && model.releasedAt > 0)).toBe(true);
@@ -184,6 +251,18 @@ function expectImageWireShape(images: readonly ImageMetadata[]): void {
   ).toBe(true);
   expect(images.some((model) => model.name !== undefined)).toBe(true);
   expect(images.some((model) => model.description !== undefined)).toBe(true);
+}
+
+/**
+ * At least one image model the listing exposes carries a pin: its ZDR rows'
+ * `tag` and its endpoints' `provider_tag` join. Without one, no image call can
+ * be pinned and the image catalog is empty.
+ */
+function expectImagePinned(catalog: GatewayCatalog, nowMs: number): void {
+  const pins = normalizeCatalog(catalog.models, catalog.zdrEndpoints, nowMs).flatMap((entry) =>
+    entry.kind === 'normalized' && entry.content.zdrPin !== undefined ? [entry.content.zdrPin] : []
+  );
+  expect(pins.some((pin) => pin.length > 0)).toBe(true);
 }
 
 /** `/videos/models`. */
@@ -229,6 +308,8 @@ describe.skipIf(!SHOULD_RUN)('fetchGatewayCatalog live integration', () => {
       });
       expect(result.isOk()).toBe(true);
       expectGatewayWireShape(result._unsafeUnwrap());
+      expectTextScheduleInvariants(result._unsafeUnwrap(), secondsAt(TEST_DAY_START) * 1000);
+      expectImagePinned(result._unsafeUnwrap(), secondsAt(TEST_DAY_START) * 1000);
 
       // Last, only after every assertion passed: the real fetch succeeded.
       await recordServiceEvidence(db, envUtilities.isCI, SERVICE_NAMES.OPENROUTER_CATALOG);
@@ -237,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)('fetchGatewayCatalog live integration', () => {
   );
 });
 
-/** Language pricing carrying all three rates the normalizer reads. */
+/** A ZDR endpoint's listed rates, as decimal USD strings. */
 const LANGUAGE_PRICING = {
   prompt: '0.0000025',
   completion: '0.00001',
@@ -263,10 +344,27 @@ const IMAGE_PARAMETERS = {
 function languageEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return modelEntryFixture({
     supported_parameters: [...RECOGNIZED_SUPPORTED_PARAMETERS],
-    pricing: LANGUAGE_PRICING,
     reasoning: LANGUAGE_REASONING,
     ...overrides,
   });
+}
+
+/** A ZDR row carrying every pinned `/endpoints/zdr` key; overrides drift one away. */
+function zdrRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    model_id: 'openai/gpt-test',
+    provider_name: 'Azure',
+    tag: 'azure/us',
+    pricing: {
+      ...LANGUAGE_PRICING,
+      overrides: [{ min_prompt_tokens: 272_000, prompt: '0.000005', completion: '0.00002' }],
+    },
+    max_completion_tokens: 16_384,
+    context_length: 128_000,
+    supported_parameters: [...RECOGNIZED_SUPPORTED_PARAMETERS],
+    supports_implicit_caching: true,
+    ...overrides,
+  };
 }
 
 /** An entry carrying every pinned `/images/models` key. */
@@ -297,8 +395,13 @@ function undriftedFixture(): CatalogFixture {
     models: [languageEntry()],
     images: [imageEntry()],
     videos: [videoEntry()],
-    zdrModelIds: ['openai/gpt-test'],
+    // The image entry's ZDR row, tagged as its endpoint detail tags its endpoint.
+    zdrRows: [zdrRow(), zdrRow({ model_id: 'google/test-image', tag: 'test-provider' })],
   };
+}
+
+function withZdrRow(row: Record<string, unknown>): CatalogFixture {
+  return { ...undriftedFixture(), zdrRows: [row] };
 }
 
 function withLanguage(entry: Record<string, unknown>): CatalogFixture {
@@ -373,28 +476,50 @@ const DRIFT_CASES: readonly DriftCase[] = [
     fixture: withLanguage(languageEntry({ context_length: undefined, context_window: 128_000 })),
   },
   {
-    wireKey: 'pricing.prompt',
-    fixture: withLanguage(
-      languageEntry({
-        pricing: { ...LANGUAGE_PRICING, prompt: undefined, prompt_cost: '0.0000025' },
-      })
+    wireKey: 'the ZDR pricing',
+    fixture: withZdrRow(zdrRow({ pricing: undefined, prices: LANGUAGE_PRICING })),
+  },
+  {
+    wireKey: 'the ZDR pricing.prompt',
+    fixture: withZdrRow(
+      zdrRow({ pricing: { ...LANGUAGE_PRICING, prompt: undefined, prompt_cost: '0.0000025' } })
     ),
   },
   {
-    wireKey: 'pricing.completion',
-    fixture: withLanguage(
-      languageEntry({
+    wireKey: 'the ZDR pricing.completion',
+    fixture: withZdrRow(
+      zdrRow({
         pricing: { ...LANGUAGE_PRICING, completion: undefined, completion_cost: '0.00001' },
       })
     ),
   },
   {
-    wireKey: 'pricing.input_cache_read',
-    fixture: withLanguage(
-      languageEntry({
-        pricing: { ...LANGUAGE_PRICING, input_cache_read: undefined, cache_read: '0.0000003' },
-      })
-    ),
+    wireKey: 'the ZDR pricing.overrides',
+    fixture: withZdrRow(zdrRow({ pricing: LANGUAGE_PRICING })),
+  },
+  {
+    wireKey: 'the ZDR tag',
+    fixture: withZdrRow(zdrRow({ tag: undefined, slug: 'azure/us' })),
+  },
+  {
+    wireKey: 'the ZDR provider_name',
+    fixture: withZdrRow(zdrRow({ provider_name: undefined, provider: 'Azure' })),
+  },
+  {
+    wireKey: 'the ZDR max_completion_tokens',
+    fixture: withZdrRow(zdrRow({ max_completion_tokens: undefined, max_output: 16_384 })),
+  },
+  {
+    wireKey: 'the ZDR context_length',
+    fixture: withZdrRow(zdrRow({ context_length: undefined, context_window: 128_000 })),
+  },
+  {
+    wireKey: 'the ZDR supported_parameters',
+    fixture: withZdrRow(zdrRow({ supported_parameters: undefined, parameters: ['max_tokens'] })),
+  },
+  {
+    wireKey: 'the ZDR supports_implicit_caching',
+    fixture: withZdrRow(zdrRow({ supports_implicit_caching: undefined, implicit_caching: true })),
   },
   {
     wireKey: 'reasoning',
@@ -477,6 +602,21 @@ const DRIFT_CASES: readonly DriftCase[] = [
   {
     wireKey: 'the image endpoint pricing row billable',
     fixture: withImagePricing([{ role: 'output_image', unit: 'image', cost_usd: 0.04 }]),
+  },
+  {
+    wireKey: 'the image endpoint provider_tag',
+    fixture: {
+      ...undriftedFixture(),
+      imageEndpoints: () => ({
+        id: 'google/test-image',
+        endpoints: [
+          {
+            provider_slug: 'test-provider',
+            pricing: [{ billable: 'output_image', unit: 'image', cost_usd: 0.04 }],
+          },
+        ],
+      }),
+    },
   },
   {
     wireKey: 'the image endpoint detail pricing rows',
@@ -571,6 +711,24 @@ describe('the live gateway wire-shape assertions', () => {
     const catalog = await catalogOf(fixture);
     expect(() => {
       expectGatewayWireShape(catalog);
+    }).toThrow();
+  });
+});
+
+describe('the live image pin assertion', () => {
+  const NOW_MS = secondsAt(TEST_DAY_START) * 1000;
+
+  it('passes a listing whose ZDR row tags an image endpoint', async () => {
+    expectImagePinned(await catalogOf(undriftedFixture()), NOW_MS);
+  });
+
+  it('fails a listing whose ZDR rows tag no image endpoint', async () => {
+    const untagged = await catalogOf({
+      ...undriftedFixture(),
+      zdrRows: [zdrRow(), zdrRow({ model_id: 'google/test-image', tag: 'elsewhere' })],
+    });
+    expect(() => {
+      expectImagePinned(untagged, NOW_MS);
     }).toThrow();
   });
 });

@@ -91,7 +91,7 @@ function entryWith(harness: StoresHarness): ReturnType<typeof createPublicStatsS
 function descriptorFixture(overrides: Partial<ModelDescriptor> & { id: string }): ModelDescriptor {
   return {
     provider: overrides.id.split('/')[0] ?? 'prov',
-    version: '3',
+    version: '4',
     inputs: ['text'],
     outputs: ['text'],
     parameters: {},

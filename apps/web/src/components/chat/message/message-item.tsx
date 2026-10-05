@@ -6,9 +6,14 @@ import { ChatColumn } from '@/components/chat/layout/chat-column';
 import { MessageBody } from '@/components/chat/message/message-body';
 import { useWrittenUnderInvalidKeys } from '@/components/chat/message/bad-epochs-context';
 import { InvalidKeysNotice } from '@/components/chat/message/invalid-keys-notice';
-import { AIMessageBlock } from '@/components/chat/message/ai-message-block';
+import {
+  AIMessageBlock,
+  type ComparePresentation,
+  type SlotRegenerate,
+} from '@/components/chat/message/ai-message-block';
 import { MessageControls } from '@/components/chat/message/message-controls';
-import { MessageCost } from '@/components/chat/message/message-cost';
+import { ReplyFooter } from '@/components/chat/message/reply-footer';
+import { isStoredRow } from '@/lib/chat/stored-row';
 import {
   computeBubbleVariant,
   computeContainerClasses,
@@ -67,6 +72,8 @@ interface MessageItemProps {
    * virtualised item that re-renders on every streaming token.
    */
   models?: ModelsData | undefined;
+  /** Set when a surface holding the reply, not the thread's column, sets its frame. */
+  compare?: ComparePresentation | undefined;
 }
 
 /**
@@ -168,27 +175,107 @@ function bubbleWidth(isUser: boolean): { className?: string } {
   return isUser ? { className: 'min-w-0 max-w-full' } : {};
 }
 
-/**
- * Where a message's controls sit: under a user message's bubble, or in a reply's
- * footer row after its cost. The row keeps its height while the reply streams, so
- * the controls arrive without moving the thread.
- */
+/** Where a message's controls sit: under a user message's bubble, or in a reply's footer. */
 function ControlsPlacement({
   isUser,
-  cost,
+  message,
+  isStreaming,
+  inCompare,
+  leading,
   children,
 }: Readonly<{
   isUser: boolean;
-  cost: Message['cost'];
+  message: Message;
+  isStreaming: boolean;
+  inCompare: boolean;
+  leading: React.ReactNode;
   children: React.ReactNode;
 }>): React.JSX.Element {
   if (isUser) return <>{children}</>;
   return (
-    <div className="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-1 pointer-coarse:min-h-11">
-      {cost && <MessageCost cost={cost} />}
-      {children}
-    </div>
+    <ReplyFooter
+      message={message}
+      saved={isStoredRow(message)}
+      streaming={isStreaming}
+      costOnly={inCompare}
+      leading={leading}
+      controls={children}
+    />
   );
+}
+
+/**
+ * Where a message re-runs from: its control row, or, for a failed model's reply, its
+ * slot, which stands in for that row and offers Regenerate when the row would have.
+ */
+function rerunPlacement(
+  input: Readonly<{
+    message: Message;
+    isUser: boolean;
+    offersActions: boolean;
+    allowedActions: ReadonlySet<MessageAction>;
+    onRegenerate: ((messageId: string) => void) | undefined;
+    regenerateRefusal: NoticeReason | undefined;
+  }>
+): { showsControls: boolean; slot: SlotRegenerate } {
+  const { message, onRegenerate } = input;
+  if (input.isUser || message.errorCode === undefined) {
+    return { showsControls: input.offersActions, slot: {} };
+  }
+  const offersRegenerate = input.offersActions && input.allowedActions.has('regenerate');
+  if (!offersRegenerate || onRegenerate === undefined) return { showsControls: false, slot: {} };
+  return {
+    showsControls: false,
+    slot: {
+      onRegenerate: (): void => {
+        onRegenerate(message.id);
+      },
+      regenerateRefusal: input.regenerateRefusal,
+    },
+  };
+}
+
+/** The control the holding surface starts the reply's control row with, if it gives one. */
+function leadingControlOf(compare: ComparePresentation | undefined): React.ReactNode {
+  return compare?.leadingControl;
+}
+
+/** The classes a message's item, its stack and its body add to their own. */
+interface RowLayout {
+  item?: string;
+  stack?: string;
+  body: { className?: string };
+}
+
+/**
+ * A reply on a holding surface stretches down the space the surface gives it, its body taking
+ * the slack so its footer sits at that space's end. It drops the bottom space a reply leaves
+ * below its turn in the thread, so any space below it is the surface's own.
+ */
+const COLUMN_LAYOUT: RowLayout = {
+  item: 'flex flex-1 flex-col pb-0',
+  stack: 'flex-1',
+  body: { className: 'flex-1' },
+};
+
+function rowLayout(compare: ComparePresentation | undefined, isUser: boolean): RowLayout {
+  return compare === undefined ? { body: bubbleWidth(isUser) } : COLUMN_LAYOUT;
+}
+
+/**
+ * Where the row sits: in the chat column, or, on a holding surface, at the side padding the
+ * surface gives it, since the surface sets its own gutters. There the row fills the space
+ * the surface gives it, so the footers of side-by-side replies share one line.
+ */
+function RowFrame({
+  compare,
+  children,
+}: Readonly<{
+  compare: ComparePresentation | undefined;
+  children: React.ReactNode;
+}>): React.JSX.Element {
+  if (compare === undefined) return <ChatColumn>{children}</ChatColumn>;
+  return <div className={cn(compare.sidePadding, 'flex flex-1 flex-col')}>{children}</div>;
 }
 
 function MessageItemInner({
@@ -208,6 +295,7 @@ function MessageItemInner({
   links,
   regenerateRefusal,
   models,
+  compare,
 }: Readonly<MessageItemProps>): React.JSX.Element {
   const {
     isGroupedUser,
@@ -259,11 +347,21 @@ function MessageItemInner({
       .map((m) => (m.role === 'assistant' ? assistantAnswerText(m.content) : m.content))
       .join('\n\n');
 
+  const { showsControls, slot } = rerunPlacement({
+    message: primaryMessage,
+    isUser,
+    offersActions: offersMessageActions(deleted, anyInvalidKeys),
+    allowedActions,
+    onRegenerate,
+    regenerateRefusal,
+  });
+
   const containerClasses = computeContainerClasses(isUser, isGroupedUser, ownMessage);
+  const layout = rowLayout(compare, isUser);
   const bubbleVariant = computeBubbleVariant(isUser, isGroupedUser, ownMessage);
 
   return (
-    <ChatColumn>
+    <RowFrame compare={compare}>
       {senderLabel && (
         <p
           data-testid={TEST_IDS.senderLabel}
@@ -277,9 +375,9 @@ function MessageItemInner({
         data-role={effectiveRole}
         data-message-id={primaryMessage.id}
         {...(isError ? { 'data-error': 'true' } : {})}
-        className={containerClasses}
+        className={cn(containerClasses, layout.item)}
       >
-        <div className={stackClasses(isUser, ownMessage)}>
+        <div className={cn(stackClasses(isUser, ownMessage), layout.stack)}>
           <MessageBody
             variant={bubbleVariant}
             media={media}
@@ -287,7 +385,7 @@ function MessageItemInner({
             ariaPrefix="Generated"
             deleted={deleted}
             invalidKeys={invalidKeys}
-            {...bubbleWidth(isUser)}
+            {...layout.body}
           >
             {isUser ? (
               <UserMessageContent
@@ -302,12 +400,20 @@ function MessageItemInner({
                 isStreaming={isStreaming}
                 modelName={modelName}
                 models={models}
+                compare={compare}
+                {...slot}
               />
             )}
           </MessageBody>
 
-          {offersMessageActions(deleted, anyInvalidKeys) && (
-            <ControlsPlacement isUser={isUser} cost={primaryMessage.cost}>
+          {showsControls && (
+            <ControlsPlacement
+              isUser={isUser}
+              message={primaryMessage}
+              isStreaming={isStreaming === true}
+              inCompare={compare !== undefined}
+              leading={leadingControlOf(compare)}
+            >
               <MessageControls
                 message={primaryMessage}
                 allowed={allowedActions}
@@ -318,7 +424,7 @@ function MessageItemInner({
           )}
         </div>
       </div>
-    </ChatColumn>
+    </RowFrame>
   );
 }
 

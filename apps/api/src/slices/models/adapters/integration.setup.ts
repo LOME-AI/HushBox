@@ -3,35 +3,56 @@ import { LOCAL_NEON_DEV_CONFIG, createDb } from '@hushbox/db';
 import { evidenceDatabaseUrl } from '@hushbox/db/test-db';
 import {
   CLASSIFICATION_VARIABLES,
+  DECIMAL_USD_PATTERN,
+  ModelDescriptor,
+  callShapeFamilyFor,
+  combinedRateNanoUsd,
   createEnvUtilities,
+  isExposedModel,
   planReasoning,
   planReasoningOff,
+  priceableModelFrom,
+  promptUtf8Bytes,
   reasoningPlanModelFrom,
+  sentTextsOf,
   utcDayKey,
 } from '@hushbox/shared';
-import {
-  perImagePricingFixture,
-  perSecondPricingFixture,
-  tokenPricingFixture,
-} from '@hushbox/shared/pricing-fixture';
+import { perSecondPricingFixture, tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
 import { requireEnv } from '@hushbox/shared/require-env';
 import { OLD_RELEASE_SECONDS, TEST_DAY_START } from '@hushbox/shared/test-instants';
-import { resolveModelProvider } from './resolve-model-provider.js';
+import { CASSETTE_ROOT, resolveModelProvider } from './resolve-model-provider.js';
+import { OPENROUTER_BASE_URL } from './openrouter-provider.js';
+import { callMaxPrice, maxPriceReachesAnchor } from '../domain/pricing/call-routing.js';
+import { priceMediaBillableNanoUsd } from '../domain/pricing/estimate.js';
+import { fetchGatewayCatalog } from '../domain/catalog/gateway-metadata.js';
+import { normalizeCatalog } from '../domain/catalog/normalize.js';
+import { ENDPOINT_BUCKETS, endpointBucketCounts } from '../domain/catalog/price-schedule.js';
+import {
+  TEST_GATEWAY_BASE_URL,
+  catalogFetch,
+  imageModelFixture,
+  modelEntryFixture,
+} from '../domain/catalog/gateway-fixtures.js';
 import {
   beginCassetteScope,
   cassetteScopeIsOpen,
+  createCassetteFetch,
   endCassetteScope,
 } from './cassette/recording-fetch.js';
+import { createCassetteStore } from './cassette/cassette-store.js';
+import { cassetteModeFor } from './cassette/mode.js';
 import type { Database } from '@hushbox/db';
 import type {
   EnvContext,
   FilePartMapper,
   InferenceEvent,
   InferenceRequest,
+  MaxPrice,
   MediaValue,
-  ModelDescriptor,
   ProviderMetadata,
 } from '@hushbox/shared';
+import type { GatewayCatalog, ZdrEndpoint } from '../domain/catalog/gateway-metadata.js';
+import type { EndpointBucket } from '../domain/catalog/price-schedule.js';
 import type { ModelProvider } from '../ports/index.js';
 
 /**
@@ -118,19 +139,19 @@ export function deriveIntegrationEnv(env: EnvContext): IntegrationEnv {
 export const SHOULD_RUN = deriveCiVitestGate(processEnvContext());
 
 /**
- * The model called per modality. Each MUST be ZDR-reachable at record time:
- * every real call carries OpenRouter's `provider.zdr:true`, which fails closed
- * on a non-ZDR model — so a wrong id fails loudly on the record run, the right
- * place to catch it. (The adapters' own descriptor ZDR guard never fires here —
- * `descriptorFor` hardcodes `zdrReachable: true`, so the operative fail-closed
- * is the per-request `provider.zdr` flag, not the descriptor check.) Hardcoded
- * (not picked from the drifting live catalog) so each inference request hashes
- * stably and its cassette replays deterministically; this is the single place
- * to adjust.
+ * The models the language and video adapter suites call. Each MUST be ZDR-reachable
+ * at record time: a real language call carries OpenRouter's `provider.zdr:true`,
+ * which fails closed on a non-ZDR model, so a wrong id fails loudly on the
+ * record run, the right place to catch it. A video call carries no field the
+ * Videos API enforces. (The adapters' own descriptor ZDR guard never fires here
+ * — `descriptorFor` hardcodes `zdrReachable: true`, so the operative fail-closed
+ * is the request's routing, not the descriptor check.) Hardcoded (not picked
+ * from the drifting live catalog) so each inference request hashes stably and
+ * its cassette replays deterministically; this is the single place to adjust.
+ * The image suite derives its model instead, through {@link ROUTING_SUBJECTS}.
  */
 const REAL_MODEL_IDS = {
   language: 'openai/gpt-4o',
-  image: 'google/imagen-4.0-generate-001',
   video: 'google/veo-3.1-generate-001',
 } as const;
 
@@ -168,7 +189,13 @@ function setupRealProvider(): RealProviderSetup {
   // The provider's evidence row has to outlive this worker's database —
   // `verify:evidence` reads the stack's own in a later process.
   const db = createDb(evidenceDatabaseUrl(process.env), { neonDev: LOCAL_NEON_DEV_CONFIG });
-  const provider = resolveModelProvider({ useMock: false, apiKey, isCI, db });
+  const provider = resolveModelProvider({
+    useMock: false,
+    apiKey,
+    isCI,
+    db,
+    maxPriceReachesAnchor,
+  });
   return { provider, db };
 }
 
@@ -226,7 +253,13 @@ export function setupIntegrationProvider(
   if (useMock) {
     return {
       provider: refusingOutsideScope(
-        resolveModelProvider({ useMock: true, apiKey: '', isCI, db: undefined })
+        resolveModelProvider({
+          useMock: true,
+          apiKey: '',
+          isCI,
+          db: undefined,
+          maxPriceReachesAnchor,
+        })
       ),
       teardown: () => Promise.resolve(),
     };
@@ -288,13 +321,44 @@ export function useIntegrationProvider(): () => ModelProvider {
   };
 }
 
-/** A nominal price of the kind each output modality is charged by; no adapter reads it. */
-function pricingFor(outputs: ModelDescriptor['outputs']): ModelDescriptor['pricing'] {
-  if (outputs.includes('image')) return perImagePricingFixture({ anchor: 1n, dearest: 1n });
+/**
+ * Each language model's price at its dearest standard-tier endpoint, as the
+ * public ZDR listing priced it on 2026-10-04, baked billable. That is at or
+ * above the model's anchor, its cheapest eligible ZDR endpoint. A real call
+ * routes under the `max_price` derived from it (these rates × 5/4, rounded up,
+ * un-baked), which admits every standard-tier endpoint; the gateway refuses the
+ * call for price on the record run only when no listed endpoint is priced
+ * within that `max_price`.
+ */
+const LANGUAGE_PRICING: Readonly<Record<string, ModelDescriptor['pricing']>> = {
+  [REAL_MODEL_IDS.language]: tokenPricingFixture({
+    input: 2875n,
+    output: 11_500n,
+    anchorContextTokens: 128_000,
+  }),
+  [REASONING_MODEL_IDS.effortNative]: tokenPricingFixture({
+    input: 87n,
+    output: 345n,
+    anchorContextTokens: 131_072,
+  }),
+  [REASONING_MODEL_IDS.budgetNative]: tokenPricingFixture({
+    input: 345n,
+    output: 2875n,
+    anchorContextTokens: 1_048_576,
+  }),
+};
+
+/**
+ * The price of the kind each output modality is charged by: a nominal one for
+ * video, which no adapter reads, and a language model's listed price.
+ */
+function pricingFor(id: string, outputs: ModelDescriptor['outputs']): ModelDescriptor['pricing'] {
   if (outputs.includes('video')) {
     return perSecondPricingFixture({ anchor: { '720p': 1n }, dearest: { '720p': 1n } });
   }
-  return tokenPricingFixture({ input: 1n, output: 1n });
+  const pricing = LANGUAGE_PRICING[id];
+  if (pricing === undefined) throw new Error(`no listed price for language model ${id}`);
+  return pricing;
 }
 
 /** A minimal single-modality descriptor mirroring the adapter unit tests' shape. */
@@ -307,13 +371,13 @@ function descriptorFor(
   return {
     id,
     provider,
-    version: '3',
+    version: '4',
     inputs: ['text'],
     outputs,
     parameters: {},
     behaviors,
     limits: {},
-    pricing: pricingFor(outputs),
+    pricing: pricingFor(id, outputs),
     zdrReachable: true,
     releasedAt: OLD_RELEASE_SECONDS,
     fetchedAt: 0,
@@ -322,10 +386,6 @@ function descriptorFor(
 
 export function languageDescriptor(): ModelDescriptor {
   return descriptorFor(REAL_MODEL_IDS.language, ['text'], ['streaming']);
-}
-
-export function imageDescriptor(): ModelDescriptor {
-  return descriptorFor(REAL_MODEL_IDS.image, ['image'], []);
 }
 
 export function videoDescriptor(): ModelDescriptor {
@@ -416,24 +476,36 @@ const REASONING_PROMPT = 'What is 17 + 25? Reply with just the number.';
  */
 const FIXTURE_UTC_DAY = utcDayKey(new Date(TEST_DAY_START));
 
+/** A language request's price reservation: the call's `max_price` at the UTF-8 bytes of every text it sends. */
+function routedLanguage(request: InferenceRequest, descriptor: ModelDescriptor): InferenceRequest {
+  const bound = promptUtf8Bytes(sentTextsOf(request));
+  return { ...request, routing: { maxPrice: callMaxPrice(descriptor.pricing, bound) } };
+}
+
 export function reasoningEffortRequest(): InferenceRequest {
-  return {
-    model: REASONING_MODEL_IDS.effortNative,
-    inputs: [{ modality: 'text', text: REASONING_PROMPT }],
-    parameters: reasoningParameters(reasoningEffortDescriptor()),
-    outputs: ['text'],
-    utcDay: FIXTURE_UTC_DAY,
-  };
+  return routedLanguage(
+    {
+      model: REASONING_MODEL_IDS.effortNative,
+      inputs: [{ modality: 'text', text: REASONING_PROMPT }],
+      parameters: reasoningParameters(reasoningEffortDescriptor()),
+      outputs: ['text'],
+      utcDay: FIXTURE_UTC_DAY,
+    },
+    reasoningEffortDescriptor()
+  );
 }
 
 export function reasoningBudgetRequest(): InferenceRequest {
-  return {
-    model: REASONING_MODEL_IDS.budgetNative,
-    inputs: [{ modality: 'text', text: REASONING_PROMPT }],
-    parameters: reasoningParameters(reasoningBudgetDescriptor()),
-    outputs: ['text'],
-    utcDay: FIXTURE_UTC_DAY,
-  };
+  return routedLanguage(
+    {
+      model: REASONING_MODEL_IDS.budgetNative,
+      inputs: [{ modality: 'text', text: REASONING_PROMPT }],
+      parameters: reasoningParameters(reasoningBudgetDescriptor()),
+      outputs: ['text'],
+      utcDay: FIXTURE_UTC_DAY,
+    },
+    reasoningBudgetDescriptor()
+  );
 }
 
 /**
@@ -450,13 +522,16 @@ export function reasoningOffRequest(): InferenceRequest {
   if (!result.feasible) {
     throw new Error(`reasoning off-plan infeasible for ${REASONING_MODEL_IDS.effortNative}`);
   }
-  return {
-    model: REASONING_MODEL_IDS.effortNative,
-    inputs: [{ modality: 'text', text: REASONING_PROMPT }],
-    parameters: { reasoning: result.plan.wire, maxOutputTokens: result.plan.maxTokens },
-    outputs: ['text'],
-    utcDay: FIXTURE_UTC_DAY,
-  };
+  return routedLanguage(
+    {
+      model: REASONING_MODEL_IDS.effortNative,
+      inputs: [{ modality: 'text', text: REASONING_PROMPT }],
+      parameters: { reasoning: result.plan.wire, maxOutputTokens: result.plan.maxTokens },
+      outputs: ['text'],
+      utcDay: FIXTURE_UTC_DAY,
+    },
+    reasoningEffortDescriptor()
+  );
 }
 
 function textInputRequest(
@@ -474,11 +549,15 @@ function textInputRequest(
 }
 
 export function languageRequest(): InferenceRequest {
-  return textInputRequest(REAL_MODEL_IDS.language, 'Reply with a short greeting.', ['text']);
+  return routedLanguage(
+    textInputRequest(REAL_MODEL_IDS.language, 'Reply with a short greeting.', ['text']),
+    languageDescriptor()
+  );
 }
 
-export function imageRequest(): InferenceRequest {
-  return textInputRequest(REAL_MODEL_IDS.image, 'A small red dot on a white background', ['image']);
+/** An image call to a derived subject, as the image suite sends it. */
+export function imageRequest(subject: ModelDescriptor): InferenceRequest {
+  return textInputRequest(subject.id, 'A small red dot on a white background', ['image']);
 }
 
 export function videoRequest(): InferenceRequest {
@@ -529,4 +608,329 @@ export function finishMetadata(events: readonly InferenceEvent[]): ProviderMetad
     throw new Error(`expected a terminal finish event, saw ${last?.kind ?? 'nothing'}`);
   }
   return last.metadata;
+}
+
+/**
+ * A normalized catalog beside the listing it was normalized from. The listing
+ * holds the endpoint facts a descriptor drops: each ZDR endpoint's provider
+ * name, tag, parameters and listed price, and each image endpoint's rows.
+ */
+export interface RoutingCatalog {
+  readonly descriptors: readonly ModelDescriptor[];
+  readonly listing: GatewayCatalog;
+}
+
+/** One proof's subject: the cheapest model carrying the behaviour the proof needs, or none. */
+export type RoutingSubject = (catalog: RoutingCatalog) => ModelDescriptor | undefined;
+
+/** The clock the catalog is normalized at: fixed, so a replayed listing normalizes identically. */
+export const ROUTING_CATALOG_NOW_MS = TEST_DAY_START;
+
+/** The production ingestion pipeline over one catalog fetch: listing, normalization, descriptors. */
+export async function routingCatalogFrom(
+  fetch: typeof globalThis.fetch,
+  baseUrl: string
+): Promise<RoutingCatalog> {
+  const fetched = await fetchGatewayCatalog({ baseUrl, fetch });
+  const listing = fetched.match(
+    (catalog) => catalog,
+    (error) => {
+      throw new Error(`the gateway catalog could not be read: ${error.code}`);
+    }
+  );
+  const descriptors = normalizeCatalog(
+    listing.models,
+    listing.zdrEndpoints,
+    ROUTING_CATALOG_NOW_MS
+  ).flatMap((entry) =>
+    entry.kind === 'normalized'
+      ? [ModelDescriptor.parse({ ...entry.content, fetchedAt: ROUTING_CATALOG_NOW_MS })]
+      : []
+  );
+  return { descriptors, listing };
+}
+
+function entryId(entry: Record<string, unknown>): string {
+  const id = entry['id'];
+  if (typeof id !== 'string') throw new Error('a gateway fixture entry carries no id');
+  return id;
+}
+
+/**
+ * The local listing: one text model and one image model from the gateway
+ * fixtures, each ZDR-listed under the tag its endpoint carries, so the
+ * provider-agnostic legs each have a subject under the mock.
+ */
+export function fixtureRoutingCatalog(): Promise<RoutingCatalog> {
+  const text = modelEntryFixture();
+  const image = imageModelFixture();
+  return routingCatalogFrom(
+    catalogFetch({ models: [text], images: [image], zdrModelIds: [entryId(text), entryId(image)] }),
+    TEST_GATEWAY_BASE_URL
+  );
+}
+
+/**
+ * The catalog the routing proofs derive their subjects from: on the
+ * credentialled CI path the live listing through the record-on-miss cassette,
+ * in the open occurrence scope, so the listing and the inference it prices
+ * record and replay together; everywhere else the local fixture listing.
+ */
+export function loadRoutingCatalog(): Promise<RoutingCatalog> {
+  if (!SHOULD_RUN) return fixtureRoutingCatalog();
+  const fetch = createCassetteFetch({
+    store: createCassetteStore({ rootDir: CASSETTE_ROOT }),
+    mode: cassetteModeFor(),
+    realFetch: globalThis.fetch.bind(globalThis),
+  });
+  return routingCatalogFrom(fetch, OPENROUTER_BASE_URL);
+}
+
+/**
+ * A suite's routing catalog, loaded by the first test that asks for it, inside
+ * that test's occurrence scope. Loading in a test rather than a hook is what
+ * makes an unreachable gateway fail every leg that needs the catalog, where a
+ * failed hook would report each of them as skipped.
+ */
+export function useRoutingCatalog(): () => Promise<RoutingCatalog> {
+  let loaded: Promise<RoutingCatalog> | undefined;
+  return () => (loaded ??= loadRoutingCatalog());
+}
+
+/** The cheapest candidate by `priceOf`, ties to the lower id; candidates it cannot price are passed over. */
+function cheapestBy(
+  candidates: readonly ModelDescriptor[],
+  priceOf: (descriptor: ModelDescriptor) => bigint | undefined
+): ModelDescriptor | undefined {
+  let best: { readonly descriptor: ModelDescriptor; readonly price: bigint } | undefined;
+  for (const descriptor of candidates) {
+    const price = priceOf(descriptor);
+    if (price === undefined) continue;
+    if (
+      best === undefined ||
+      price < best.price ||
+      (price === best.price && descriptor.id < best.descriptor.id)
+    ) {
+      best = { descriptor, price };
+    }
+  }
+  return best?.descriptor;
+}
+
+function exposedOf(catalog: RoutingCatalog, family: 'language' | 'image'): ModelDescriptor[] {
+  return catalog.descriptors.filter(
+    (descriptor) => isExposedModel(descriptor) && callShapeFamilyFor(descriptor.outputs) === family
+  );
+}
+
+/** A text model's anchor base rates added: the order the catalog's cheapest-model comparisons use. */
+function textPrice(descriptor: ModelDescriptor): bigint | undefined {
+  const priceable = priceableModelFrom(descriptor);
+  return priceable === undefined ? undefined : combinedRateNanoUsd(priceable);
+}
+
+/** An image model's price per image at its anchor. */
+function imagePrice(descriptor: ModelDescriptor): bigint | undefined {
+  return priceMediaBillableNanoUsd(descriptor.pricing, 'image', {}).match(
+    (price) => price,
+    () => undefined
+  );
+}
+
+/** Fractional digits a listed rate is read to: above any rate the vendor lists. */
+const LISTED_RATE_SCALE = 30;
+
+/** A listed decimal USD rate as an exact count of 10⁻³⁰ USD. */
+function listedRateUnits(rate: string): bigint {
+  if (!DECIMAL_USD_PATTERN.test(rate)) throw new Error('a listed rate is not a decimal USD amount');
+  const [whole = '', fraction = ''] = rate.split('.');
+  if (fraction.length > LISTED_RATE_SCALE) {
+    throw new Error('a listed rate carries more digits than the comparison reads');
+  }
+  return BigInt(whole + fraction.padEnd(LISTED_RATE_SCALE, '0'));
+}
+
+/** One ZDR endpoint a call can be routed to, with its listed base rates. */
+export interface ServingEndpoint {
+  readonly providerName: string;
+  readonly tag: string;
+  readonly prompt: string;
+  readonly completion: string;
+  /** Whether it lacks a parameter the model may be sent, so serves only calls without it. */
+  readonly lacksModelParameter: boolean;
+}
+
+/** The bucket ingestion files one endpoint under, asked of ingestion's own count. */
+function bucketOf(endpoint: ZdrEndpoint, modelParameters: readonly string[]): EndpointBucket {
+  const counts = endpointBucketCounts([endpoint], modelParameters);
+  const bucket = ENDPOINT_BUCKETS.find((name) => counts[name] === 1);
+  if (bucket === undefined) throw new Error('ingestion filed an endpoint under no bucket');
+  return bucket;
+}
+
+/**
+ * The model's endpoints a call it sends can reach: every standard-tier endpoint
+ * with a price the schedule reads, including one lacking a parameter the call
+ * does not send.
+ */
+function servingEndpointsOf(listing: GatewayCatalog, modelId: string): ServingEndpoint[] {
+  const model = listing.models.find((entry) => entry.source === 'language' && entry.id === modelId);
+  if (model?.source !== 'language') return [];
+  return (listing.zdrEndpoints.get(modelId) ?? []).flatMap((endpoint) => {
+    const bucket = bucketOf(endpoint, model.supportedParameters);
+    if (bucket !== 'reachable' && bucket !== 'unsupported-parameter') return [];
+    if (endpoint.pricing === 'unreadable') return [];
+    const prompt = endpoint.pricing['prompt'];
+    const completion = endpoint.pricing['completion'];
+    if (typeof prompt !== 'string' || typeof completion !== 'string') return [];
+    return [
+      {
+        providerName: endpoint.providerName,
+        tag: endpoint.tag,
+        prompt,
+        completion,
+        lacksModelParameter: bucket === 'unsupported-parameter',
+      },
+    ];
+  });
+}
+
+function rateSum(endpoint: ServingEndpoint): bigint {
+  return listedRateUnits(endpoint.prompt) + listedRateUnits(endpoint.completion);
+}
+
+/** The endpoints a cheapest-first route tries first: those at the lowest listed prompt + completion. */
+export function cheapestServingEndpoints(
+  catalog: RoutingCatalog,
+  subject: ModelDescriptor
+): ServingEndpoint[] {
+  const serving = servingEndpointsOf(catalog.listing, subject.id);
+  let lowest: bigint | undefined;
+  for (const endpoint of serving) {
+    const sum = rateSum(endpoint);
+    if (lowest === undefined || sum < lowest) lowest = sum;
+  }
+  return serving.filter((endpoint) => rateSum(endpoint) === lowest);
+}
+
+/**
+ * Whether the endpoint a cheapest-first route serves from is visible in the
+ * serving endpoint's name: every other servable endpoint is at least 10%
+ * dearer and under another provider name, and no cheapest endpoint lacks a
+ * parameter the model may be sent, whose routing OpenRouter states two ways.
+ */
+function servesCheapestVisibly(catalog: RoutingCatalog, subject: ModelDescriptor): boolean {
+  const cheapest = cheapestServingEndpoints(catalog, subject);
+  const [first] = cheapest;
+  if (first === undefined) return false;
+  const lowest = rateSum(first);
+  const names = new Set(cheapest.map((endpoint) => endpoint.providerName));
+  const dearer = servingEndpointsOf(catalog.listing, subject.id).filter(
+    (endpoint) => rateSum(endpoint) !== lowest
+  );
+  return (
+    dearer.length > 0 &&
+    dearer.every((endpoint) => rateSum(endpoint) * 10n >= lowest * 11n) &&
+    dearer.every((endpoint) => !names.has(endpoint.providerName)) &&
+    cheapest.every((endpoint) => !endpoint.lacksModelParameter)
+  );
+}
+
+/**
+ * The listed price of an image model's one output row across its pinned
+ * endpoints, or `undefined` when those endpoints list none or more than one.
+ */
+export function listedOutputImagePrice(
+  catalog: RoutingCatalog,
+  subject: ModelDescriptor
+): string | undefined {
+  const pin = new Set<string>(subject.zdrPin);
+  const model = catalog.listing.models.find(
+    (entry) => entry.source === 'image' && entry.id === subject.id
+  );
+  if (model?.source !== 'image') return undefined;
+  const rows = model.endpoints
+    .filter((endpoint) => endpoint.providerTag !== null && pin.has(endpoint.providerTag))
+    .flatMap((endpoint) => endpoint.pricing)
+    .filter((row) => row.billable === 'output_image');
+  return rows.length === 1 ? rows[0]?.costUsd : undefined;
+}
+
+/** A tag's base slug: the provider part before any region or tier variant. */
+function baseSlugOf(tag: string): string {
+  return tag.split('/')[0] ?? tag;
+}
+
+/**
+ * A tag from the ZDR listing that pins no endpoint of the image model: its
+ * base slug matches none of the model's endpoint tags, so neither OpenRouter's
+ * equal-tag nor its base-slug rule reaches one. The first in tag order.
+ */
+export function foreignZdrTag(
+  catalog: RoutingCatalog,
+  subject: ModelDescriptor
+): string | undefined {
+  const model = catalog.listing.models.find(
+    (entry) => entry.source === 'image' && entry.id === subject.id
+  );
+  const own = new Set(
+    (model?.source === 'image' ? model.endpoints : []).flatMap((endpoint) =>
+      endpoint.providerTag === null ? [] : [baseSlugOf(endpoint.providerTag)]
+    )
+  );
+  const listed = [...catalog.listing.zdrEndpoints.values()].flat().map((endpoint) => endpoint.tag);
+  return [...new Set(listed)]
+    .toSorted((a, b) => a.localeCompare(b))
+    .find((tag) => !own.has(baseSlugOf(tag)));
+}
+
+/**
+ * Each routing proof's subject, derived from the catalog at run time rather
+ * than pinned: a pinned id dies when the vendor retires the model, while a
+ * predicate follows whatever currently carries the behaviour, and a changed
+ * subject is a cassette miss the record-on-miss run records.
+ */
+export const ROUTING_SUBJECTS: {
+  /** The cheapest exposed text model. */
+  readonly ceiling: RoutingSubject;
+  /** The cheapest exposed text model whose cheapest-first route shows in the serving endpoint's name. */
+  readonly sortCheapest: RoutingSubject;
+  /** The cheapest exposed image model whose pinned endpoints list exactly one output price. */
+  readonly imageFlat: RoutingSubject;
+  /** The cheapest exposed image model, which carries a pin by exposure. */
+  readonly imagePin: RoutingSubject;
+} = {
+  ceiling: (catalog) => cheapestBy(exposedOf(catalog, 'language'), textPrice),
+  sortCheapest: (catalog) =>
+    cheapestBy(
+      exposedOf(catalog, 'language').filter((descriptor) =>
+        servesCheapestVisibly(catalog, descriptor)
+      ),
+      textPrice
+    ),
+  imageFlat: (catalog) =>
+    cheapestBy(
+      exposedOf(catalog, 'image').filter(
+        (descriptor) => listedOutputImagePrice(catalog, descriptor) !== undefined
+      ),
+      imagePrice
+    ),
+  imagePin: (catalog) => cheapestBy(exposedOf(catalog, 'image'), imagePrice),
+};
+
+/** A routing proof's output cap: enough for a reply, small enough to cost little. */
+const ROUTING_MAX_OUTPUT_TOKENS = 16;
+
+/**
+ * A text call to a derived subject, routed at the `max_price` given, or at the
+ * call's derived ceiling when none is.
+ */
+export function routingRequest(subject: ModelDescriptor, maxPrice?: MaxPrice): InferenceRequest {
+  const request: InferenceRequest = {
+    ...textInputRequest(subject.id, 'Reply with a short greeting.', ['text']),
+    parameters: { maxOutputTokens: ROUTING_MAX_OUTPUT_TOKENS },
+  };
+  return maxPrice === undefined
+    ? routedLanguage(request, subject)
+    : { ...request, routing: { maxPrice } };
 }

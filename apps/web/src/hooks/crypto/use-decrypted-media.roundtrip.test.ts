@@ -13,7 +13,11 @@ import {
 } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
 import { useDecryptBlob } from '@/hooks/crypto/use-decrypt-blob';
-import { useMessageContentKey } from '@/hooks/crypto/use-decrypted-media';
+import {
+  MessageContentKeySourceContext,
+  contentKeySourceFor,
+  useMessageContentKey,
+} from '@/hooks/crypto/use-decrypted-media';
 import { installBlobUrlCacheGc } from '@/lib/media/blob-url-cache-gc';
 import { clearEpochKeyCache, setEpochKey } from '@/lib/crypto/epoch-key-cache';
 import type React from 'react';
@@ -171,6 +175,51 @@ describe('media hooks — real content-envelope round-trip', () => {
     });
     expect(result.current.error).toBeNull();
 
+    const decrypted = new Uint8Array(await capturedBlobs[0]!.arrayBuffer());
+    expect(decrypted).toEqual(plaintext);
+  });
+
+  it('decrypts backend media bytes under a provider-supplied key with no epoch key cached', async () => {
+    const plaintext = new Uint8Array([6, 5, 4, 3, 2, 1]);
+    const seeded = seedMediaEnvelope(plaintext);
+    clearEpochKeyCache();
+    stubFetch(seeded.ciphertext);
+
+    const { wrapper: queryWrapper } = makeWrapper();
+    const source = contentKeySourceFor(seeded.wrappedContentKey, seeded.contentKey);
+    function KeySourceWrapper({ children }: Readonly<{ children: ReactNode }>): React.JSX.Element {
+      return createElement(
+        MessageContentKeySourceContext,
+        { value: source },
+        createElement(queryWrapper, null, children)
+      );
+    }
+
+    const keyHook = renderHook(
+      () => useMessageContentKey(CONVERSATION_ID, EPOCH_NUMBER, seeded.wrappedContentKeyB64),
+      { wrapper: KeySourceWrapper }
+    );
+    expect(keyHook.result.current.error).toBeNull();
+    const { contentKey, wrappedContentKey } = keyHook.result.current;
+
+    const { result } = renderHook(
+      () =>
+        useDecryptBlob({
+          contentItemId: CONTENT_ITEM_ID,
+          downloadUrl: 'https://r2.example/media',
+          envelope: {
+            contentKey: contentKey!,
+            wrappedContentKey: wrappedContentKey!,
+            location: CORRECT_LOCATION,
+          },
+          mimeType: 'image/png',
+        }),
+      { wrapper: KeySourceWrapper }
+    );
+
+    await waitFor(() => {
+      expect(result.current.blobUrl).not.toBeNull();
+    });
     const decrypted = new Uint8Array(await capturedBlobs[0]!.arrayBuffer());
     expect(decrypted).toEqual(plaintext);
   });

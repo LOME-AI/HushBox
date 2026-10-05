@@ -7,7 +7,7 @@ import {
   resolveFunding,
 } from '@hushbox/shared/affordability';
 import { notFoundError, unavailableError } from '../../../../lib/errors/index.js';
-import { ResultAsync, errAsync, fromPromise, okAsync } from '../../../../lib/result/index.js';
+import { errAsync, fromPromise, okAsync } from '../../../../lib/result/index.js';
 import { HOLDS_READ_SCRIPT } from '../admission/scripts.js';
 import { resolveEffectiveSpendable } from '../admission/admission.js';
 import {
@@ -16,6 +16,7 @@ import {
   resolveBudgetScopes,
 } from '../budgets/budget-resolution.js';
 import { BILLING_KEYS } from '../keys.js';
+import type { ResultAsync } from '../../../../lib/result/index.js';
 import type { GetSpendableResponse } from '@hushbox/shared';
 import type {
   HoldAwareGroupDimensions,
@@ -92,26 +93,46 @@ function scopeHoldKey(ref: BudgetScopeHoldRef): string {
   );
 }
 
+/** What {@link readGroupHolds} reads: group budget scopes, and the owner's purchased wallet. */
+export interface GroupHoldsRequest {
+  readonly scopes: readonly BudgetScopeHoldRef[];
+  /** `null` for an owner with no purchased wallet, which therefore holds nothing. */
+  readonly ownerWalletId: string | null;
+}
+
+/** Each scope's readout, paired positionally with the request's `scopes`, and the owner wallet's held sum. */
+export interface GroupHolds {
+  readonly scopes: readonly ActiveHoldsReadout[];
+  readonly ownerHeldNanoUsd: bigint;
+}
+
 /**
- * Active holds over budget scope hashes — the display-side counterpart of the
- * admission script's per-scope check. One script exec covers every ref (one
- * Redis read per request, not per scope); readouts pair with `refs`
- * positionally, one per ref by construction. Redis down fails closed.
+ * The active holds that bound an owner-funded group turn — the read-side
+ * counterpart of admission's checks: each budget scope's hash, and the owner's
+ * wallet hash, which carries every run the owner's wallet pays for in any
+ * conversation. One script exec covers them all (one Redis read per request,
+ * not per hash). Redis down fails closed.
  */
-export function readBudgetScopeHolds(
+export function readGroupHolds(
   redis: RedisClient,
-  scopes: readonly BudgetScopeHoldRef[],
+  request: GroupHoldsRequest,
   now: Date
-): ResultAsync<readonly ActiveHoldsReadout[], DomainError> {
-  return readActiveHolds(
-    redis,
-    scopes.map((scope) => scopeHoldKey(scope)),
-    now
+): ResultAsync<GroupHolds, DomainError> {
+  const scopeKeys = request.scopes.map((scope) => scopeHoldKey(scope));
+  const walletKeys =
+    request.ownerWalletId === null
+      ? []
+      : [BILLING_KEYS.walletHolds.buildKey(request.ownerWalletId)];
+  return readActiveHolds(redis, [...scopeKeys, ...walletKeys], now).map(
+    (readouts): GroupHolds => ({
+      scopes: readouts.slice(0, scopeKeys.length),
+      ownerHeldNanoUsd: totalHolds(readouts.slice(scopeKeys.length)).heldNanoUsd,
+    })
   );
 }
 
 /**
- * Positional pairing accessor for {@link readBudgetScopeHolds} readouts: one
+ * Positional pairing accessor for {@link readGroupHolds}' scope readouts: one
  * readout exists per requested ref by construction, so a hole is a defect
  * (thrown), never a legal state to default around.
  */
@@ -187,15 +208,9 @@ export interface FundingSnapshot {
    * day's remaining free allowance, which is then the entire money gate because
    * a free wallet skips the balance check. When the payer is the conversation
    * owner it is the group's hold-aware remaining, priced on the owner wallet's
-   * spendable funds like every other dimension of every other tier, so a
-   * composer gating on this number refuses nothing admission would accept
-   * (BILLING §Affordability 8).
-   *
-   * The owner wallet's OWN holds are not applied: a hold the owner placed in
-   * another conversation does not shrink what a member here is shown, so this
-   * figure can still exceed what admission admits, and the spec makes that
-   * divergence a hard refusal at admission rather than an in-admission
-   * re-resolve (BILLING §Group Funding 7(b)).
+   * spendable funds like every other dimension of every other tier, less every
+   * active hold on the owner's wallet, so a composer gating on this number
+   * refuses nothing admission would accept (BILLING §Affordability 8).
    */
   readonly spendableNanoUsd: bigint;
   /** What active holds took off the figure, so `spendable + held` is hold-blind. */
@@ -237,7 +252,7 @@ export function serializeFundingSnapshot(snapshot: FundingSnapshot): GetSpendabl
 }
 
 /** What one funding arm resolves: the money pair, unlabelled. */
-interface FundingFigures {
+export interface FundingFigures {
   readonly spendableNanoUsd: bigint;
   readonly heldNanoUsd: bigint;
 }
@@ -354,10 +369,13 @@ function readSelfFunding(
       );
     }
     const tier = tierForBalance(purchased.balanceNanoUsd);
-    const figures =
+    const figures = readPayerSpendable(
+      deps,
       tier === 'paid'
-        ? readPurchasedFunding(deps, purchased.id, args.now)
-        : readAllowanceFunding(deps, args.userId, args.now);
+        ? { kind: 'purchased', walletId: purchased.id }
+        : { kind: 'allowance', userId: args.userId },
+      args.now
+    );
     return figures.map(
       (funding): SelfFunding => ({
         ...funding,
@@ -378,18 +396,19 @@ function selfSnapshot(self: SelfFunding): FundingSnapshot {
   };
 }
 
-/** The durable group dimensions plus the scope holds in flight against them. */
+/** The durable group dimensions plus the holds in flight against them. */
 interface GroupFundingReadout {
   readonly memberRemainingNanoUsd: bigint;
   readonly conversationRemainingNanoUsd: bigint;
   readonly ownerBalanceNanoUsd: bigint;
   readonly memberHeldNanoUsd: bigint;
   readonly conversationHeldNanoUsd: bigint;
+  readonly ownerHeldNanoUsd: bigint;
 }
 
 /**
  * What reading a group's funding needs, narrower than {@link AdmissionDeps}:
- * three durable reads and the scope-hold hashes. Stated separately so the
+ * three durable reads and the hold hashes. Stated separately so the
  * conversations slice can serve a guest through the same producer with the
  * budget-surface store subset it already composes, rather than acquiring the
  * whole billing store to read one snapshot.
@@ -409,9 +428,9 @@ function readGroupFunding(
   now: Date
 ): ResultAsync<GroupFundingReadout, DomainError> {
   // The durable reads run one after the other: the request's database is
-  // serial and refuses a read issued while another is in flight. The Redis
-  // read runs beside them.
-  const durable = deps.stores
+  // serial and refuses a read issued while another is in flight. The holds
+  // read follows them, because the owner's wallet id comes from the first.
+  return deps.stores
     .readWallets(deps.db, conversation.ownerUserId)
     .andThen((ownerWallets) =>
       deps.stores
@@ -421,29 +440,32 @@ function readGroupFunding(
             .readConversationSpent(deps.db, conversation.conversationId)
             .map((conversationSpent) => ({ ownerWallets, memberRow, conversationSpent }))
         )
-    );
-  return ResultAsync.combine([
-    durable,
-    readBudgetScopeHolds(
-      deps.redis,
-      [
-        { scope: 'conversation', conversationId: conversation.conversationId },
-        { scope: 'member', memberId: conversation.memberId },
-      ],
-      now
-    ),
-  ]).map(([{ ownerWallets, memberRow, conversationSpent }, holds]): GroupFundingReadout => {
-    const ownerPurchased = ownerWallets.find((wallet) => wallet.type === 'purchased');
-    return {
-      // An absent member row is a zero cap (deny), never unlimited.
-      memberRemainingNanoUsd:
-        memberRow === null ? 0n : memberRow.budgetNanoUsd - memberRow.spentNanoUsd,
-      conversationRemainingNanoUsd: conversation.conversationBudgetNanoUsd - conversationSpent,
-      ownerBalanceNanoUsd: ownerPurchased?.balanceNanoUsd ?? 0n,
-      conversationHeldNanoUsd: holdReadoutAt(holds, 0).heldNanoUsd,
-      memberHeldNanoUsd: holdReadoutAt(holds, 1).heldNanoUsd,
-    };
-  });
+    )
+    .andThen(({ ownerWallets, memberRow, conversationSpent }) => {
+      const ownerPurchased = ownerWallets.find((wallet) => wallet.type === 'purchased');
+      return readGroupHolds(
+        deps.redis,
+        {
+          scopes: [
+            { scope: 'conversation', conversationId: conversation.conversationId },
+            { scope: 'member', memberId: conversation.memberId },
+          ],
+          ownerWalletId: ownerPurchased?.id ?? null,
+        },
+        now
+      ).map(
+        (holds): GroupFundingReadout => ({
+          // An absent member row is a zero cap (deny), never unlimited.
+          memberRemainingNanoUsd:
+            memberRow === null ? 0n : memberRow.budgetNanoUsd - memberRow.spentNanoUsd,
+          conversationRemainingNanoUsd: conversation.conversationBudgetNanoUsd - conversationSpent,
+          ownerBalanceNanoUsd: ownerPurchased?.balanceNanoUsd ?? 0n,
+          conversationHeldNanoUsd: holdReadoutAt(holds.scopes, 0).heldNanoUsd,
+          memberHeldNanoUsd: holdReadoutAt(holds.scopes, 1).heldNanoUsd,
+          ownerHeldNanoUsd: holds.ownerHeldNanoUsd,
+        })
+      );
+    });
 }
 
 /**
@@ -458,33 +480,76 @@ function readGroupFunding(
  * funds, cushion included, so no turn the server would admit is refused by a
  * composer reading this number (BILLING §Affordability 8, §Group Funding 6(b)).
  *
- * Only this conversation's own scope holds move the number — the owner wallet's
- * holds are not read here, so a hold the owner placed elsewhere does not shrink
- * what a member is shown.
+ * This conversation's scope holds move the number, and so does every hold on
+ * the owner's wallet, from every run the owner's wallet pays for in any
+ * conversation: admission refuses against all of them, so a figure that left
+ * them out would offer a reply admission refuses. The owner's holds move it only when the owner term, with
+ * them taken off, is the binding one.
  */
 function ownerSnapshot(group: GroupFundingReadout): FundingSnapshot {
-  const dimensions: HoldAwareGroupDimensions = {
+  return {
+    ...ownerFigures(group),
+    // Owner-funded turns draw a purchased wallet with a positive balance (the
+    // headroom min clamps the owner dimension), so the payer is paid-tier.
+    payerTier: tierForBalance(group.ownerBalanceNanoUsd),
+    payer: 'owner',
+    ownerFundingLimit: bindingGroupLimit(groupDimensions(group)),
+  };
+}
+
+function groupDimensions(group: GroupFundingReadout): HoldAwareGroupDimensions {
+  return {
     memberRemainingNanoUsd: group.memberRemainingNanoUsd,
     memberHeldNanoUsd: group.memberHeldNanoUsd,
     conversationRemainingNanoUsd: group.conversationRemainingNanoUsd,
     conversationHeldNanoUsd: group.conversationHeldNanoUsd,
     ownerPurchasedBalanceNanoUsd: group.ownerBalanceNanoUsd,
+    ownerHeldNanoUsd: group.ownerHeldNanoUsd,
   };
-  const holdAware = holdAwareGroupHeadroom(dimensions);
+}
+
+/** The owner-funded money pair: the hold-aware remaining, and what holds took off it. */
+function ownerFigures(group: GroupFundingReadout): FundingFigures {
+  const holdAware = holdAwareGroupHeadroom(groupDimensions(group));
   const holdBlind = groupHeadroom(
     group.memberRemainingNanoUsd,
     group.conversationRemainingNanoUsd,
     group.ownerBalanceNanoUsd
   );
-  return {
-    spendableNanoUsd: holdAware,
-    heldNanoUsd: holdBlind - holdAware,
-    // Owner-funded turns draw a purchased wallet with a positive balance (the
-    // headroom min clamps the owner dimension), so the payer is paid-tier.
-    payerTier: tierForBalance(group.ownerBalanceNanoUsd),
-    payer: 'owner',
-    ownerFundingLimit: bindingGroupLimit(dimensions),
-  };
+  return { spendableNanoUsd: holdAware, heldNanoUsd: holdBlind - holdAware };
+}
+
+/**
+ * The funds that size one payer's turn, named by the arm that pays it: a
+ * purchased wallet, a free payer's daily allowance, or an owner-funded group.
+ */
+export type PayerRef =
+  | { readonly kind: 'purchased'; readonly walletId: string }
+  | { readonly kind: 'allowance'; readonly userId: string }
+  | { readonly kind: 'owner'; readonly conversation: ConversationFundingFacts };
+
+/**
+ * The payer's hold-aware spendable funds and what active holds took off them —
+ * the figures the served snapshot serves and the send path sizes a reply
+ * against, so the composer and the send path size a reply against one figure.
+ * Who pays is decided elsewhere, hold-blind; this answers only how much.
+ */
+export function readPayerSpendable(
+  deps: AdmissionDeps,
+  payer: PayerRef,
+  now: Date
+): ResultAsync<FundingFigures, DomainError> {
+  switch (payer.kind) {
+    case 'purchased': {
+      return readPurchasedFunding(deps, payer.walletId, now);
+    }
+    case 'allowance': {
+      return readAllowanceFunding(deps, payer.userId, now);
+    }
+    case 'owner': {
+      return readGroupFunding(deps, payer.conversation, now).map((group) => ownerFigures(group));
+    }
+  }
 }
 
 /**

@@ -69,6 +69,7 @@ function selectionPinnedTo(option: OptionId): Selection {
     modality: 'text',
     pinned: { effort: option },
     webSearch: false,
+    effortAuto: false,
   };
 }
 
@@ -89,6 +90,7 @@ function entryFor(option: OptionId): { entry: ModelEntry; holdNanoUsd: bigint | 
       modelId: modelId(''),
       availability: { available: true },
       ceilingTokens: 0,
+      answerRoomTokens: 0,
       rungCeilings: [],
     },
     holdNanoUsd: options.holdNanoUsd,

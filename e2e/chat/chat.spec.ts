@@ -1,10 +1,15 @@
-import { ACCESSIBILITY_PREFERENCES_DEFAULTS, TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
+import {
+  ACCESSIBILITY_PREFERENCES_DEFAULTS,
+  ROUTES,
+  TEST_IDS,
+  TEST_SIGNALS,
+} from '@hushbox/shared';
 import {
   MODEL_WEIGHTS_VERSION,
   TTS_MODEL_ID,
   modelWeightsRoutePath,
 } from '@hushbox/shared/model-weights';
-import { test, expect, type APIRequestContext, type Page } from '../fixtures.js';
+import { test, expect, type APIRequestContext, type Locator, type Page } from '../fixtures.js';
 import { matrix } from '../../scripts/lib/playwright/browser-matrix.js';
 import { ChatPage, PromptPredictionPage, SidebarPage } from '../pages';
 import {
@@ -14,10 +19,12 @@ import {
   type LayoutProperties,
 } from '../pages/prompt-prediction.page.js';
 import { armPromptPrediction } from '../helpers/prompt-prediction.js';
-import { idempotentPut } from '../helpers/idempotent-request.js';
+import { openMobileSidebarIfNeeded } from '../helpers/auth.js';
+import { idempotentPost, idempotentPut } from '../helpers/idempotent-request.js';
 import { expectOkResponse } from '../helpers/ok-response.js';
 import { waitForChatSpeaking } from '../helpers/page-signals.js';
 import { requireEnv } from '../helpers/env.js';
+import { personaEmail } from '../helpers/personas.js';
 import { settledReasoningLabel } from '../helpers/reasoning-row.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 import { E2E_MODELS } from '../../scripts/lib/playwright/model-ids.js';
@@ -71,7 +78,7 @@ const MODEL_BASE_URL = new URL(
  */
 const REASONING_MODEL_ID = E2E_MODELS.text[1];
 
-const SETTLED_REASONING_LABEL = settledReasoningLabel('high');
+const SETTLED_REASONING_LABEL = settledReasoningLabel();
 
 test.describe('Chat Functionality', SPEC_MATRIX, () => {
   test.describe('New Chat', () => {
@@ -213,6 +220,62 @@ test.describe('Chat Functionality', SPEC_MATRIX, () => {
       // delete that fired late would pass it; the stored row is what rules that out.
       expect(await storedConversation(authenticatedRequest, testConversation.id)).toBeDefined();
     });
+
+    test("a row's actions show on hover or focus with a mouse, always on touch, and rename through them", async ({
+      authenticatedPage,
+      authenticatedRequest,
+      testConversation,
+    }) => {
+      // Playwright counts an element at opacity 0 as visible, so only the computed opacity says
+      // whether a finger, which has no hover, can see the trigger it has to tap.
+      const pointerIsFine = test.info().project.use.hasTouch !== true;
+      const atRest = pointerIsFine ? '0' : '1';
+      const other = await seedTitledConversation(authenticatedRequest);
+      const chatPage = new ChatPage(authenticatedPage);
+      const sidebar = new SidebarPage(authenticatedPage);
+      await chatPage.gotoConversation(testConversation.id);
+      await chatPage.waitForConversationLoaded();
+      await sidebar.ensureSidebarExpanded();
+
+      const trigger = (conversationId: string): Locator =>
+        sidebar.getChatItemContainer(conversationId).getByTestId(TEST_IDS.chatItemMoreButton);
+
+      await test.step('at rest, no row is hovered or focused', async () => {
+        await authenticatedPage.mouse.move(0, 0);
+        await expect(trigger(testConversation.id)).toHaveCSS('opacity', atRest);
+        await expect(trigger(other.id)).toHaveCSS('opacity', atRest);
+      });
+
+      await test.step('hovering a row shows its trigger alone', async () => {
+        await sidebar.getChatItemContainer(testConversation.id).hover();
+        // The control: the instrument reports 1 where the trigger shows.
+        await expect(trigger(testConversation.id)).toHaveCSS('opacity', '1');
+        await expect(trigger(other.id)).toHaveCSS('opacity', atRest);
+      });
+
+      await test.step("tabbing onto a row's link shows its trigger", async () => {
+        await authenticatedPage.mouse.move(0, 0);
+        await expect(trigger(testConversation.id)).toHaveCSS('opacity', atRest);
+        const link = sidebar.getChatLink(other.id);
+        await link.focus();
+        // Leaving and re-entering by keyboard makes the focus keyboard focus, which is what
+        // `:focus-visible` answers to, whatever the programmatic focus above was taken as.
+        await authenticatedPage.keyboard.press('Shift+Tab');
+        await authenticatedPage.keyboard.press('Tab');
+        await expect(link).toBeFocused();
+        await expect(trigger(other.id)).toHaveCSS('opacity', '1');
+      });
+
+      await test.step('the revealed trigger renames the conversation', async () => {
+        const before = await storedConversation(authenticatedRequest, testConversation.id);
+        expect(before, 'the conversation is not in the listing the read-back uses').toBeDefined();
+        await sidebar.renameConversation(testConversation.id, 'Renamed from its row');
+        await sidebar.expectConversationTitle(testConversation.id, 'Renamed from its row');
+        const after = await storedConversation(authenticatedRequest, testConversation.id);
+        expect(after?.title).toBeDefined();
+        expect(after?.title).not.toBe(before?.title);
+      });
+    });
   });
 
   test.describe('AI Response Streaming', () => {
@@ -262,7 +325,7 @@ test.describe('Chat Functionality', SPEC_MATRIX, () => {
         await expect(assistant).not.toContainText('Reading the request');
       });
 
-      await test.step('settled — one closed row wearing the rung it ran at', async () => {
+      await test.step('settled — one closed row reading how long and how much it reasoned', async () => {
         // Clear the hold before releasing, so nothing sent after this step parks
         // with no release; the run already in flight keeps the barrier it holds.
         await chatPage.stopHoldingStreams();
@@ -292,7 +355,7 @@ test.describe('Chat Functionality', SPEC_MATRIX, () => {
         );
       });
 
-      await test.step('reload — persisted thoughts and rung still render per message', async () => {
+      await test.step('reload — persisted thoughts and reasoning figures still render per message', async () => {
         await authenticatedPage.goto(`/chat/${conversationId}`, {
           waitUntil: 'domcontentloaded',
         });
@@ -683,17 +746,8 @@ test.describe('Prompt Prediction', PREDICTION_MATRIX, () => {
       chatPage.suggestionChips,
       'the inspiration label'
     );
-    const spacer = await prediction.boxOf(prediction.suggestionSpacer, 'the reserved list space');
-    const greeting = await prediction.boxOf(prediction.greetingBesideSpacer, 'the greeting');
-
-    // The reserved height only holds the composer still while it sits flush
-    // against the greeting: any spacing introduced between the two would push
-    // the column further than the list below the composer pushes it back.
-    expect(spacer.height).toBeGreaterThan(0);
-    expect(
-      Math.abs(greeting.y - (spacer.y + spacer.height)),
-      'the reserved list space and the greeting have vertical spacing between them'
-    ).toBeLessThan(GLYPH_ALIGNMENT_TOLERANCE);
+    const list = await prediction.boxOf(prediction.suggestionList, 'the candidate list');
+    expect(list.height).toBeGreaterThan(0);
 
     await chatPage.promptInput.fill('');
     await prediction.expectListClosed();
@@ -707,7 +761,7 @@ test.describe('Prompt Prediction', PREDICTION_MATRIX, () => {
     expectSameBox(closedComposer, openComposer, 'the composer', ALL_EDGES);
     // What the list does move is everything below it, by exactly its own height.
     expect(
-      Math.abs(openInspiration.y - closedInspiration.y - spacer.height),
+      Math.abs(openInspiration.y - closedInspiration.y - list.height),
       'the inspiration block did not move down by the height the list took'
     ).toBeLessThan(GLYPH_ALIGNMENT_TOLERANCE);
   });
@@ -825,5 +879,294 @@ test.describe('Prompt Prediction on touch', PREDICTION_TOUCH_MATRIX, () => {
     await prediction.hint.tap();
     await expect(chatPage.promptInput).toHaveValue(`${TYPED_SENTENCE}${hint}`);
     await expect(chatPage.promptInput).toBeFocused();
+  });
+});
+
+/**
+ * Browser-reserved combos and dispatch from a focused text field differ per engine, so every
+ * desktop engine runs this. Desktop only, because the shortcut's modifier is read from the Search
+ * row's key hint, which phones and touch pointers do not draw.
+ */
+const PALETTE_MATRIX = matrix({ engine: 'engine-matrix', formFactor: 'desktop' });
+
+/** The palette's options for an account, never offered to a visitor without one. */
+const SESSION_ONLY_OPTIONS = ['Settings', 'Usage', 'Add credit'] as const;
+
+/**
+ * A conversation with a title the palette can find, seeded before the page loads so the
+ * sidebar's list, which the palette reads, already holds it.
+ */
+async function seedTitledConversation(
+  request: APIRequestContext
+): Promise<{ id: string; title: string }> {
+  const title = `Palette target ${crypto.randomUUID()}`;
+  const response = await idempotentPost(request, '/dev/conversation', {
+    data: {
+      ownerEmail: personaEmail('test-alice'),
+      title,
+      messages: [
+        { content: title, senderType: 'user' },
+        { content: `Echo: ${title}`, senderType: 'ai' },
+      ],
+    },
+  });
+  await expectOkResponse(response, 'titled conversation seed');
+  const { conversationId } = (await response.json()) as { conversationId: string };
+  return { id: conversationId, title };
+}
+
+/** A URL matcher for one exact path, whatever the query. */
+function atPath(path: string): (url: URL) => boolean {
+  return (url) => url.pathname === path;
+}
+
+test.describe('Command palette', PALETTE_MATRIX, () => {
+  test('opens from the composer and from Search, runs a chat, and New chat and Settings answer their shortcuts', async ({
+    authenticatedPage,
+    authenticatedRequest,
+    testConversation,
+  }) => {
+    const target = await seedTitledConversation(authenticatedRequest);
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.gotoConversation(testConversation.id);
+    await chatPage.waitForConversationLoaded();
+
+    await test.step('the shortcut opens the palette from the composer, its field focused', async () => {
+      await chatPage.messageInput.fill('draft');
+      await chatPage.openPalette('shortcut');
+      await expect(chatPage.commandPaletteInput).toBeFocused();
+    });
+
+    await test.step('a chat found by its title opens on Enter', async () => {
+      await chatPage.commandPaletteInput.fill(target.title);
+      await expect(chatPage.paletteOption(target.title)).toBeVisible();
+      await chatPage.commandPaletteInput.press('Enter');
+      await expect(authenticatedPage).toHaveURL(atPath(`${ROUTES.CHAT}/${target.id}`), {
+        timeout: TIMEOUTS.ROUTE,
+      });
+      await expect(chatPage.commandPalette).toBeHidden();
+    });
+
+    await test.step('Escape closes the palette opened from Search and gives Search back its focus', async () => {
+      await chatPage.openPalette('search');
+      await chatPage.commandPaletteInput.press('Escape');
+      await expect(chatPage.commandPalette).toBeHidden({ timeout: TIMEOUTS.MODAL });
+      await expect(chatPage.sidebarSearchRow).toBeFocused();
+    });
+
+    await test.step('the New chat shortcut leaves the composer for a new chat', async () => {
+      await chatPage.messageInput.fill('draft');
+      await chatPage.pressAppShortcut('mod+Shift+o');
+      await expect(authenticatedPage).toHaveURL(atPath(ROUTES.CHAT), {
+        timeout: TIMEOUTS.ROUTE,
+      });
+      await expect(chatPage.newChatPage).toBeVisible();
+    });
+
+    await test.step('the Settings shortcut opens Settings', async () => {
+      await chatPage.pressAppShortcut('mod+,');
+      await expect(authenticatedPage).toHaveURL(atPath(ROUTES.SETTINGS), {
+        timeout: TIMEOUTS.ROUTE,
+      });
+    });
+  });
+
+  test('offers a visitor without an account none of the account options', async ({
+    unauthenticatedPage,
+  }) => {
+    const chatPage = new ChatPage(unauthenticatedPage);
+    await chatPage.goto();
+    await chatPage.waitForSignedOut();
+
+    await chatPage.openPalette('search');
+    // The control: the palette has rendered its options, so the absences below are real.
+    await expect(chatPage.paletteOption('New chat')).toBeVisible();
+    for (const name of SESSION_ONLY_OPTIONS) {
+      await expect(chatPage.paletteOption(name)).toHaveCount(0);
+    }
+  });
+});
+
+const PANEL_MATRIX_REASON =
+  "Which presentation the panel takes is a width decision, and the persisted preference is the server's.";
+
+const PANEL_DESKTOP_MATRIX = matrix({
+  engine: 'engine-any',
+  formFactor: 'desktop',
+  reason: PANEL_MATRIX_REASON,
+});
+
+const PANEL_MOBILE_MATRIX = matrix({
+  engine: 'engine-any',
+  formFactor: 'mobile',
+  reason: PANEL_MATRIX_REASON,
+});
+
+/** A phone's width, set first so a tablet elected as the mobile carrier still tests the phone band. */
+const PHONE_VIEWPORT = { width: 390, height: 844 } as const;
+
+/** How far a measured edge may sit from the one it is compared with, for subpixel layout. */
+const EDGE_TOLERANCE_PX = 1;
+
+type PanelForm = 'docked' | 'sheet';
+
+/** Put the persona's stored accessibility preferences back to their defaults. */
+async function resetAccessibilityPreferences(request: APIRequestContext): Promise<void> {
+  // The live clock, not a fixed test instant: the preference store keeps the newest write by
+  // `updatedAt`, so a fixed instant would lose to this reused persona's last real write.
+  const updatedAt = new Date(Date.now()).toISOString();
+  const response = await idempotentPut(request, '/account/preferences/accessibility', {
+    data: { updatedAt, preferences: ACCESSIBILITY_PREFERENCES_DEFAULTS },
+  });
+  await expectOkResponse(response, 'accessibility preferences reset');
+}
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+async function expectDockedClearOfComposer(panel: Locator, composer: Locator): Promise<void> {
+  await expect
+    .poll(async () => {
+      const [panelBox, composerBox] = await Promise.all([
+        panel.boundingBox(),
+        composer.boundingBox(),
+      ]);
+      return panelBox !== null && composerBox !== null && !overlaps(panelBox, composerBox);
+    })
+    .toBe(true);
+  await expect(composer).toBeInViewport();
+}
+
+async function expectSheetAtFoot(page: Page, panel: Locator): Promise<void> {
+  await expect
+    .poll(async () => {
+      const box = await panel.boundingBox();
+      const viewport = page.viewportSize();
+      return (
+        box !== null &&
+        viewport !== null &&
+        Math.abs(box.x) <= EDGE_TOLERANCE_PX &&
+        Math.abs(box.width - viewport.width) <= EDGE_TOLERANCE_PX &&
+        Math.abs(box.y + box.height - viewport.height) <= EDGE_TOLERANCE_PX
+      );
+    })
+    .toBe(true);
+}
+
+/**
+ * The accessibility panel from More options: one item opens it, a change made in it reaches
+ * the account's stored preferences, Escape hands focus back, and a reload keeps the change.
+ */
+async function expectAccessibilityPanelJourney(
+  page: Page,
+  request: APIRequestContext,
+  conversationId: string,
+  form: PanelForm
+): Promise<void> {
+  const chatPage = new ChatPage(page);
+  const panel = chatPage.accessibilityPanel;
+  const muteSounds = (state: 'On' | 'Off'): Locator =>
+    panel.getByRole('button', { name: `Mute all sounds: ${state}`, exact: true });
+
+  await resetAccessibilityPreferences(request);
+  await chatPage.gotoConversation(conversationId);
+  await chatPage.waitForConversationLoaded();
+
+  await test.step('More options offers Accessibility and nothing else', async () => {
+    await chatPage.moreOptionsButton.click();
+    const menu = page.getByRole('menu', { name: 'More options', exact: true });
+    await expect(menu.getByRole('menuitem')).toHaveCount(1);
+    await menu.getByRole('menuitem', { name: 'Accessibility', exact: true }).click();
+    await expect(panel).toBeVisible({ timeout: TIMEOUTS.MODAL });
+  });
+
+  await test.step(`the panel takes its ${form} form`, async () => {
+    await (form === 'docked'
+      ? expectDockedClearOfComposer(panel, chatPage.messageInput)
+      : expectSheetAtFoot(page, panel));
+  });
+
+  await test.step('muting sounds is stored on the account', async () => {
+    const stored = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'PUT' &&
+        new URL(response.url()).pathname.endsWith('/account/preferences/accessibility'),
+      { timeout: TIMEOUTS.ASSERT }
+    );
+    await muteSounds('Off').click();
+    const written = await stored;
+    expect(written.status()).toBe(200);
+    await expect(muteSounds('On')).toBeVisible();
+    // The route answers 200 for a write its last-writer-wins guard refused as well, so the
+    // body says whether this one landed, and a separate read says what the account now holds.
+    expect(await written.json()).toMatchObject({
+      accepted: true,
+      preferences: { muteSounds: true },
+    });
+    const readBack = await request.get('/account/preferences/accessibility');
+    await expectOkResponse(readBack, 'accessibility preferences read');
+    expect(await readBack.json()).toMatchObject({ preferences: { muteSounds: true } });
+  });
+
+  await test.step('Escape closes the panel and returns focus to More options', async () => {
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await expect(chatPage.moreOptionsButton).toBeFocused();
+  });
+
+  if (form === 'docked') {
+    await test.step('the close button closes the reopened panel', async () => {
+      await chatPage.openAccessibilityPanel();
+      await panel.getByRole('button', { name: 'Close accessibility', exact: true }).click();
+      await expect(panel).toBeHidden();
+    });
+  }
+
+  await test.step('the account menu offers no Accessibility item', async () => {
+    await openMobileSidebarIfNeeded(page);
+    await page.getByTestId(TEST_IDS.accountButton).click();
+    // The control: the menu has rendered its items, so the absence below is real.
+    await expect(page.getByRole('menuitem', { name: 'Settings', exact: true })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Accessibility', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+  });
+
+  await test.step('after a reload the panel shows sounds still muted', async () => {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await chatPage.waitForConversationLoaded();
+    await chatPage.openAccessibilityPanel();
+    await expect(muteSounds('On')).toBeVisible();
+  });
+}
+
+test.describe('Accessibility panel', PANEL_DESKTOP_MATRIX, () => {
+  test('opens docked from More options, stores a change, and keeps it across a reload', async ({
+    authenticatedPage,
+    authenticatedRequest,
+    testConversation,
+  }) => {
+    await expectAccessibilityPanelJourney(
+      authenticatedPage,
+      authenticatedRequest,
+      testConversation.id,
+      'docked'
+    );
+  });
+});
+
+test.describe('Accessibility panel on a phone', PANEL_MOBILE_MATRIX, () => {
+  test('opens as a sheet from More options, stores a change, and keeps it across a reload', async ({
+    authenticatedPage,
+    authenticatedRequest,
+    testConversation,
+  }) => {
+    await authenticatedPage.setViewportSize(PHONE_VIEWPORT);
+    await expectAccessibilityPanelJourney(
+      authenticatedPage,
+      authenticatedRequest,
+      testConversation.id,
+      'sheet'
+    );
   });
 });

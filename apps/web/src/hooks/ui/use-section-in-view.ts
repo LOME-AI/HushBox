@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { shouldReduceMotion } from '@hushbox/ui';
+import { PinnedBandHeightContext } from '@/components/shared/page-body';
 
 export const SETTINGS_SECTION_IDS = [
   'account',
@@ -71,12 +72,12 @@ export function scrollToSection(id: SettingsSectionId, instant = false): void {
 
 /**
  * The section in view: the topmost of `ids` whose element shows below the page scroller's
- * pinned band, which it measures while the band sticks (from 768) and counts as 0 while the
- * band scrolls with the page. A section requested by {@link scrollToSection}, or
- * named by the URL hash, stays current until the reader scrolls by their own hand or
- * navigates, so a section too near the page's end to reach the band still reads as current;
- * until then a hashed section also keeps its place under the band while the page grows.
- * Pass a stable `ids` array.
+ * pinned band, whose height it reads from the `PageBody` it is rendered inside while the band
+ * sticks, and counts as 0 while the band scrolls with the page. A section requested by
+ * {@link scrollToSection}, or named by the URL hash, stays current until the reader scrolls by
+ * their own hand or navigates, so a section too near the page's end to reach the band still
+ * reads as current; until then a hashed section also keeps its place under the band while the
+ * page grows. Call it inside the page body's tree, and pass a stable `ids` array.
  */
 export function useSectionInView(ids: readonly SettingsSectionId[]): SettingsSectionId {
   const [first] = ids;
@@ -85,7 +86,7 @@ export function useSectionInView(ids: readonly SettingsSectionId[]): SettingsSec
   const [current, setCurrent] = React.useState<SettingsSectionId>(initialHashSection ?? first);
   const held = React.useRef<SettingsSectionId | null>(initialHashSection);
   const visible = React.useRef(new Set<string>());
-  const [bandHeight, setBandHeight] = React.useState(0);
+  const bandHeight = React.useContext(PinnedBandHeightContext) ?? 0;
 
   const pick = React.useCallback(
     (): SettingsSectionId | undefined => held.current ?? ids.find((id) => visible.current.has(id)),
@@ -116,21 +117,6 @@ export function useSectionInView(ids: readonly SettingsSectionId[]): SettingsSec
       for (const type of READER_INPUT) globalThis.removeEventListener(type, onReaderInput);
     };
   }, [pick]);
-
-  React.useEffect(() => {
-    const scroller = sectionScroller(ids);
-    const band = scroller?.querySelector('[data-page-pinned]');
-    if (!scroller || !band) return;
-    const measure = (): void => {
-      setBandHeight(pinnedHeight(scroller));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(band);
-    return (): void => {
-      observer.disconnect();
-    };
-  }, [ids]);
 
   React.useEffect(() => {
     const elements = ids

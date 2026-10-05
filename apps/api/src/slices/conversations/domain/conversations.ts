@@ -171,12 +171,15 @@ function loadConversationView(
 ): ResultAsync<Outcome<GetConversationResponse>, DomainError> {
   return stores.conversations.get(conversationId).andThen((record) => {
     if (record === null) return okAsync<Outcome<GetConversationResponse>>({ refusal: 'not-found' });
-    return stores.forks.list(conversationId).map(
-      (forks): Outcome<GetConversationResponse> => ({
-        conversation: conversationView(record),
-        membership: membershipView(member),
-        forks: visibleForkViews(forks, member.visibleFromEpoch),
-      })
+    return stores.forks.list(conversationId).andThen((forks) =>
+      stores.conversations.memberCount(conversationId).map(
+        (memberCount): Outcome<GetConversationResponse> => ({
+          conversation: conversationView(record),
+          membership: membershipView(member),
+          forks: visibleForkViews(forks, member.visibleFromEpoch),
+          memberCount,
+        })
+      )
     );
   });
 }

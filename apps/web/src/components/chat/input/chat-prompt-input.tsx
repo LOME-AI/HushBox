@@ -51,18 +51,13 @@ interface ChatHeaderGroupProps {
   // Link-guest members carry null userId/username (see GroupChatProps.members).
   members?: { id: string; userId: string | null; username: string | null }[] | undefined;
   onlineMemberIds?: Set<string> | undefined;
-  onFacepileClick?: (() => void) | undefined;
 }
 
-export function buildChatHeaderGroupProps(
-  groupChat: GroupChatProps | undefined,
-  onFacepileClick: () => void
-): ChatHeaderGroupProps {
+export function buildChatHeaderGroupProps(groupChat?: GroupChatProps): ChatHeaderGroupProps {
   if (!groupChat) return {};
   return {
     members: groupChat.members,
     onlineMemberIds: groupChat.onlineMemberIds,
-    onFacepileClick,
   };
 }
 

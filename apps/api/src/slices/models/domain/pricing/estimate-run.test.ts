@@ -3,9 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_FRAMING_MAX_CHARS,
   CLASSIFIER_OUTPUT_TOKEN_CAP,
-  ESTIMATED_IMAGE_BYTES,
-  ESTIMATED_VIDEO_BYTES_PER_SECOND,
-  MEDIA_STORAGE_COST_PER_BYTE_NANO,
+  mediaStorageNanoUsd,
   STORAGE_COST_PER_CHARACTER_NANO,
   TURN_DECISION_REDUCER,
   VALUE_STORE_BYTE_BUDGET_BYTES,
@@ -71,6 +69,14 @@ const FIXTURE_STAMP_SECONDS = secondsAt(TEST_DAY_START);
  * quarters of 2,500 / 10,000: 1000×3125 + 1000×12_500 = 15_625_000.
  */
 const BASE_1000 = 15_625_000n;
+
+/** A persisting media run's storage term: the value-store budget, 20,971,520 bytes × 18. */
+const RUN_MEDIA_STORAGE = 377_487_360n;
+
+/** The reservation's storage parts, summed across its calls. */
+function storageOf(reservation: RunReservation): bigint {
+  return reservation.calls.reduce((sum, call) => sum + call.storageNanoUsd, 0n);
+}
 
 /** The classifier reserve a token-priced model would hold over `prompted`. */
 function classifierReserveOf(
@@ -2164,21 +2170,31 @@ describe('estimateRun — persisting-turn storage', () => {
     expect(estimateRun(sinkOnly)._unsafeUnwrap()).toBe(BASE_1000 + outputStorage + FRAMING);
   });
 
-  it('includes media output storage for an image node (ESTIMATED_IMAGE_BYTES × byte rate)', () => {
+  it('reserves an image node enough storage for a 16,000,000-byte artifact', () => {
+    const reserve = createReservation(
+      resolverOf(mediaDescriptor({ id: 'img', outputs: ['image'], pricing: IMAGE_PRICING }))
+    );
+
+    const reservation = reserve(
+      workflow([modelNode('m1', 'img')], { inputChars: 0 })
+    )._unsafeUnwrap();
+
+    // Settlement bills the artifact's own bytes: 16,000,000 × 18 = $0.288000.
+    expect(storageOf(reservation)).toBeGreaterThanOrEqual(mediaStorageNanoUsd(16_000_000));
+  });
+
+  it('reserves an image node the run storage bound (value-store budget × byte rate)', () => {
     const estimateRun = createEstimateRun(
       resolverOf(mediaDescriptor({ id: 'img', outputs: ['image'], pricing: IMAGE_PRICING }))
     );
 
     const result = estimateRun(workflow([modelNode('m1', 'img')], { inputChars: 0 }));
 
-    // provider = 40,000,000 = 46,000,000.
-    // media-storage = ESTIMATED_IMAGE_BYTES(8,000,000) × 18 = 144,000,000. No output tokens.
-    const mediaStorage = BigInt(ESTIMATED_IMAGE_BYTES) * MEDIA_STORAGE_COST_PER_BYTE_NANO;
-    expect(result._unsafeUnwrap()).toBe(40_000_000n + mediaStorage);
-    expect(mediaStorage).toBe(144_000_000n);
+    // provider 40,000,000; media storage 20,971,520 bytes × 18 = 377,487,360. No output tokens.
+    expect(result._unsafeUnwrap()).toBe(40_000_000n + RUN_MEDIA_STORAGE);
   });
 
-  it('includes media output storage for a video node (duration × per-second bytes × byte rate)', () => {
+  it('reserves a video node the same run storage bound, whatever its duration', () => {
     const estimateRun = createEstimateRun(
       resolverOf(mediaDescriptor({ id: 'vid', outputs: ['video'], pricing: VIDEO_PRICING }))
     );
@@ -2189,12 +2205,72 @@ describe('estimateRun — persisting-turn storage', () => {
       })
     );
 
-    // provider = 98,800,000 × 4 = 395,200,000 = 454,480,000.
-    // media-storage = 4 × ESTIMATED_VIDEO_BYTES_PER_SECOND(5,000,000) × 18 = 360,000,000.
-    const mediaStorage =
-      4n * BigInt(ESTIMATED_VIDEO_BYTES_PER_SECOND) * MEDIA_STORAGE_COST_PER_BYTE_NANO;
-    expect(result._unsafeUnwrap()).toBe(395_200_000n + mediaStorage);
-    expect(mediaStorage).toBe(360_000_000n);
+    // provider 98,800,000 × 4 = 395,200,000; media storage 377,487,360.
+    expect(result._unsafeUnwrap()).toBe(395_200_000n + RUN_MEDIA_STORAGE);
+  });
+
+  it('reserves the run storage once for two persisting media nodes', () => {
+    const estimateRun = createEstimateRun(
+      resolverOf(mediaDescriptor({ id: 'img', outputs: ['image'], pricing: IMAGE_PRICING }))
+    );
+
+    const result = estimateRun(
+      workflow([modelNode('m1', 'img'), modelNode('m2', 'img')], { inputChars: 0 })
+    );
+
+    expect(result._unsafeUnwrap()).toBe(2n * 40_000_000n + RUN_MEDIA_STORAGE);
+  });
+
+  it('reserves the run storage once for a media node a fanOut runs three times', () => {
+    const estimateRun = createEstimateRun(
+      resolverOf(mediaDescriptor({ id: 'img', outputs: ['image'], pricing: IMAGE_PRICING }))
+    );
+
+    const result = estimateRun(
+      workflow([fanOutNode('f1', 'm1', 3), modelNode('m1', 'img')], { inputChars: 0 })
+    );
+
+    expect(result._unsafeUnwrap()).toBe(3n * 40_000_000n + RUN_MEDIA_STORAGE);
+  });
+
+  it('reserves no media storage for a media node whose output another node consumes', () => {
+    const estimateRun = createEstimateRun(
+      resolverOf(
+        mediaDescriptor({ id: 'img', outputs: ['image'], pricing: IMAGE_PRICING }),
+        buildDescriptor({ id: 'gpt', contextLength: 1000 })
+      )
+    );
+
+    const result = estimateRun(
+      workflow([modelNode('m1', 'img'), modelNode('m2', 'gpt')], { inputChars: 0 }, [
+        edge('m1', 'out', 'm2', 'in'),
+      ])
+    );
+
+    // m1 is consumed, so nothing of it rests; m2 is a persisting text sink.
+    const outputStorage = 1000n * OUTPUT_STORAGE_NANO_PER_TOKEN;
+    expect(result._unsafeUnwrap()).toBe(40_000_000n + BASE_1000 + outputStorage + FRAMING);
+  });
+
+  it('places the run storage on the first persisting media call, after any text call', () => {
+    const reserve = createReservation(
+      resolverOf(
+        mediaDescriptor({ id: 'img', outputs: ['image'], pricing: IMAGE_PRICING }),
+        buildDescriptor({ id: 'gpt', contextLength: 1000 })
+      )
+    );
+
+    const reservation = reserve(
+      workflow([modelNode('m1', 'gpt'), modelNode('m2', 'img'), modelNode('m3', 'img')], {
+        inputChars: 0,
+      })
+    )._unsafeUnwrap();
+
+    expect(reservation.calls.map((call) => [call.nodeId, call.storageNanoUsd])).toEqual([
+      ['m1', 1000n * OUTPUT_STORAGE_NANO_PER_TOKEN + FRAMING],
+      ['m2', RUN_MEDIA_STORAGE],
+      ['m3', 0n],
+    ]);
   });
 
   it('adds candidate-output and input storage to a smartModel node, never classifier storage', () => {
@@ -2251,18 +2327,17 @@ describe('mediaTurnMinCostNanoUsd — the payer freeze media minimum', () => {
   });
   const PROMPT_CHARS = 400;
   const STORAGE = { inputChars: PROMPT_CHARS };
-  const IMAGE_BYTES_NANO = BigInt(ESTIMATED_IMAGE_BYTES) * MEDIA_STORAGE_COST_PER_BYTE_NANO;
   const PROMPT_STORAGE_NANO = BigInt(PROMPT_CHARS) * STORAGE_COST_PER_CHARACTER_NANO;
 
-  it('prices one image at its per-unit rate plus the bytes it will store', () => {
+  it('prices one image at its per-unit rate plus the run storage bound', () => {
     const image = mediaDescriptor({ id: 'img', outputs: ['image'], pricing: IMAGE_PRICING });
 
     const result = mediaTurnMinCostNanoUsd([image], {}, STORAGE);
 
-    expect(result._unsafeUnwrap()).toBe(40_000_000n + IMAGE_BYTES_NANO + PROMPT_STORAGE_NANO);
+    expect(result._unsafeUnwrap()).toBe(40_000_000n + RUN_MEDIA_STORAGE + PROMPT_STORAGE_NANO);
   });
 
-  it('sums every sibling generation but counts the prompt storage once', () => {
+  it('sums every sibling generation but counts the media and prompt storage once', () => {
     const first = mediaDescriptor({ id: 'img-a', outputs: ['image'], pricing: IMAGE_PRICING });
     const second = mediaDescriptor({ id: 'img-b', outputs: ['image'], pricing: IMAGE_PRICING });
 
@@ -2270,9 +2345,7 @@ describe('mediaTurnMinCostNanoUsd — the payer freeze media minimum', () => {
 
     // Every sibling answers, so the media leg is a Σ — a MAX would under-state a
     // fan-out and reopen the band the freeze exists to close.
-    expect(result._unsafeUnwrap()).toBe(
-      (40_000_000n + IMAGE_BYTES_NANO) * 2n + PROMPT_STORAGE_NANO
-    );
+    expect(result._unsafeUnwrap()).toBe(40_000_000n * 2n + RUN_MEDIA_STORAGE + PROMPT_STORAGE_NANO);
   });
 
   it('prices a video at its requested duration and resolution', () => {
@@ -2284,8 +2357,7 @@ describe('mediaTurnMinCostNanoUsd — the payer freeze media minimum', () => {
       STORAGE
     );
 
-    const bytes = BigInt(4 * ESTIMATED_VIDEO_BYTES_PER_SECOND) * MEDIA_STORAGE_COST_PER_BYTE_NANO;
-    expect(result._unsafeUnwrap()).toBe(98_800_000n * 4n + bytes + PROMPT_STORAGE_NANO);
+    expect(result._unsafeUnwrap()).toBe(98_800_000n * 4n + RUN_MEDIA_STORAGE + PROMPT_STORAGE_NANO);
   });
 
   it('fails closed on a selection that generates no media, never a silent zero', () => {

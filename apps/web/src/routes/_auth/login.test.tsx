@@ -78,9 +78,15 @@ interface StepProps {
   onSuccess: () => void;
   onVerify: (code: string) => Promise<{ success: boolean; error?: string }>;
   onBack: () => void;
+  onUseRecoveryPhrase: () => void;
 }
 
-function StepDouble({ onVerify, onSuccess, onBack }: Readonly<StepProps>): React.JSX.Element {
+function StepDouble({
+  onVerify,
+  onSuccess,
+  onBack,
+  onUseRecoveryPhrase,
+}: Readonly<StepProps>): React.JSX.Element {
   return (
     <div data-testid="two-factor-step">
       <button
@@ -95,6 +101,7 @@ function StepDouble({ onVerify, onSuccess, onBack }: Readonly<StepProps>): React
         Verify
       </button>
       <button onClick={onBack}>Back to login</button>
+      <button onClick={onUseRecoveryPhrase}>Use recovery phrase</button>
     </div>
   );
 }
@@ -398,6 +405,42 @@ describe('LoginPage', () => {
     expect(screen.getByRole('button', { name: /log in/i })).toBeInTheDocument();
   });
 
+  it('enters the recovery phrase reset from the two-factor step', async () => {
+    const user = await logInToTheSecondFactor();
+
+    await user.click(screen.getByRole('button', { name: 'Use recovery phrase' }));
+
+    expect(screen.queryByTestId('two-factor-step')).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/enter your 12-word recovery phrase/i)).toBeInTheDocument();
+  });
+
+  it('lands focus on the reset heading when entering it from the two-factor step', async () => {
+    const user = await logInToTheSecondFactor();
+
+    await user.click(screen.getByRole('button', { name: 'Use recovery phrase' }));
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Reset Password' })).toHaveFocus();
+  });
+
+  it('carries the identifier into the recovery phrase reset', async () => {
+    const user = await logInToTheSecondFactor();
+
+    await user.click(screen.getByRole('button', { name: 'Use recovery phrase' }));
+
+    expect(screen.getByLabelText(/email or username/i)).toHaveValue('test@example.com');
+  });
+
+  it('returns to the login form, not the two-factor step, when leaving that reset', async () => {
+    const user = await logInToTheSecondFactor();
+    await user.click(screen.getByRole('button', { name: 'Use recovery phrase' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Reset Password' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /back to login/i }));
+
+    expect(screen.queryByTestId('two-factor-step')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /log in/i })).toBeInTheDocument();
+  });
+
   it('keeps the identifier when returning from the two-factor step', async () => {
     const user = await logInToTheSecondFactor();
 
@@ -562,6 +605,15 @@ describe('LoginPage', () => {
         screen.getByPlaceholderText(/enter your 12-word recovery phrase/i)
       ).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /next/i })).toBeInTheDocument();
+    });
+
+    it('lands focus on the reset heading after "Forgot password?"', async () => {
+      const user = userEvent.setup();
+      renderRoute(Route);
+
+      await user.click(screen.getByRole('button', { name: /forgot password/i }));
+
+      expect(screen.getByRole('heading', { level: 1, name: 'Reset Password' })).toHaveFocus();
     });
 
     it("hides the phrase field's browser outline only while it has focus", async () => {

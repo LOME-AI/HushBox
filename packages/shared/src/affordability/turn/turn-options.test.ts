@@ -90,6 +90,7 @@ function selectionOf(models: readonly string[], overrides: Partial<Selection> = 
     modality: 'text',
     pinned: {},
     webSearch: false,
+    effortAuto: overrides.pinned?.effort === undefined,
     ...overrides,
   };
 }
@@ -302,6 +303,7 @@ describe('cache reads', () => {
   it('are not projected into the money layer at all, so nothing can price them cheaply', () => {
     const parsed = ModelPricingSchema.parse({
       kind: 'tokens',
+      anchorContextTokens: 1_000_000,
       anchor: { base: { input: '1000', output: '2000', cachedInput: '1' }, tiers: [] },
     });
     expect(tokenPricingOf(parsed)?.anchor.base).toEqual({ input: 1000n, output: 2000n });

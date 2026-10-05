@@ -21,6 +21,7 @@ function statedPrice(model: Model): object | undefined {
     case 'text': {
       return {
         kind: 'tokens',
+        anchorContextTokens: pricing.anchorContextTokens,
         anchor: {
           base: { input: pricing.inputPerToken, output: pricing.outputPerToken },
           tiers: (pricing.longContextRates ?? []).map((rate) => ({
@@ -88,6 +89,7 @@ export function pricingToWire(pricing: ModelPricing): WireModelPricing {
       return {
         inputPerToken: serializeNanoUSD(base.input),
         outputPerToken: serializeNanoUSD(base.output),
+        anchorContextTokens: pricing.anchorContextTokens,
         ...servedTiers(tiers),
       };
     }

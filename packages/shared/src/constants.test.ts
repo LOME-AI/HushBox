@@ -6,6 +6,7 @@ import {
   TEST_EMAIL_DOMAIN,
   LINK_CREDENTIAL_HEADER,
   MAX_CONVERSATION_MEMBERS,
+  BILLING_CONTACT_EMAIL,
   LEGAL_CONTACT_EMAIL,
   MEDIA_DOWNLOAD_URL_TTL_SECONDS,
   INPUTS_PREFIX,
@@ -71,6 +72,12 @@ describe('UPGRADE_TICKET_PARAM', () => {
 });
 
 describe('Legal Constants', () => {
+  describe('BILLING_CONTACT_EMAIL', () => {
+    it('is billing@hushbox.ai', () => {
+      expect(BILLING_CONTACT_EMAIL).toBe('billing@hushbox.ai');
+    });
+  });
+
   describe('LEGAL_CONTACT_EMAIL', () => {
     it('is legal@hushbox.ai', () => {
       expect(LEGAL_CONTACT_EMAIL).toBe('legal@hushbox.ai');

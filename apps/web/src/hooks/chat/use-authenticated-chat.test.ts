@@ -24,6 +24,7 @@ import type { KeyChainVerdict, verifyKeyChain } from '@hushbox/crypto';
 import type { Message } from '@/lib/api/api';
 import type { KeyChainResponse, ResolvedReasoningEffort } from '@hushbox/shared';
 import type { StreamOptions } from '@/hooks/chat/use-chat-stream';
+import type { FailedTurn } from '@/stores/chat/error';
 
 // ---------------------------------------------------------------------------
 // Module seams. Everything that is a genuine dependency boundary is mocked;
@@ -261,15 +262,17 @@ vi.mock('@/stores/model', () => ({
 const mockSetError = vi.fn();
 const mockClearError = vi.fn();
 const mockClearAll = vi.fn();
-let mockErrorsByFork: Record<string, { id: string; notice: TurnNotice } | null> = {};
+interface ErrorSlot {
+  id: string;
+  notice: TurnNotice;
+  failedUserMessage?: { id: string; content: string };
+  failedTurn?: FailedTurn;
+}
+let mockErrorsByFork: Record<string, ErrorSlot | null> = {};
 vi.mock('@/stores/chat/error', () => ({
   MAIN_FORK_KEY: 'main',
   useChatErrorStore: Object.assign(
-    (
-      selector?: (s: {
-        errorsByFork: Record<string, { id: string; notice: TurnNotice } | null>;
-      }) => unknown
-    ) => {
+    (selector?: (s: { errorsByFork: Record<string, ErrorSlot | null> }) => unknown) => {
       const state = { errorsByFork: mockErrorsByFork };
       return selector ? selector(state) : state;
     },
@@ -282,10 +285,15 @@ vi.mock('@/stores/chat/error', () => ({
       }),
     }
   ),
-  createChatError: (params: { notice: TurnNotice; failedContent: string }) => ({
+  createChatError: (params: {
+    notice: TurnNotice;
+    failedContent: string;
+    failedTurn?: FailedTurn;
+  }): ErrorSlot => ({
     id: 'error-id',
     notice: params.notice,
     failedUserMessage: { id: 'failed-id', content: params.failedContent },
+    ...(params.failedTurn !== undefined && { failedTurn: params.failedTurn }),
   }),
 }));
 
@@ -1994,6 +2002,490 @@ describe('useAuthenticatedChat — handleRegenerate', () => {
     expect(request.forkId).toBe('fork-7');
     expect(request.webSearchEnabled).toBe(true);
     expect(request.customInstructions).toBe('concise');
+  });
+});
+
+describe('useAuthenticatedChat — a failed turn and its retry', () => {
+  type Chat = ReturnType<typeof useAuthenticatedChat>;
+  type Hook = ReturnType<typeof render>;
+
+  const TEXT_MODELS = modelState.selections['text'] ?? [];
+
+  beforeEach(() => {
+    mockConversationData = { id: 'conv-1', callerId: 'owner-1', callerPrivilege: 'owner' };
+    mockMessagesData = [makeMessage('u1', 'user', 'question'), makeMessage('a1', 'assistant')];
+    streamPlan = {
+      models: [{ modelId: 'test-model', assistantMessageId: 'regen-1' }],
+      token: 'tk',
+    };
+  });
+
+  afterEach(() => {
+    modelState.selections['text'] = TEXT_MODELS;
+  });
+
+  /** A run the client sees fail after its run start named the turn's ids. */
+  async function failAfterStart(
+    stream: typeof mockStartStream,
+    userMessageId = 'u9'
+  ): Promise<void> {
+    const { ChatRunFailedError } = await import('@/hooks/chat/use-chat-stream');
+    stream.mockImplementationOnce((_req: unknown, options?: StreamOptions) => {
+      options?.onStart?.({
+        userMessageId,
+        models: [{ modelId: 'test-model', assistantMessageId: 'a9' }],
+      });
+      return Promise.reject(new ChatRunFailedError('CHAT_STREAM_FAILED'));
+    });
+  }
+
+  /** A re-post the server refuses before its run starts, as the interim not-found does. */
+  async function refuseBeforeStart(stream: typeof mockStartStream): Promise<void> {
+    const { ChatRequestError } = await import('@/hooks/chat/use-chat-stream');
+    stream.mockImplementationOnce(() => Promise.reject(new ChatRequestError('NOT_FOUND')));
+  }
+
+  /** Re-posts a record's retry and shows the record its second failure stored. */
+  async function failedAgain(hook: Hook, record: ErrorSlot): Promise<ErrorSlot> {
+    return failedRecord(hook, (chat) => {
+      chat.handleRegenerate(record.id, 'retry');
+    });
+  }
+
+  /** Runs a failing action and shows the record it stored, as the error store would. */
+  async function failedRecord(hook: Hook, failing: (chat: Chat) => void): Promise<ErrorSlot> {
+    mockSetError.mockClear();
+    act(() => {
+      failing(hook.result.current);
+    });
+    await waitFor(() => {
+      expect(mockSetError).toHaveBeenCalled();
+    });
+    const [, record] = mockSetError.mock.calls.at(-1) as [string, ErrorSlot];
+    mockErrorsByFork = { main: record };
+    hook.rerender();
+    return record;
+  }
+
+  /** Moves every composer setting a turn reads away from what the failed turn sent. */
+  function driftComposer(hook: Hook): void {
+    modelState.selections['text'] = [{ id: 'other-model', name: 'Other Model' }];
+    mockReasoningEffective = 'high';
+    mockWebSearchActive = true;
+    mockCustomInstructions = 'be brief';
+    hook.rerender();
+  }
+
+  function pressRetry(hook: Hook, record: ErrorSlot): void {
+    act(() => {
+      hook.result.current.handleRegenerate(record.id, 'retry');
+    });
+  }
+
+  async function failedSend(hook: Hook): Promise<ErrorSlot> {
+    await failAfterStart(mockStartStream);
+    return failedRecord(hook, (chat) => {
+      chat.handleSend('personal_balance');
+    });
+  }
+
+  it("re-posts a failed send's own request, whatever the composer now holds", async () => {
+    const hook = render();
+    const record = await failedSend(hook);
+    driftComposer(hook);
+
+    pressRetry(hook, record);
+
+    await waitFor(() => {
+      expect(mockStartStream).toHaveBeenCalledTimes(2);
+    });
+    expect(mockStartStream.mock.calls[1]?.[0]).toEqual(mockStartStream.mock.calls[0]?.[0]);
+  });
+
+  it('re-posts a failed send under the turn its key was minted from', async () => {
+    const hook = render();
+    const record = await failedSend(hook);
+
+    pressRetry(hook, record);
+
+    await waitFor(() => {
+      expect(mockStartStream).toHaveBeenCalledTimes(2);
+    });
+    const [first, second] = mockStartStream.mock.calls.map(
+      (call) => (call[1] as StreamOptions | undefined)?.turn
+    );
+    expect(first).toBeTypeOf('object');
+    expect(second).toBe(first);
+  });
+
+  it('never re-posts a failed send as a regenerate', async () => {
+    const hook = render();
+    const record = await failedSend(hook);
+
+    pressRetry(hook, record);
+
+    await waitFor(() => {
+      expect(mockStartStream).toHaveBeenCalledTimes(2);
+    });
+    expect(mockStartRegenerateStream).not.toHaveBeenCalled();
+  });
+
+  it('clears the notice before re-posting the failed send', async () => {
+    const hook = render();
+    const record = await failedSend(hook);
+    mockClearError.mockClear();
+
+    pressRetry(hook, record);
+
+    expect(mockClearError).toHaveBeenCalledWith('main');
+  });
+
+  it('re-reads the conversation after a failed send', async () => {
+    const hook = render();
+    mockInvalidateQueries.mockClear();
+
+    await failedSend(hook);
+
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['conversation', 'conv-1'] });
+  });
+
+  it('removes the notice once the stored history holds the failed send’s turn', async () => {
+    const hook = render();
+    await failedSend(hook);
+    mockClearError.mockClear();
+
+    mockMessagesData = [
+      makeMessage('u1', 'user', 'question'),
+      makeMessage('a1', 'assistant'),
+      makeMessage('u9', 'user', 'hello world'),
+      makeMessage('a9', 'assistant'),
+    ];
+    hook.rerender();
+
+    expect(mockClearError).toHaveBeenCalledWith('main');
+  });
+
+  it('keeps the notice while the stored history lacks the failed send’s turn', async () => {
+    const hook = render();
+    await failedSend(hook);
+    mockClearError.mockClear();
+
+    hook.rerender();
+
+    expect(mockClearError).not.toHaveBeenCalled();
+  });
+
+  it("draws a failed later send's question directly above its notice", async () => {
+    const hook = render();
+    const record = await failedSend(hook);
+
+    expect(
+      hook.result.current.messages.map((m) => [m.id === record.id ? 'notice' : m.role, m.content])
+    ).toEqual([
+      ['user', 'question'],
+      ['assistant', 'c-a1'],
+      ['user', 'hello world'],
+      ['notice', turnNoticeText(record.notice)],
+    ]);
+  });
+
+  it('leaves the failed question out of the history the next send counts', async () => {
+    const hook = render();
+    const counted = hook.result.current.historyCharacters;
+
+    await failedSend(hook);
+
+    expect(hook.result.current.historyCharacters).toBe(counted);
+  });
+
+  it('leaves the failed question out of the history the next send carries', async () => {
+    const hook = render();
+    await failedSend(hook);
+    mockInputValue = 'the next question';
+    hook.rerender();
+
+    act(() => {
+      hook.result.current.handleSend('personal_balance');
+    });
+
+    await waitFor(() => {
+      expect(mockStartStream).toHaveBeenCalledTimes(2);
+    });
+    const [request] = mockStartStream.mock.calls[1] as [
+      { messagesForInference: { content: string }[] },
+    ];
+    expect(request.messagesForInference.map((m) => m.content)).toEqual([
+      'question',
+      'c-a1',
+      'the next question',
+    ]);
+  });
+
+  async function failedRegenerate(
+    hook: Hook,
+    action: 'retry' | 'edit',
+    editedContent?: string
+  ): Promise<ErrorSlot> {
+    // A retry's run start names its anchor; an edit's names the edited question's new row.
+    await failAfterStart(mockStartRegenerateStream, action === 'retry' ? 'u1' : 'u9');
+    return failedRecord(hook, (chat) => {
+      chat.handleRegenerate('u1', action, editedContent);
+    });
+  }
+
+  it("re-posts a failed regenerate's own request to the regenerate route", async () => {
+    const hook = render();
+    const record = await failedRegenerate(hook, 'retry');
+    driftComposer(hook);
+
+    pressRetry(hook, record);
+
+    await waitFor(() => {
+      expect(mockStartRegenerateStream).toHaveBeenCalledTimes(2);
+    });
+    expect(mockStartRegenerateStream.mock.calls[1]?.[0]).toEqual(
+      mockStartRegenerateStream.mock.calls[0]?.[0]
+    );
+  });
+
+  it('re-posts a failed regenerate under the turn its key was minted from', async () => {
+    const hook = render();
+    const record = await failedRegenerate(hook, 'retry');
+
+    pressRetry(hook, record);
+
+    await waitFor(() => {
+      expect(mockStartRegenerateStream).toHaveBeenCalledTimes(2);
+    });
+    const [first, second] = mockStartRegenerateStream.mock.calls.map(
+      (call) => (call[1] as StreamOptions | undefined)?.turn
+    );
+    expect(first).toBeTypeOf('object');
+    expect(second).toBe(first);
+  });
+
+  it('never re-posts a failed regenerate as a send', async () => {
+    const hook = render();
+    const record = await failedRegenerate(hook, 'retry');
+
+    pressRetry(hook, record);
+
+    await waitFor(() => {
+      expect(mockStartRegenerateStream).toHaveBeenCalledTimes(2);
+    });
+    expect(mockStartStream).not.toHaveBeenCalled();
+  });
+
+  it("re-posts a failed edit's edited text as an edit", async () => {
+    const hook = render();
+    const record = await failedRegenerate(hook, 'edit', 'edited text');
+
+    pressRetry(hook, record);
+
+    await waitFor(() => {
+      expect(mockStartRegenerateStream).toHaveBeenCalledTimes(2);
+    });
+    expect(mockStartRegenerateStream.mock.calls[1]?.[0]).toMatchObject({
+      action: 'edit',
+      targetMessageId: 'u1',
+      userMessage: { content: 'edited text' },
+    });
+  });
+
+  it("sets a failed regenerate's notice directly after its own turn", async () => {
+    mockMessagesData = [
+      makeMessage('u1', 'user', 'question'),
+      makeMessage('a1', 'assistant'),
+      makeMessage('u2', 'user', 'later'),
+      makeMessage('a2', 'assistant'),
+    ];
+    const hook = render();
+    const record = await failedRegenerate(hook, 'retry');
+
+    expect(hook.result.current.messages.map((m) => m.id)).toEqual([
+      'u1',
+      'a1',
+      record.id,
+      'u2',
+      'a2',
+    ]);
+  });
+
+  it("offers a failed edit's text back above its notice", async () => {
+    const hook = render();
+    const record = await failedRegenerate(hook, 'edit', 'edited text');
+
+    expect(
+      hook.result.current.messages.map((m) => [m.id === record.id ? 'notice' : m.role, m.content])
+    ).toEqual([
+      ['user', 'question'],
+      ['assistant', 'c-a1'],
+      ['user', 'edited text'],
+      ['notice', turnNoticeText(record.notice)],
+    ]);
+  });
+
+  it('removes the notice once the stored history holds the failed regenerate’s reply', async () => {
+    const hook = render();
+    await failedRegenerate(hook, 'retry');
+    mockClearError.mockClear();
+
+    mockMessagesData = [makeMessage('u1', 'user', 'question'), makeMessage('a9', 'assistant')];
+    hook.rerender();
+
+    expect(mockClearError).toHaveBeenCalledWith('main');
+  });
+
+  it('keeps the notice of a failed retry whose own question is stored', async () => {
+    const hook = render();
+    await failedRegenerate(hook, 'retry');
+    mockClearError.mockClear();
+
+    hook.rerender();
+
+    expect(mockClearError).not.toHaveBeenCalled();
+  });
+
+  it('still removes the notice when a refused retry follows a regenerate the server stored', async () => {
+    const hook = render();
+    const record = await failedRegenerate(hook, 'retry');
+    await refuseBeforeStart(mockStartRegenerateStream);
+    await failedAgain(hook, record);
+    mockClearError.mockClear();
+
+    mockMessagesData = [makeMessage('u1', 'user', 'question'), makeMessage('a9', 'assistant')];
+    hook.rerender();
+
+    expect(mockClearError).toHaveBeenCalledWith('main');
+  });
+
+  it('still removes the notice when a refused retry follows a send the server stored', async () => {
+    const hook = render();
+    const record = await failedSend(hook);
+    await refuseBeforeStart(mockStartStream);
+    await failedAgain(hook, record);
+    mockClearError.mockClear();
+
+    mockMessagesData = [
+      makeMessage('u1', 'user', 'question'),
+      makeMessage('a1', 'assistant'),
+      makeMessage('u9', 'user', 'hello world'),
+      makeMessage('a9', 'assistant'),
+    ];
+    hook.rerender();
+
+    expect(mockClearError).toHaveBeenCalledWith('main');
+  });
+
+  it('keeps the errored column of a partly failed regenerate', async () => {
+    streamPlan = {
+      models: [
+        { modelId: 'test-model', assistantMessageId: 'regen-1' },
+        { modelId: 'other-model', assistantMessageId: 'regen-2', errorCode: 'MODEL_ERROR' },
+      ],
+      modelError: { modelId: 'other-model', assistantMessageId: 'regen-2', code: 'MODEL_ERROR' },
+    };
+    const hook = render();
+
+    act(() => {
+      hook.result.current.handleRegenerate('u1', 'retry');
+    });
+
+    await waitFor(() => {
+      expect(mockStopStreaming).toHaveBeenCalledWith(['regen-1', 'regen-2']);
+    });
+    await waitFor(() => {
+      expect(hook.result.current.messages.map((m) => m.id)).toEqual(['u1', 'a1', 'regen-2']);
+    });
+  });
+
+  describe('on the first turn', () => {
+    beforeEach(() => {
+      mockMessagesData = undefined;
+      mockPendingMessage = 'Hello AI';
+      mockPendingFundingSource = 'personal_balance';
+    });
+
+    async function failedFirstTurn(): Promise<{ hook: Hook; record: ErrorSlot }> {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await failAfterStart(mockStartStream);
+      const hook = render({ routeConversationId: 'new' });
+      await waitFor(() => {
+        expect(mockSetError).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(hook.result.current.realConversationId).toBe('real-conv');
+      });
+      const [, record] = mockSetError.mock.calls.at(-1) as [string, ErrorSlot];
+      mockErrorsByFork = { main: record };
+      hook.rerender();
+      consoleSpy.mockRestore();
+      return { hook, record };
+    }
+
+    it("re-posts a failed first turn's own request under its own turn", async () => {
+      const { hook, record } = await failedFirstTurn();
+      driftComposer(hook);
+
+      pressRetry(hook, record);
+
+      await waitFor(() => {
+        expect(mockStartStream).toHaveBeenCalledTimes(2);
+      });
+      const [first, second] = mockStartStream.mock.calls;
+      const turnOf = (call: unknown[] | undefined): unknown =>
+        (call?.[1] as StreamOptions | undefined)?.turn;
+      expect(second?.[0]).toEqual(first?.[0]);
+      expect(turnOf(first)).toBeTypeOf('object');
+      expect(turnOf(second)).toBe(turnOf(first));
+    });
+
+    it('re-reads the conversation after a failed first turn', async () => {
+      await failedFirstTurn();
+
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['conversation', 'real-conv'],
+      });
+    });
+
+    it("offers Copy alone on a failed first turn's question", async () => {
+      const { hook } = await failedFirstTurn();
+
+      expect(hook.result.current.messages[0]).toMatchObject({
+        role: 'user',
+        content: 'Hello AI',
+        unsavedQuestion: true,
+      });
+    });
+
+    it('shows the question once when a retried first turn fails again', async () => {
+      const { hook, record } = await failedFirstTurn();
+      const { ChatRunFailedError } = await import('@/hooks/chat/use-chat-stream');
+      // A same-key re-execution mints the turn a new user message id.
+      mockStartStream.mockImplementationOnce((_req: unknown, options?: StreamOptions) => {
+        options?.onStart?.({
+          userMessageId: 'u10',
+          models: [{ modelId: 'test-model', assistantMessageId: 'a10' }],
+        });
+        return Promise.reject(new ChatRunFailedError('CHAT_STREAM_FAILED'));
+      });
+      await failedAgain(hook, record);
+
+      expect(
+        hook.result.current.messages.filter((m) => m.role === 'user').map((m) => m.content)
+      ).toEqual(['Hello AI']);
+    });
+
+    it("draws no second question beside the first turn's own row", async () => {
+      const { hook, record } = await failedFirstTurn();
+
+      expect(
+        hook.result.current.messages.map((m) => [m.id === record.id ? 'notice' : m.role, m.content])
+      ).toEqual([
+        ['user', 'Hello AI'],
+        ['notice', turnNoticeText(record.notice)],
+      ]);
+    });
   });
 });
 

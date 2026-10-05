@@ -102,6 +102,7 @@ function selectionOf(pinned: readonly string[], smartSlot: boolean): Selection {
     modality: 'text',
     pinned: {},
     webSearch: false,
+    effortAuto: true,
   };
 }
 

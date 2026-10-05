@@ -163,8 +163,8 @@ export interface Message {
    */
   mediaProgress?: { percent: number };
   /**
-   * Reasoning token count for this assistant message. Drives the count inside
-   * an opened reasoning trace and the "Reasoning not shared" line for models
+   * Reasoning token count for this assistant message. Drives the count on the
+   * settled reasoning line and the "Reasoning not shared" line for models
    * that bill reasoning without emitting visible text. Populated live from
    * the finish frame's `usage.reasoningTokens` (optimistic messages) and on
    * reload from the history read's persisted per-item counts; absent (never
@@ -177,13 +177,27 @@ export interface Message {
    * reload from the history read's persisted per-item level; absent when no
    * level was recorded, which is a state of its own rather than a level.
    *
-   * The settled reasoning row's label is its only surface — `disclosureDetail`
-   * in `apps/web/src/components/chat/message/thinking-disclosure.tsx` — so a
+   * The reply head's effort tag (`effortTagOf` in
+   * `apps/web/src/components/chat/message/model-nameplate.tsx`) is its only
+   * surface, and it shows the level only beside a settled reasoning row, so a
    * message that renders no such row shows no level however this is populated.
-   * Where the row does render, that label spells every level the same way,
-   * `off` included.
    */
   reasoningEffort?: ResolvedReasoningEffort;
+  /**
+   * How long this assistant message's generation showed reasoning, in whole
+   * milliseconds, from the history read's persisted per-item durations. Absent
+   * when none was recorded: replies settled before it was measured, and a live
+   * tile, whose finish frame carries no duration.
+   */
+  reasoningDurationMs?: number;
+  /**
+   * Input and output tokens this assistant message's generation used, summed from
+   * the history read's per-item counts. Each is absent when no item recorded one,
+   * which is also what a link guest reads: the read serves a guest no counts,
+   * since counts times the model's public rates rebuild the spend.
+   */
+  inputTokens?: number;
+  outputTokens?: number;
   /**
    * Set on a watcher's finished tile while it waits for the stored row carrying its id.
    * Such a row offers no message actions: it has no stored fields to share and no stored
@@ -195,6 +209,11 @@ export interface Message {
    * then the notice's plain sentence. No request or stored row carries it.
    */
   turnNotice?: TurnNotice;
+  /**
+   * Marks a failed turn's question that was never saved, so it offers Copy alone: no stored
+   * row exists to edit or re-run. Display-only; no request or stored row carries it.
+   */
+  unsavedQuestion?: true;
 }
 
 /**
@@ -203,8 +222,9 @@ export interface Message {
  * Derived from the shared `contentItemResponseSchema` so the wire/display
  * shapes never drift. We narrow `contentType` to non-text media, mark the
  * media-only fields as required (the shared schema makes them nullable for
- * text items, but the UI never receives those here), and add `downloadUrl`
- * which is forwarded from the SSE `done` event for just-generated media.
+ * text items, but the UI never receives those here), and add `downloadUrl`,
+ * which a read sets when it already holds a presigned URL for the item, as the
+ * public message share's read does.
  */
 export type MessageMediaItem = Pick<ContentItemResponse, 'id' | 'position'> & {
   contentType: 'image' | 'audio' | 'video';
@@ -214,12 +234,12 @@ export type MessageMediaItem = Pick<ContentItemResponse, 'id' | 'position'> & {
   height?: number | null;
   durationMs?: number | null;
   /**
-   * Pre-fetched presigned GET URL forwarded from the SSE `done` event for
-   * media items generated in the current session. Lets the consumer skip
-   * `useMediaDownloadUrl()` for the common case (just-generated media), saving
-   * a network round-trip immediately after the assistant message lands.
-   * Re-fetched messages from the API don't carry this — the URL is only valid
-   * for `MEDIA_DOWNLOAD_URL_TTL_SECONDS`.
+   * Presigned GET URL, set when the read that produced the item already holds
+   * one. The public message share's read sets it on every item: that share's
+   * reader need not be a member, and `useMediaDownloadUrl()`, which mints the
+   * URL when this is absent, is refused to anyone who is not a member of the
+   * item's conversation and epoch. The conversation history read never carries
+   * it; the URL is only valid for `MEDIA_DOWNLOAD_URL_TTL_SECONDS`.
    */
   downloadUrl?: string;
 };

@@ -56,6 +56,11 @@ interface PopoverProps {
   boundary?: HTMLElement | null;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /**
+   * Called as the popover closes, in place of its own focus return (to its trigger, or as a
+   * sheet to its opener), for a caller whose popover something other than the trigger opened.
+   */
+  onCloseAutoFocus?: (event: Event) => void;
   'data-testid'?: string;
   children: React.ReactNode;
 }
@@ -65,6 +70,23 @@ type Presentation = 'anchored' | 'sheet';
 /** A rectangle the popover hangs from: the caller's anchor, or else its own trigger. */
 interface HangPoint {
   getBoundingClientRect: () => DOMRect;
+  /** The element the rectangle belongs to, whose scrolling ancestors the popover follows. */
+  readonly contextElement?: Element | undefined;
+}
+
+/**
+ * A stand-in anchor that measures the trigger whenever the popover is placed. It names the
+ * trigger as its element, read when the popover opens and starts following its anchor, so the
+ * popover follows the trigger through every scrolling ancestor rather than window scrolling only.
+ * While the trigger is between nodes it measures the page instead.
+ */
+function hangFromTrigger(trigger: React.RefObject<HTMLElement | null>): HangPoint {
+  return {
+    getBoundingClientRect: () => (trigger.current ?? document.body).getBoundingClientRect(),
+    get contextElement() {
+      return trigger.current ?? undefined;
+    },
+  };
 }
 
 /**
@@ -86,17 +108,20 @@ function useHangPoint(
   return React.useMemo(() => {
     if (!triggerAttached) return;
     if (anchor) return { current: anchor };
-    return {
-      current: {
-        getBoundingClientRect: () => (trigger.current ?? document.body).getBoundingClientRect(),
-      },
-    };
+    return { current: hangFromTrigger(trigger) };
   }, [anchor, trigger, triggerAttached]);
 }
 
 type ContentProps = Pick<
   PopoverProps,
-  'title' | 'align' | 'side' | 'width' | 'boundary' | 'data-testid' | 'children'
+  | 'title'
+  | 'align'
+  | 'side'
+  | 'width'
+  | 'boundary'
+  | 'onCloseAutoFocus'
+  | 'data-testid'
+  | 'children'
 >;
 
 function AnchoredContent({
@@ -105,11 +130,13 @@ function AnchoredContent({
   side = 'bottom',
   width = 'sm',
   boundary,
+  onCloseAutoFocus,
   'data-testid': testId,
   children,
 }: Readonly<ContentProps>): React.JSX.Element {
   return (
     <PopoverContent
+      {...(onCloseAutoFocus !== undefined && { onCloseAutoFocus })}
       aria-label={title}
       side={side}
       align={align}
@@ -128,13 +155,20 @@ function SheetContent({
   title,
   open,
   onOpenChange,
+  onCloseAutoFocus,
   'data-testid': testId,
   children,
 }: Readonly<
   ContentProps & { open: boolean; onOpenChange: (open: boolean) => void }
 >): React.JSX.Element {
   return (
-    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel={title} showCloseButton={false}>
+    <Overlay
+      open={open}
+      onOpenChange={onOpenChange}
+      ariaLabel={title}
+      showCloseButton={false}
+      {...(onCloseAutoFocus !== undefined && { onCloseAutoFocus })}
+    >
       <OverlayContent
         className={TEXT_CLASS}
         {...(testId !== undefined && { 'data-testid': testId })}
@@ -194,5 +228,5 @@ function Popover({
   );
 }
 
-export { Popover };
+export { Popover, hangFromTrigger };
 export type { PopoverProps };

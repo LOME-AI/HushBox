@@ -76,6 +76,7 @@ import '@/app.css';
 import { useModelStore } from ${JSON.stringify(STORE_FILE)};
 import { GenerationSettingsPopover } from ${JSON.stringify(POPOVER_FILE)};
 import { RatioChip } from ${JSON.stringify(CHIP_FILE)};
+import { Popover } from '@hushbox/ui/popover';
 
 useModelStore.setState({
   activeModality: 'image',
@@ -89,11 +90,21 @@ function Composer() {
     h(GenerationSettingsPopover, { modality: 'image', trigger: h(RatioChip), anchor: field }));
 }
 
+// The nested scene: a popover with no anchor of its own, hanging from its trigger inside a
+// scroller that is not the page.
+const nested = h('div', { id: 'scroller', style: { height: '400px', overflow: 'auto', margin: '100px 16px 0' } },
+  h('div', { style: { height: '1600px', paddingTop: '160px' } },
+    h(Popover, { trigger: h('button', { type: 'button', id: 'plain-trigger' }, 'Open'), title: 'Plain' },
+      h('p', null, 'Body'))));
+
+const scene = new URLSearchParams(location.search).get('scene');
 createRoot(document.getElementById('root')).render(h(StrictMode, null,
-  h('main', { style: { display: 'flex', height: '100vh' } },
-    h('div', { 'data-page-slot': 'region', id: 'region',
-      style: { width: '${String(NARROW_REGION_PX)}px', padding: '120px 16px 0', boxSizing: 'border-box' } },
-      h(Composer)))));
+  scene === 'nested'
+    ? h('main', null, nested)
+    : h('main', { style: { display: 'flex', height: '100vh' } },
+      h('div', { 'data-page-slot': 'region', id: 'region',
+        style: { width: '${String(NARROW_REGION_PX)}px', padding: '120px 16px 0', boxSizing: 'border-box' } },
+        h(Composer)))));
 globalThis.__ratioGridReady = true;
 `;
 
@@ -224,7 +235,7 @@ async function readGrid(
 /** A phone screen, where the popover is a sheet, and a desktop one, where it hangs. */
 const PHONE_SCREEN = { width: 390, height: 844 } as const;
 const DESKTOP_SCREEN = { width: 1024, height: 768 } as const;
-/** The popover's gap from what it hangs from: FND-10b's side offset. */
+/** The popover's gap from what it hangs from: the popover's own side offset. */
 const HANG_GAP_PX = 8;
 
 interface ReopenReading {
@@ -313,6 +324,66 @@ async function sheetFocusAfterCrossingDown(
   return page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
 }
 
+/** How long a popover that follows its trigger is given to catch up with a scroll. */
+const FOLLOW_SCROLL_MS = 5000;
+/** A gap read across two layout boxes rounds differently per engine; this much is rounding. */
+const SUBPIXEL_PX = 1;
+/** How far the nested scene's scroller moves under the open popover. */
+const NESTED_SCROLL_PX = 150;
+
+/** The open popover's top less its trigger's bottom, before and after the scroller moves. */
+interface NestedReading {
+  readonly before: number;
+  readonly after: number;
+}
+
+/**
+ * Opens a popover that hangs from its own trigger inside a scroller that is not the page,
+ * scrolls that scroller, and reads the gap at rest each time.
+ */
+async function gapThroughNestedScroll(page: Page, origin: string): Promise<NestedReading> {
+  await page.setViewportSize(DESKTOP_SCREEN);
+  await page.goto(`${origin}/ratio-grid.html?scene=nested`, {
+    waitUntil: 'commit',
+    timeout: LOAD_MS,
+  });
+  await page.waitForFunction(() => globalThis.__ratioGridReady === true, undefined, {
+    timeout: LOAD_MS,
+  });
+  await page.getByRole('button', { name: 'Open' }).click({ timeout: ACTION_MS });
+  const surface = page.getByRole('dialog', { name: 'Plain' });
+  await surface.waitFor({ timeout: ACTION_MS });
+  const gap = (): Promise<number> =>
+    surface.evaluate(async (dialog) => {
+      await Promise.all(dialog.getAnimations().map((animation) => animation.finished));
+      const trigger = document.querySelector('#plain-trigger');
+      if (trigger === null) throw new TypeError('no trigger');
+      return dialog.getBoundingClientRect().top - trigger.getBoundingClientRect().bottom;
+    });
+  const before = await gap();
+  await page.evaluate((distance) => {
+    const scroller = document.querySelector('#scroller');
+    if (scroller === null) throw new TypeError('no scroller');
+    scroller.scrollTop = distance;
+  }, NESTED_SCROLL_PX);
+  // The position follows the scroll a frame or two later, when it follows it at all; a popover
+  // that stays put never meets the wait, which then ends and the reading shows where it is.
+  await page
+    .waitForFunction(
+      (expected) => {
+        const dialog = document.querySelector('[role="dialog"]');
+        const trigger = document.querySelector('#plain-trigger');
+        if (dialog === null || trigger === null) return false;
+        const gapNow = dialog.getBoundingClientRect().top - trigger.getBoundingClientRect().bottom;
+        return Math.abs(gapNow - expected) < 1;
+      },
+      HANG_GAP_PX,
+      { timeout: FOLLOW_SCROLL_MS }
+    )
+    .catch(() => undefined);
+  return { before, after: await gap() };
+}
+
 type EngineName = 'chromium' | 'firefox';
 const ENGINES: readonly EngineName[] = ['chromium', 'firefox'];
 
@@ -374,6 +445,24 @@ describe('the aspect ratio grid (real browser)', () => {
   }
 
   describe.each(ENGINES)('on %s', (engine) => {
+    it(
+      'keeps its gap from its trigger when a scroller around it scrolls',
+      async () => {
+        const browser = browsers[engine];
+        if (browser === undefined) throw new Error(`${engine} did not launch`);
+        const page = await browser.newPage();
+        try {
+          const reading = await gapThroughNestedScroll(page, server.url);
+
+          expect(Math.abs(reading.before - HANG_GAP_PX)).toBeLessThanOrEqual(SUBPIXEL_PX);
+          expect(Math.abs(reading.after - HANG_GAP_PX)).toBeLessThanOrEqual(SUBPIXEL_PX);
+        } finally {
+          await page.close();
+        }
+      },
+      TEST_MS
+    );
+
     it.each([
       ['after it opened anchored', true],
       ['before it ever opened', false],

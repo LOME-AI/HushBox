@@ -246,6 +246,7 @@ function useProducerInputs(input: {
           modality: activeModality,
           pinned: effort === undefined || effort === 'auto' ? {} : { effort },
           webSearch,
+          effortAuto: effort === 'auto',
         },
         catalog: { models, nowMs: CATALOG_INSTANT_MS },
       },

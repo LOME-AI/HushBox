@@ -145,7 +145,7 @@ beforeAll(async () => {
       descriptor: {
         id: MODEL,
         provider: 'p',
-        version: '3',
+        version: '4',
         inputs: ['text'],
         outputs: ['text'],
         parameters: {},
@@ -153,6 +153,7 @@ beforeAll(async () => {
         limits: { contextLength: 128_000 },
         pricing: {
           kind: 'tokens',
+          anchorContextTokens: 1_000_000,
           anchor: {
             base: {
               input: CATALOG_INPUT_PER_TOKEN_NANO.toString(),

@@ -368,6 +368,8 @@ describe('createSentryTelemetry cron monitor check-in', () => {
           schedule: { type: 'crontab', value: CRON_SCHEDULES['jobs-health'] },
           checkinMargin: 5,
           maxRuntime: 10,
+          failureIssueThreshold: 2,
+          recoveryThreshold: 1,
           timezone: 'UTC',
         },
       ],
@@ -387,6 +389,23 @@ describe('createSentryTelemetry cron monitor check-in', () => {
 
     expect(calls[1]).toEqual([
       { monitorSlug: 'jobs-health', status: 'ok', checkInId: 'check-in-1' },
+      undefined,
+    ]);
+  });
+
+  it('finishes a failed pass as an error against the id the in_progress check-in returned', () => {
+    const calls = spyCheckIn(['check-in-1']);
+    const telemetry = createSentryTelemetry({
+      dsn: DSN,
+      transport: createSpyTransport().factory,
+      monitorCrontab: CRON_SCHEDULES['jobs-health'],
+    });
+
+    telemetry.checkIn('in_progress');
+    telemetry.checkIn('error');
+
+    expect(calls[1]).toEqual([
+      { monitorSlug: 'jobs-health', status: 'error', checkInId: 'check-in-1' },
       undefined,
     ]);
   });

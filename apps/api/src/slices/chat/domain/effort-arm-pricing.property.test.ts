@@ -126,6 +126,7 @@ function classifyingArm(
 ): WorkflowDefinition {
   const build = compileAutoEffortTurn(catalog, model, {
     budget: budget,
+    catalogGeneration: '0123456789abcdef',
     hooks: CHAT_TURN_HOOKS,
     now: new Date(TEST_DAY_START),
   })._unsafeUnwrap();

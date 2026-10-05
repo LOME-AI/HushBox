@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Menu, MenuRadioGroup, MenuRadioItem } from '@hushbox/ui/menu';
 import { Icon, Image, Lock, Mic, Plus, Type, Video, type IconComponent } from '@hushbox/ui/icons';
-import { TEST_IDS } from '@hushbox/shared';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { Chip } from '@/components/shared/chip';
 import type { usePayerPremiumAccess } from '@/hooks/models/use-payer-premium-access';
 import type { ChatModality } from '@hushbox/shared';
@@ -9,6 +9,11 @@ import type { ChatModality } from '@hushbox/shared';
 type PremiumAccess = ReturnType<typeof usePayerPremiumAccess>;
 
 const MENU_LABEL = 'Change mode';
+
+/** The name of the chip that shows the current mode outside text; the demo finds the chip by it. */
+export function modeChipLabel(modality: ChatModality): string {
+  return `Mode: ${modality}`;
+}
 
 /**
  * The two things a premium-gated mode says when its payer may not enter it.
@@ -168,6 +173,7 @@ export function ModeMenu({
               <MenuRadioItem<ChatModality>
                 key={entry.modality}
                 value={entry.modality}
+                data-testid={TEST_ID_BUILDERS.modeMenuItem(entry.modality)}
                 icon={entry.icon}
                 title={entry.title}
                 {...(reason !== undefined && {
@@ -185,7 +191,7 @@ export function ModeMenu({
         <Chip
           icon={active.icon}
           label={active.title}
-          aria-label={`Mode: ${active.modality}`}
+          aria-label={modeChipLabel(active.modality)}
           pressed
           onClick={() => {
             onSelect('text');

@@ -26,7 +26,7 @@ import {
   validateConfirmPassword,
   validateRecoveryPhrase,
 } from '@/lib/auth/validation';
-import type { VerifiedRecoveryPhrase } from '@/lib/auth/auth';
+import type { TotpVerifyResult, VerifiedRecoveryPhrase } from '@/lib/auth/auth';
 
 export const Route = createFileRoute('/_auth/login')({
   component: LoginPage,
@@ -97,6 +97,7 @@ interface RecoveryPhraseFormProps {
   isVerifying: boolean;
   onNext: () => Promise<void>;
   onBackToLogin: () => void;
+  viewRef: React.RefObject<HTMLDivElement | null>;
 }
 
 function RecoveryPhraseForm({
@@ -109,6 +110,7 @@ function RecoveryPhraseForm({
   isVerifying,
   onNext,
   onBackToLogin,
+  viewRef,
 }: Readonly<RecoveryPhraseFormProps>): React.JSX.Element {
   const [touched, setTouched] = useState({ identifier: false, recoveryPhrase: false });
   const formRef = useRef<HTMLFormElement>(null);
@@ -136,7 +138,7 @@ function RecoveryPhraseForm({
   }
 
   return (
-    <div>
+    <div ref={viewRef}>
       <AuthFormHeader
         title="Reset Password"
         subtitle="Enter your email or username and 12-word recovery phrase"
@@ -377,10 +379,13 @@ function LoginPage(): React.JSX.Element {
   const [isVerifying, setIsVerifying] = useState(false);
   // Set while the sign-in waits on its second factor; the step replaces the form.
   const [verifyTOTP, setVerifyTOTP] = useState<
-    ((code: string) => Promise<{ success: boolean; error?: string }>) | null
+    ((code: string) => Promise<TotpVerifyResult>) | null
   >(null);
   const loginFormRef = useRef<HTMLFormElement>(null);
   const loginViewRef = useRef<HTMLDivElement>(null);
+  const recoveryViewRef = useRef<HTMLDivElement>(null);
+  // Set by an entry into the reset; the control that held focus is gone once the form replaces it.
+  const focusResetOnEntryRef = useRef(false);
   // Where focus lands once the form replaces the two-factor step, whose control held it.
   const landingAfterStepRef = useRef<'password' | 'heading' | null>(null);
   const { band } = useFormFactor();
@@ -467,6 +472,23 @@ function LoginPage(): React.JSX.Element {
     setPassword('');
   }
 
+  function enterRecoveryPhrase(): void {
+    focusResetOnEntryRef.current = true;
+    setMode('recovery-phrase');
+  }
+
+  function leaveTwoFactorStepForRecovery(): void {
+    setVerifyTOTP(null);
+    setPassword('');
+    enterRecoveryPhrase();
+  }
+
+  useEffect(() => {
+    if (mode !== 'recovery-phrase' || !focusResetOnEntryRef.current) return;
+    focusResetOnEntryRef.current = false;
+    focusHeading(recoveryViewRef.current);
+  }, [mode]);
+
   useEffect(() => {
     const landing = landingAfterStepRef.current;
     if (verifyTOTP !== null || landing === null) return;
@@ -530,6 +552,7 @@ function LoginPage(): React.JSX.Element {
         onBackToLogin={() => {
           leaveRecoveryStep('login');
         }}
+        viewRef={recoveryViewRef}
       />
     );
   }
@@ -575,6 +598,7 @@ function LoginPage(): React.JSX.Element {
         onVerify={verifyTOTP}
         onSuccess={handle2FASuccess}
         onBack={leaveTwoFactorStep}
+        onUseRecoveryPhrase={leaveTwoFactorStepForRecovery}
       />
     );
   }
@@ -627,9 +651,7 @@ function LoginPage(): React.JSX.Element {
           <button
             type="button"
             className="text-primary max-w-full shrink-0 cursor-pointer text-start text-sm hover:underline"
-            onClick={() => {
-              setMode('recovery-phrase');
-            }}
+            onClick={enterRecoveryPhrase}
           >
             Forgot password?
           </button>

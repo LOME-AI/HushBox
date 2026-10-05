@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { TEST_IDS, TEST_SIGNALS, ROUTES, MODALITY_ARIA_LABELS } from '@hushbox/shared';
+import { TEST_IDS, TEST_SIGNALS, ROUTES } from '@hushbox/shared';
 import type { DemoModality } from './mock-backend/fixtures';
 import type { Mock } from 'vitest';
 
@@ -133,7 +133,7 @@ function useDirectorTimers(): void {
   });
 }
 
-function mountChatDom(options: { modality?: DemoModality; streamingCount?: number } = {}): void {
+function mountChatDom(options: { streamingCount?: number } = {}): void {
   const composer = document.createElement('textarea');
   composer.dataset['testid'] = TEST_IDS.promptInput;
   document.body.append(composer);
@@ -144,11 +144,6 @@ function mountChatDom(options: { modality?: DemoModality; streamingCount?: numbe
   list.dataset['testid'] = TEST_IDS.messageList;
   list.setAttribute(TEST_SIGNALS.streamingCount, String(options.streamingCount ?? 0));
   document.body.append(list);
-  if (options.modality !== undefined) {
-    const button = document.createElement('button');
-    button.setAttribute('aria-label', MODALITY_ARIA_LABELS[options.modality]);
-    document.body.append(button);
-  }
 }
 
 function setWelcome(present: boolean): void {
@@ -329,7 +324,7 @@ describe('startDirector', () => {
   it('plays a full-motion group replay (non-zero group delays)', async () => {
     useDirectorTimers();
     reduceMotion = false;
-    mountChatDom({ modality: 'text' });
+    mountChatDom();
     setWelcome(true);
     const backend = makeBackend({
       isGroupConversation: vi.fn(() => true),
@@ -363,8 +358,8 @@ describe('startDirector', () => {
 
   it('no-ops clickSend and switchModality when the controls are absent or disabled', async () => {
     useDirectorTimers();
-    // A composer + message list, but the send button is disabled and no modality
-    // button exists, so clickSend and switchModality both take their false arm.
+    // A composer + message list, but the send button is disabled and no "+"
+    // exists, so clickSend and switchModality both take their false arm.
     const composer = document.createElement('textarea');
     composer.dataset['testid'] = TEST_IDS.promptInput;
     document.body.append(composer);
@@ -468,7 +463,7 @@ describe('startDirector', () => {
   it('aborts a group replay in progress on dispose', async () => {
     useDirectorTimers();
     reduceMotion = false;
-    mountChatDom({ modality: 'text' });
+    mountChatDom();
     setWelcome(true);
     const backend = makeBackend({
       isGroupConversation: vi.fn(() => true),
@@ -510,7 +505,7 @@ describe('startDirector', () => {
 
   it('stops a group replay when the in-conversation composer never resolves', async () => {
     useDirectorTimers();
-    mountChatDom({ modality: 'text' });
+    mountChatDom();
     setWelcome(true);
     // Sticky welcome: the lead-in composer matches, but the in-conversation wait
     // never does, so playGroupReplay bails at its composer gate.
@@ -537,7 +532,7 @@ describe('startDirector', () => {
   it('aborts a group message during its typing indicator', async () => {
     useDirectorTimers();
     reduceMotion = false;
-    mountChatDom({ modality: 'text' });
+    mountChatDom();
     setWelcome(true);
     const backend = makeBackend({
       isGroupConversation: vi.fn(() => true),
@@ -581,7 +576,7 @@ describe('startDirector', () => {
 
   it('plays a solo scripted conversation: welcome lead-in, fake send, then a continuation turn', async () => {
     useDirectorTimers();
-    mountChatDom({ modality: 'image' });
+    mountChatDom();
     setWelcome(true);
     const backend = makeBackend({
       getModality: vi.fn((): DemoModality => 'image'),
@@ -658,7 +653,7 @@ describe('startDirector', () => {
   it('plays a group conversation: opener lead-in, then transcript replay over the socket', async () => {
     useDirectorTimers();
     reduceMotion = true;
-    mountChatDom({ modality: 'text' });
+    mountChatDom();
     setWelcome(true);
     const amir: GroupMessageEvent = {
       messageId: 'g1',
@@ -704,7 +699,7 @@ describe('startDirector', () => {
   it('stops the group replay when the next transcript message cannot be appended', async () => {
     useDirectorTimers();
     reduceMotion = true;
-    mountChatDom({ modality: 'text' });
+    mountChatDom();
     setWelcome(true);
     const backend = makeBackend({
       isGroupConversation: vi.fn(() => true),

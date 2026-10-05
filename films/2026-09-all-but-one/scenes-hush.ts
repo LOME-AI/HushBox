@@ -6,17 +6,14 @@ import {
   H,
   HEAVY,
   INK,
-  PLAYFUL,
   SNAPPY,
   TAU,
   W,
   bf,
   clamp,
-  env,
   hash,
   lerp,
   mix,
-  outCubic,
   prog,
   rgba,
   smooth,
@@ -91,145 +88,6 @@ export function ground(g: G, time: number, pal: Palette, glowY: number): void {
   for (let index = 0; index < 200; index++) {
     g.fillRect(hash(index * 2 + roll * 977, 5) * W, hash(index * 2 + 1 + roll * 977, 5) * H, 2, 2);
   }
-}
-
-/** A token of an AI company: a ring around a small abstract glyph, none of them a real mark. */
-function token(
-  g: G,
-  {
-    x,
-    y,
-    r,
-    kind,
-    stroke,
-    fill,
-  }: { x: number; y: number; r: number; kind: number; stroke: string; fill: string | null }
-): void {
-  g.save();
-  g.translate(x, y);
-  g.lineWidth = Math.max(1.5, r * 0.09);
-  g.strokeStyle = stroke;
-  if (fill !== null) {
-    g.fillStyle = fill;
-    g.beginPath();
-    g.arc(0, 0, r, 0, TAU);
-    g.fill();
-  }
-  g.beginPath();
-  g.arc(0, 0, r, 0, TAU);
-  g.stroke();
-  const s = r * 0.5;
-  g.beginPath();
-  switch (kind % 5) {
-    case 0: {
-      for (let index = 0; index < 6; index++) {
-        const a = (index / 6) * TAU;
-        g.lineTo(Math.cos(a) * s, Math.sin(a) * s);
-      }
-      g.closePath();
-      break;
-    }
-    case 1: {
-      g.moveTo(-s, s * 0.6);
-      g.lineTo(0, -s);
-      g.lineTo(s, s * 0.6);
-      g.closePath();
-      break;
-    }
-    case 2: {
-      for (let index = 0; index < 4; index++) {
-        const a = (index / 4) * Math.PI;
-        g.moveTo(Math.cos(a) * s, Math.sin(a) * s);
-        g.lineTo(-Math.cos(a) * s, -Math.sin(a) * s);
-      }
-      break;
-    }
-    case 3: {
-      g.moveTo(-s, 0);
-      g.bezierCurveTo(-s * 0.4, -s, s * 0.4, s, s, 0);
-      break;
-    }
-    default: {
-      g.rect(-s * 0.6, -s * 0.6, s * 1.2, s * 1.2);
-    }
-  }
-  g.stroke();
-  g.restore();
-}
-
-const TOKEN_COLS = 7;
-const TOKEN_ROWS = 10;
-/** The one token that turns red: HushBox. */
-const ONE_INDEX = 4 * TOKEN_COLS + 3;
-
-function tokenAt(index: number): [number, number] {
-  const c = index % TOKEN_COLS;
-  const r = Math.floor(index / TOKEN_COLS);
-  return [CX + (c - (TOKEN_COLS - 1) / 2) * 134 + (r % 2) * 22, 720 + r * 118];
-}
-
-/** Beat 40-44: every AI company a gold token; in the silence they dim; on 42 one turns red. */
-export function one(g: G, ctx: Ctx, time: number): void {
-  const red = hex(ctx.brand.brandRed);
-  g.fillStyle = '#030202';
-  g.fillRect(-200, -200, W + 400, H + 400);
-  const beats = [bf(36), bf(37)];
-  const heart = env(Math.round(time), beats, 5);
-  const turn = springOf(time, bf(41), PLAYFUL);
-  const dimmed = prog(time, bf(36), bf(41));
-  const [ox, oy] = tokenAt(ONE_INDEX);
-  const zoom = 1 + 0.5 * smooth(prog(time, bf(41), bf(43)));
-  g.save();
-  g.translate(ox, oy);
-  g.scale(zoom, zoom);
-  g.translate(-ox, -oy);
-  for (let index = 0; index < TOKEN_COLS * TOKEN_ROWS; index++) {
-    if (index === ONE_INDEX) {
-      continue;
-    }
-    const [x, y] = tokenAt(index);
-    const away = turn > 0 ? outCubic(prog(time, bf(41), bf(43))) : 0;
-    const dx = (x - ox) * away * 0.25;
-    const dy = (y - oy) * away * 0.25;
-    const alpha =
-      lerp(0.95, 0.4, dimmed) *
-      (1 - 0.7 * away) *
-      (0.8 + 0.2 * hash(index + Math.floor(Math.round(time) / 6), 2));
-    token(g, {
-      x: x + dx,
-      y: y + dy,
-      r: 40 * (1 + 0.12 * heart),
-      kind: index * 7 + 3,
-      stroke: rgba(INK.line, alpha),
-      fill: null,
-    });
-  }
-  const s = 40 * (1 + 0.12 * heart + 0.9 * turn);
-  const c = Math.round(time) >= bf(41) ? red : INK.line;
-  // The hit squashes the token flat and wide, then it springs tall, wobbles and settles.
-  const since = (time - bf(41)) / 60;
-  const wobble = since >= 0 ? Math.exp(-6 * since) * Math.cos(2 * Math.PI * 3.4 * since) : 0;
-  g.save();
-  g.translate(ox, oy);
-  g.rotate(0.25 * wobble * Math.sin(since * 9));
-  g.scale(1 + 0.45 * wobble, 1 - 0.4 * wobble);
-  token(g, {
-    x: 0,
-    y: 0,
-    r: s,
-    kind: 0,
-    stroke: c,
-    fill: Math.round(time) >= bf(41) ? rgba(red, 0.25) : null,
-  });
-  g.restore();
-  if (Math.round(time) >= bf(41)) {
-    g.strokeStyle = rgba(red, clamp(1 - (time - bf(41)) / 40));
-    g.lineWidth = 4;
-    g.beginPath();
-    g.arc(ox, oy, s + (time - bf(41)) * 9, 0, TAU);
-    g.stroke();
-  }
-  g.restore();
 }
 
 const NOISE = '▓▒░#%&@$*+=?<>/{}[]01ABCDEF';
@@ -616,12 +474,12 @@ export function notHushbox(
 }
 
 /** Where the end card's mark sits, as its centre and its drawn size in px (the logo file's width). */
-export function markPlace(): { x: number; y: number; size: number } {
+function markPlace(): { x: number; y: number; size: number } {
   return { x: CX, y: 600, size: 420 };
 }
 
 /** The beat the mark comes to rest: from here to the end the card holds still. */
-export const MARK_REST_BEAT = 64.5;
+const MARK_REST_BEAT = 64.5;
 
 interface MarkPart {
   path: Path2D;
@@ -661,7 +519,7 @@ function logoParts(ctx: Ctx): MarkPart[] {
  * logo pixels. At w = 1 and push = 0 every part is drawn at the file's own
  * place, so the mark at rest is the logo exactly.
  */
-export function drawMarkParts(
+function drawMarkParts(
   g: G,
   ctx: Ctx,
   {

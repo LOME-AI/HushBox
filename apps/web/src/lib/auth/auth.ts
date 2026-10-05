@@ -59,7 +59,7 @@ import {
   RECOVERY_PHRASE_INVALID_MESSAGE,
   RECOVERY_PHRASE_MISMATCH_MESSAGE,
 } from './validation.js';
-import type { AcquisitionPlatform } from '@hushbox/shared';
+import type { AcquisitionPlatform, ErrorCode } from '@hushbox/shared';
 import type { WrappingPrivateKey } from '@hushbox/crypto';
 import type { InferResponseType } from 'hono/client';
 
@@ -152,10 +152,17 @@ export function selectInstructionsReadUnresolved(state: AuthState): boolean {
   return state.user !== null && state.customInstructionsStatus === 'pending';
 }
 
+/** A second-factor verdict: the sentence to show, and the refusal's code when the server sent one. */
+export interface TotpVerifyResult {
+  success: boolean;
+  error?: string;
+  errorCode?: ErrorCode;
+}
+
 interface SignInEmailResult {
   error?: { message: string; code?: string };
   requires2FA?: boolean;
-  verifyTOTP?: (code: string) => Promise<{ success: boolean; error?: string }>;
+  verifyTOTP?: (code: string) => Promise<TotpVerifyResult>;
 }
 
 interface SignUpEmailResult {
@@ -261,8 +268,8 @@ async function finalizeLoginWithKey(
 function createTOTPVerifier(
   exportKey: Uint8Array,
   keepSignedIn: boolean
-): (code: string) => Promise<{ success: boolean; error?: string }> {
-  return async (code: string): Promise<{ success: boolean; error?: string }> => {
+): (code: string) => Promise<TotpVerifyResult> {
+  return async (code: string): Promise<TotpVerifyResult> => {
     let verifyResponse: InferResponseType<
       (typeof apiClient.auth.login)['2fa']['verify']['$post'],
       200
@@ -273,7 +280,12 @@ function createTOTPVerifier(
 
       if (!response.ok) {
         const body: unknown = await response.json();
-        return { success: false, error: parseErrorMessage(body) };
+        const errorCode = asErrorCode(extractErrorCode(body));
+        return {
+          success: false,
+          error: parseErrorMessage(body),
+          ...(errorCode !== undefined && { errorCode }),
+        };
       }
 
       verifyResponse = await response.json();

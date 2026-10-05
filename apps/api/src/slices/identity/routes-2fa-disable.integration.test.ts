@@ -250,7 +250,7 @@ describe('identity routes: 2FA disable (step-up + code)', () => {
     expect(await finish.json()).toEqual({ code: ERROR_CODES.INVALID_TOTP_CODE });
   });
 
-  it('sends no first-trip email when the disable finish trips the TOTP gate', async () => {
+  it('sends no run-of-failures email when the disable finish trips the TOTP gate', async () => {
     const { account, cookie } = await registerLoginFull();
     const secret = await enrollTotp(cookie);
     const { maxAttempts, windowSeconds } = IDENTITY_KEYS.twoFactorLockout;
@@ -268,6 +268,48 @@ describe('identity routes: 2FA disable (step-up + code)', () => {
     );
     expect(finish.status).toBe(429);
     expect(sentTwoFactorLocked.filter((sent) => sent.to === account.email)).toEqual([]);
+  });
+
+  it('answers the frozen code with no wait when the consecutive-failure ceiling is spent', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+    const { maxAttempts, windowSeconds } = IDENTITY_KEYS.twoFactorCeiling;
+    await redis.set(
+      rateLimitKey(IDENTITY_KEYS.twoFactorCeiling, account.userId)._unsafeUnwrap(),
+      maxAttempts,
+      { ex: windowSeconds }
+    );
+    const init = await disableInit(cookie, account.password);
+    const ke3 = await stepUpKe3(init.ke2, init.client);
+    const finish = await post(
+      '/auth/2fa/disable/finish',
+      { ke3, code: generateTotpCodeSync(secret), disable2FASessionId: init.sessionId },
+      cookie
+    );
+    expect(finish.status).toBe(429);
+    expect(await finish.json()).toEqual({ code: ERROR_CODES.TWO_FACTOR_FROZEN });
+  });
+
+  it('answers the guessing window with its wait, as before', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+    const { maxAttempts, windowSeconds } = IDENTITY_KEYS.twoFactorLockout;
+    await redis.set(
+      rateLimitKey(IDENTITY_KEYS.twoFactorLockout, account.userId)._unsafeUnwrap(),
+      maxAttempts,
+      { ex: windowSeconds }
+    );
+    const init = await disableInit(cookie, account.password);
+    const ke3 = await stepUpKe3(init.ke2, init.client);
+    const finish = await post(
+      '/auth/2fa/disable/finish',
+      { ke3, code: generateTotpCodeSync(secret), disable2FASessionId: init.sessionId },
+      cookie
+    );
+    expect(finish.status).toBe(429);
+    const body = await finish.json<{ code: string; details: { retryAfterSeconds: number } }>();
+    expect(body.code).toBe(ERROR_CODES.TOO_MANY_ATTEMPTS);
+    expect(body.details.retryAfterSeconds).toBeGreaterThan(0);
   });
 });
 

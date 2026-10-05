@@ -9,6 +9,7 @@ import {
   estimateRunCeilingNanoUsd,
   mediaCallUsageFor,
   priceMediaBillableNanoUsd,
+  reserveMediaBillableNanoUsd,
   priceUsageBillableNanoUsd,
   reservedCallParts,
 } from './estimate.js';
@@ -166,7 +167,7 @@ describe('estimateRunCeilingNanoUsd — one call', () => {
 describe('reservedCallParts', () => {
   it('splits a persisting token call into its provider and storage parts', () => {
     const parts = reservedCallParts(TOKEN_PRICING, TOKEN_USAGE, ONE_CALL, {
-      mediaStorageBytes: 0,
+      persists: true,
     })._unsafeUnwrap();
 
     expect(parts.providerNanoUsd).toBe(5_625_000n);
@@ -502,8 +503,43 @@ describe('mediaCallUsageFor', () => {
   });
 });
 
+describe('reserveMediaBillableNanoUsd', () => {
+  it('prices an image call at its dearest per-image row', () => {
+    const result = reserveMediaBillableNanoUsd(
+      perImagePricingFixture({ anchor: 51_750_000n, dearest: 103_500_000n }),
+      'image',
+      {}
+    );
+
+    expect(result._unsafeUnwrap()).toBe(103_500_000n);
+  });
+
+  it("prices a video call at its resolution's dearest per-second rate", () => {
+    const result = reserveMediaBillableNanoUsd(
+      perSecondPricingFixture({
+        anchor: { '720p': 128_800_000n },
+        dearest: { '720p': 193_200_000n },
+      }),
+      'video',
+      { resolution: '720p', durationSeconds: 4 }
+    );
+
+    expect(result._unsafeUnwrap()).toBe(772_800_000n);
+  });
+
+  it('refuses a multi-image call, as the estimated charge does', () => {
+    const result = reserveMediaBillableNanoUsd(
+      perImagePricingFixture({ anchor: 40_000_000n, dearest: 40_000_000n }),
+      'image',
+      { n: 2 }
+    );
+
+    expect(result._unsafeUnwrapErr().code).toBe('validation');
+  });
+});
+
 describe('priceMediaBillableNanoUsd', () => {
-  it('prices an image call at the flat per-image billable catalog rate, charged as-is', () => {
+  it('prices an image call at its per-image billable catalog rate', () => {
     const result = priceMediaBillableNanoUsd(
       perImagePricingFixture({ anchor: 40_000_000n, dearest: 40_000_000n }),
       'image',

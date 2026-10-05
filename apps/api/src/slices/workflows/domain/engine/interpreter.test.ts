@@ -14,11 +14,18 @@ import {
   VALUE_STORE_BYTE_BUDGET_BYTES,
   WEB_SEARCH_TOOL_NAME,
 } from '@hushbox/shared';
-import { inputTokensOf, toolCallChargeNanoUsd } from '@hushbox/shared/affordability';
+import { inputTokensOf, toolCallChargeNanoUsd, toolLoopBound } from '@hushbox/shared/affordability';
+import { tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
 import { ReplayBuffer } from '@hushbox/realtime/replay-buffer';
 import { testUuidV7 } from '@hushbox/shared/test-time';
+import { createEstimateRun } from '../../../models/index.js';
 import { err, ok } from '../../../../lib/result/index.js';
-import { forbiddenError, notFoundError, validationError } from '../../../../lib/errors/index.js';
+import {
+  conflictError,
+  forbiddenError,
+  notFoundError,
+  validationError,
+} from '../../../../lib/errors/index.js';
 import {
   CLASSIFICATION_SCHEMA_NAME as CLASSIFICATION,
   makeFakeConstraints,
@@ -47,6 +54,7 @@ import { createWorkflowExecutor } from './interpreter.js';
 import {
   AbsorbedSettlementRefusal,
   AllBranchesFailedError,
+  BilledSettlementRefusal,
   SettlementConflictError,
   InfrastructureUnavailableError,
 } from './failures.js';
@@ -61,7 +69,10 @@ import type {
   FlowRunOutcome,
   FlowStartRequest,
   FlowStreamEvent,
+  ModelDescriptor,
   NanoUSD,
+  SettlementCharge,
+  SettlementReceipt,
   SettlementRequest,
   TextTag,
   WorkflowDefinition,
@@ -69,11 +80,19 @@ import type {
 import type { Result } from '../../../../lib/result/index.js';
 import type { Telemetry } from '../../../../lib/telemetry/index.js';
 import type { BuildRegistries } from '../builder/build-workflow.js';
-import type { NodeBillingMetadata, NodeRunError, NodeRunSuccess } from './execution-registry.js';
+import type {
+  NodeBillingMetadata,
+  NodeRunContext,
+  NodeRunError,
+  NodeRunSuccess,
+} from './execution-registry.js';
 import type { FakeBehavior, FakeExecutionOptions } from './execution-fakes.js';
 import type { EngineAdmissionDecision } from './hooks.js';
 
 const HOOKS = PolicyHooks.parse({ admission: 'chatAdmission', settlement: 'chatSettlement' });
+
+/** The engine's estimator seam, as the production estimator builds it. */
+type EstimateRun = ReturnType<typeof createEstimateRun>;
 
 // The client-supplied Idempotency-Key (printable-ASCII, attacker-controllable —
 // never allowlist it as a Sentry tag) versus the server-minted run id.
@@ -121,14 +140,18 @@ interface HarnessOptions extends FakeExecutionOptions {
   readonly customInstructions?: string;
   readonly mapFilePartFor?: FlowStartRequest['mapFilePartFor'];
   readonly decision?: EngineAdmissionDecision | Promise<never>;
-  readonly settle?: (request: SettlementRequest) => Promise<void>;
+  readonly settle?: (request: SettlementRequest) => Promise<SettlementReceipt>;
   readonly estimate?: NanoUSD;
   readonly estimateFails?: boolean;
+  /** The calls the estimate reserved; none unless a test names them. */
+  readonly reservedCalls?: readonly ReservedCall[];
   readonly valueBudgetBytes?: number;
   readonly startAtMs?: number;
   readonly registries?: BuildRegistries;
   /** Start without a minted run id, as an in-process executor double may. */
   readonly omitRunId?: boolean;
+  /** The production estimator, in place of the fixed estimate and reserved calls. */
+  readonly estimateRun?: EstimateRun;
 }
 
 interface Harness {
@@ -161,6 +184,16 @@ function mintedRunId(options: HarnessOptions): { readonly runId?: string } {
   return options.omitRunId === true ? {} : { runId: RUN_ID };
 }
 
+/** The run's estimator: the production one when a test supplies it, else its fixed estimate and reserved calls. */
+function estimatorOf(options: HarnessOptions): EstimateRun {
+  if (options.estimateRun !== undefined) return options.estimateRun;
+  const estimate = options.estimate ?? nanoUSD(100n);
+  return () =>
+    options.estimateFails === true
+      ? err(validationError('no pricing'))
+      : ok({ totalNanoUsd: estimate, calls: options.reservedCalls ?? [] });
+}
+
 function startRun(options: HarnessOptions): Harness {
   const emitted: FlowStreamEvent[] = [];
   const settlements: SettlementRequest[] = [];
@@ -168,7 +201,6 @@ function startRun(options: HarnessOptions): Harness {
   const telemetry = makeTelemetry();
   const clockState = { now: options.startAtMs ?? 1000 };
   const decision = options.decision ?? grantWithLimit(1_000_000n);
-  const estimate = options.estimate ?? nanoUSD(100n);
   const executor = createWorkflowExecutor({
     registries: options.registries ?? registries(),
     execution: makeFakeExecutionRegistry({
@@ -176,10 +208,7 @@ function startRun(options: HarnessOptions): Harness {
       ...(options.predicates === undefined ? {} : { predicates: options.predicates }),
       ...(options.reducers === undefined ? {} : { reducers: options.reducers }),
     }),
-    estimateRun: () =>
-      options.estimateFails === true
-        ? err(validationError('no pricing'))
-        : ok({ totalNanoUsd: estimate, calls: [] }),
+    estimateRun: estimatorOf(options),
     clock: { now: () => clockState.now },
     rng: { random: () => 0.5 },
     telemetry,
@@ -198,9 +227,9 @@ function startRun(options: HarnessOptions): Harness {
       },
       settlement:
         options.settle ??
-        ((request): Promise<void> => {
+        ((request): Promise<SettlementReceipt> => {
           settlements.push(request);
-          return Promise.resolve();
+          return Promise.resolve({ billed: [] });
         }),
     },
     runKey: RUN_KEY,
@@ -985,6 +1014,132 @@ function turnClassifierDefinition(): WorkflowDefinition {
   })._unsafeUnwrap().definition;
 }
 
+/** What admission reserves for one call, as the node receives it. */
+type ReservedCall = NonNullable<NodeRunContext['reservation']>;
+
+/** The base tier, which every step of a call priced on a schedule with no tiers resolves to. */
+// The tier brand is minted only by the price core's resolver, behind the money
+// wall this file may not import past; the base tier is the index 0 it mints.
+const BASE_TIER = 0 as ReservedCall['stepTiers'][number];
+
+/**
+ * A call the hold reserved for `nodeId` over `steps` steps. Its pricing has no
+ * tiers, so every step was reserved at the base tier.
+ */
+function reservedCall(nodeId: string, steps: number): ReservedCall {
+  const loop = steps === 1 ? undefined : toolLoopBound(['webSearch'], steps - 1);
+  return {
+    nodeId,
+    modelId: 'answer-model',
+    pricing: tokenPricingFixture({ input: 1n, output: 1n }),
+    quantities: {
+      promptTokens: 7,
+      ...(loop === undefined ? {} : { loop }),
+      persists: false,
+      newMessageChars: 0,
+    },
+    steps: loop?.steps ?? 1,
+    wireCapTokens: 64,
+    stepTiers: Array.from({ length: loop?.steps ?? 1 }, () => BASE_TIER),
+    providerNanoUsd: nanoUSD(0n),
+    storageNanoUsd: nanoUSD(0n),
+    heldNanoUsd: nanoUSD(0n),
+  };
+}
+
+describe('createWorkflowExecutor — the price reservation each node is handed', () => {
+  function runCapturing(reservedCalls: readonly ReservedCall[]): {
+    readonly harness: Harness;
+    readonly seen: (ReservedCall | undefined)[];
+  } {
+    const seen: (ReservedCall | undefined)[] = [];
+    const harness = startRun({
+      definition: answerDefinition(),
+      behaviors: {
+        'answer-model': {
+          run: (_input, ctx) => {
+            seen.push(ctx.reservation);
+            return Promise.resolve(ok({ value: 'answer', costNanoUsd: 0n }));
+          },
+        },
+      },
+      reservedCalls,
+    });
+    return { harness, seen };
+  }
+
+  it('hands a node the call its admission estimate reserved for it', async () => {
+    const answer = reservedCall('answer', 1);
+    const { harness, seen } = runCapturing([reservedCall('other', 1), answer]);
+
+    await expect(harness.done).resolves.toEqual({ outcome: 'succeeded' });
+    expect(seen).toEqual([answer]);
+  });
+
+  it('hands a node the estimate reserved several calls for the one whose loop sends the most steps', async () => {
+    const looped = reservedCall('answer', 3);
+    const { harness, seen } = runCapturing([reservedCall('answer', 1), looped]);
+
+    await expect(harness.done).resolves.toEqual({ outcome: 'succeeded' });
+    expect(seen).toEqual([looped]);
+  });
+
+  it('hands a self-classifying slot the answer call its estimate reserved, never the classifier reserved first', async () => {
+    const descriptorOf = (id: string, rate: bigint): ModelDescriptor => ({
+      id,
+      provider: 'p',
+      version: '1',
+      inputs: ['text'],
+      outputs: ['text'],
+      parameters: {},
+      behaviors: [],
+      limits: { contextLength: 100_000, maxOutputTokens: 4000 },
+      pricing: tokenPricingFixture({ input: rate, output: rate }),
+      zdrReachable: true,
+      releasedAt: 0,
+      fetchedAt: 0,
+    });
+    const models = new Map([
+      ['answer-model', descriptorOf('answer-model', 1n)],
+      ['hard-model', descriptorOf('hard-model', 9n)],
+    ]);
+    const seen: (ReservedCall | undefined)[] = [];
+    const harness = startRun({
+      definition: smartModelNodeDefinition(),
+      behaviors: {
+        'answer-model': {
+          run: (_input, ctx) => {
+            seen.push(ctx.reservation);
+            return Promise.resolve(ok({ value: 'answer', costNanoUsd: 0n }));
+          },
+        },
+      },
+      estimateRun: createEstimateRun((id) => models.get(id)),
+    });
+
+    await expect(harness.done).resolves.toEqual({ outcome: 'succeeded' });
+    // The slot classifies for itself, so its classifier is reserved first, both one-step.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.modelId).toBe('hard-model');
+    expect(seen[0]?.routingClassifier).toBeUndefined();
+  });
+
+  it('keeps the call whose loop sends the most steps when a shorter one is reserved after it', async () => {
+    const looped = reservedCall('answer', 3);
+    const { harness, seen } = runCapturing([looped, reservedCall('answer', 1)]);
+
+    await expect(harness.done).resolves.toEqual({ outcome: 'succeeded' });
+    expect(seen).toEqual([looped]);
+  });
+
+  it('hands a node the estimate reserved nothing for no reservation', async () => {
+    const { harness, seen } = runCapturing([reservedCall('other', 1)]);
+
+    await expect(harness.done).resolves.toEqual({ outcome: 'succeeded' });
+    expect(seen).toEqual([undefined]);
+  });
+});
+
 describe('createWorkflowExecutor — the turn classifier is handed no client context', () => {
   const HISTORY: readonly ChatHistoryMessage[] = [
     { role: 'user', content: 'first question' },
@@ -1311,7 +1466,7 @@ describe('createWorkflowExecutor — the streaming chat turn', () => {
       inputs: { prompt: textInput('hi') },
       hooks: {
         admission: () => Promise.resolve(grantWithLimit(10n)),
-        settlement: () => Promise.resolve(),
+        settlement: () => Promise.resolve({ billed: [] }),
       },
       runKey: RUN_KEY,
       runId: RUN_ID,
@@ -1736,7 +1891,7 @@ describe('createWorkflowExecutor — auxiliary charges and mid-node reports', ()
         'answer-model': {
           streaming: true,
           run: (_input, ctx) => {
-            ctx.spend?.report(2000n);
+            ctx.spend.report(2000n);
             return Promise.resolve(err({ costNanoUsd: 2000n }));
           },
         },
@@ -1794,7 +1949,7 @@ describe('createWorkflowExecutor — auxiliary charges and mid-node reports', ()
         'answer-model': {
           streaming: true,
           run: (_input, ctx) => {
-            ctx.spend?.report(realInputNanoUsd);
+            ctx.spend.report(realInputNanoUsd);
             return Promise.resolve(
               ok({ value: 'dense reply', costNanoUsd: realInputNanoUsd, billing: ANSWER_BILLING })
             );
@@ -1810,7 +1965,7 @@ describe('createWorkflowExecutor — auxiliary charges and mid-node reports', ()
     ]);
   });
 
-  it('does not capture a routine node failure to Sentry', async () => {
+  it('captures nothing at the engine for a failed node, whose cause only the node can report', async () => {
     const run = startRun({
       definition: answerDefinition(),
       behaviors: { 'answer-model': failWith() },
@@ -1994,8 +2149,8 @@ describe('createWorkflowExecutor — the spend gate', () => {
         'answer-model': {
           streaming: true,
           run: (_input, ctx) => {
-            ctx.spend?.report(600n);
-            observed.open = ctx.spend?.isOpen();
+            ctx.spend.report(600n);
+            observed.open = ctx.spend.isOpen();
             observed.aborted = ctx.signal.aborted;
             return Promise.resolve(
               ok({ value: 'cut short', costNanoUsd: 600n, billing: ANSWER_BILLING })
@@ -2125,14 +2280,14 @@ describe('createWorkflowExecutor — the spend gate', () => {
       behaviors: {
         'first-model': {
           run: (_input, ctx) => {
-            ctx.spend?.report(400n);
-            ctx.spend?.report(200n);
+            ctx.spend.report(400n);
+            ctx.spend.report(200n);
             return Promise.resolve(ok({ value: 'first', costNanoUsd: 200n }));
           },
         },
         'second-model': {
           run: (_input, ctx) => {
-            ctx.spend?.report(150n);
+            ctx.spend.report(150n);
             return Promise.resolve(ok({ value: 'second', costNanoUsd: 150n }));
           },
         },
@@ -2153,7 +2308,7 @@ describe('createWorkflowExecutor — the spend gate', () => {
     function reportingThenFinal(reports: readonly bigint[], final: bigint): FakeBehavior {
       return {
         run: (input, ctx) => {
-          for (const total of reports) ctx.spend?.report(total);
+          for (const total of reports) ctx.spend.report(total);
           return respondWith(`${String(input[0])}.`, final).run(input, ctx);
         },
       };
@@ -2950,7 +3105,7 @@ describe('createWorkflowExecutor — concurrent multi-model siblings', () => {
           streaming: true,
           run: async (_input, ctx) => {
             await new Promise((resolve) => setTimeout(resolve, 0));
-            ctx.spend?.report(2000n);
+            ctx.spend.report(2000n);
             return err({ costNanoUsd: 2000n });
           },
         },
@@ -2959,7 +3114,7 @@ describe('createWorkflowExecutor — concurrent multi-model siblings', () => {
           run: async (_input, ctx) => {
             await new Promise((resolve) => setTimeout(resolve, 0));
             await new Promise((resolve) => setTimeout(resolve, 0));
-            observed.push({ open: ctx.spend?.isOpen() ?? true, aborted: ctx.signal.aborted });
+            observed.push({ open: ctx.spend.isOpen(), aborted: ctx.signal.aborted });
             return ok({ value: 'drained', costNanoUsd: 3n, billing: ANSWER_BILLING });
           },
         },
@@ -2981,7 +3136,7 @@ describe('createWorkflowExecutor — concurrent multi-model siblings', () => {
           // discriminates it via instanceof, so a rename fails typecheck here.
           return Promise.reject(new AllBranchesFailedError('no model produced content'));
         }
-        return Promise.resolve();
+        return Promise.resolve({ billed: [] });
       },
     });
     await expect(run.done).resolves.toEqual({
@@ -3453,7 +3608,7 @@ describe('createWorkflowExecutor — defects', () => {
       inputs: { prompt: textInput('hi') },
       hooks: {
         admission: () => Promise.reject(new Error('admission boom')),
-        settlement: () => Promise.resolve(),
+        settlement: () => Promise.resolve({ billed: [] }),
       },
       runKey: RUN_KEY,
       runId: RUN_ID,
@@ -4284,5 +4439,227 @@ describe('createWorkflowExecutor: web search spend on sibling modelCalls', () =>
       MODEL_COST + searches(1),
       MODEL_COST + searches(3),
     ]);
+  });
+});
+
+describe('the run id each node runs under', () => {
+  /** Runs the one-node answer, recording the run id its execution was handed. */
+  async function runIdSeenByNode(
+    options: { readonly omitRunId?: boolean } = {}
+  ): Promise<unknown[]> {
+    const seen: unknown[] = [];
+    await startRun({
+      definition: answerDefinition(),
+      behaviors: {
+        'answer-model': {
+          run: (_input, ctx) => {
+            seen.push(ctx.runId);
+            return Promise.resolve(ok({ value: 'answer', costNanoUsd: 0n }));
+          },
+        },
+      },
+      ...options,
+    }).done;
+    return seen;
+  }
+
+  it('hands each node the id the caller minted for the run', async () => {
+    expect(await runIdSeenByNode()).toEqual([RUN_ID]);
+  });
+
+  it('hands each node no id when the caller minted none', async () => {
+    const seen = await runIdSeenByNode({ omitRunId: true });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeUndefined();
+  });
+});
+
+describe('createWorkflowExecutor — a bill above its hold', () => {
+  /** The hold the harness admits on; the reserved call below carries all of it. */
+  const HOLD = 100n;
+
+  /**
+   * A posted charge for the `answer` node: one step whose input passes the
+   * reserved call's bound of 7 prompt tokens, and a provider amount far above
+   * those 9 tokens at the ceiling's 2 nano each, so the legs name
+   * `input-above-estimate` and `rate-above-ceiling`.
+   */
+  function postedAnswer(billable: bigint, isEstimated = false): SettlementCharge {
+    return {
+      key: 'answer',
+      modelId: 'answer-model',
+      providerName: 'p',
+      modality: 'text',
+      billableCostNanoUsd: billable,
+      isEstimated,
+      storageFeeNanoUsd: 0n,
+      observed: { stepUsages: [{ inputTokens: 8, outputTokens: 1 }], toolFeeNanoUsd: 0n },
+    };
+  }
+
+  function runSettlingWith(
+    settle: (request: SettlementRequest) => Promise<SettlementReceipt>
+  ): Harness {
+    return startRun({
+      definition: answerDefinition(),
+      behaviors: { 'answer-model': streamingEcho() },
+      estimate: nanoUSD(HOLD),
+      reservedCalls: [reservedCall('answer', 1)],
+      settle,
+    });
+  }
+
+  it('captures exactly one event carrying the run, both amounts and the legs when the receipt exceeds the hold', async () => {
+    const run = runSettlingWith(() => Promise.resolve({ billed: [postedAnswer(HOLD + 50n)] }));
+
+    await expect(run.done).resolves.toEqual({ outcome: 'succeeded' });
+    expect(run.telemetry.captureError).toHaveBeenCalledOnce();
+    const [error, fingerprint] = vi.mocked(run.telemetry.captureError).mock.calls[0]!;
+    expect(fingerprint).toBe('settlement_above_hold');
+    expect(error.name).toBe('SettlementAboveHold');
+    // VALUE half: the run id the caller minted, never the client's runKey; the
+    // amounts as nano-USD strings; the legs as the sorted closed set.
+    expect(Reflect.get(error, 'runId')).toBe(RUN_ID);
+    expect(Reflect.get(error, 'holdNanoUsd')).toBe('100');
+    expect(Reflect.get(error, 'billedNanoUsd')).toBe('150');
+    expect(Reflect.get(error, 'legs')).toBe('input-above-estimate,rate-above-ceiling');
+    expect(Reflect.get(error, 'billing')).toBe('inline');
+    // KEY-SET half: the whole own key set, so a second property cannot arrive unseen.
+    expect(Object.keys(error)).toEqual([
+      'name',
+      'runId',
+      'holdNanoUsd',
+      'billedNanoUsd',
+      'legs',
+      'billing',
+    ]);
+    expect(error.message).not.toContain(RUN_KEY);
+  });
+
+  it('counts each charge’s storage fee in the bill it compares', async () => {
+    const run = runSettlingWith(() =>
+      Promise.resolve({ billed: [{ ...postedAnswer(HOLD), storageFeeNanoUsd: 1n }] })
+    );
+
+    await run.done;
+    const [error] = vi.mocked(run.telemetry.captureError).mock.calls[0]!;
+    expect(Reflect.get(error, 'billedNanoUsd')).toBe('101');
+  });
+
+  it('names the bill estimated when any charge it posted was billed at its estimate', async () => {
+    const run = runSettlingWith(() =>
+      Promise.resolve({ billed: [postedAnswer(HOLD + 50n, true)] })
+    );
+
+    await run.done;
+    const [error] = vi.mocked(run.telemetry.captureError).mock.calls[0]!;
+    expect(Reflect.get(error, 'billing')).toBe('estimated');
+  });
+
+  it('captures nothing for a receipt at its hold', async () => {
+    const run = runSettlingWith(() => Promise.resolve({ billed: [postedAnswer(HOLD)] }));
+
+    await expect(run.done).resolves.toEqual({ outcome: 'succeeded' });
+    expect(run.telemetry.captureError).not.toHaveBeenCalled();
+  });
+
+  it('compares what settlement posted, not what the run collected', async () => {
+    // The run collected a charge, but the commit posted none of it.
+    const run = runSettlingWith(() => Promise.resolve({ billed: [] }));
+
+    await expect(run.done).resolves.toEqual({ outcome: 'succeeded' });
+    expect(run.telemetry.captureError).not.toHaveBeenCalled();
+  });
+
+  it('leaves the outcome succeeded and records a warning when the capture throws', async () => {
+    const run = runSettlingWith(() => Promise.resolve({ billed: [postedAnswer(HOLD + 50n)] }));
+    vi.mocked(run.telemetry.captureError).mockImplementation(() => {
+      throw new Error('sink down');
+    });
+
+    await expect(run.done).resolves.toEqual({ outcome: 'succeeded' });
+    expect(run.telemetry.warn).toHaveBeenCalledWith('settlement above hold capture failed', {
+      runId: RUN_ID,
+    });
+  });
+
+  it('captures a billed refusal above its hold, and still reports the refusal’s code', async () => {
+    const run = runSettlingWith(() =>
+      Promise.reject(
+        new BilledSettlementRefusal(
+          new SettlementConflictError(
+            notFoundError('fork gone', undefined, ERROR_CODES.FORK_TIP_CONFLICT),
+            'chat settlement: fork-tip advancement failed'
+          ),
+          [postedAnswer(HOLD + 50n)]
+        )
+      )
+    );
+
+    await expect(run.done).resolves.toEqual({
+      outcome: 'failed',
+      code: ERROR_CODES.FORK_TIP_CONFLICT,
+    });
+    expect(run.telemetry.captureError).toHaveBeenCalledOnce();
+    expect(vi.mocked(run.telemetry.captureError).mock.calls[0]![1]).toBe('settlement_above_hold');
+  });
+
+  it('captures nothing for a billed refusal at its hold', async () => {
+    const run = runSettlingWith(() =>
+      Promise.reject(
+        new BilledSettlementRefusal(
+          new SettlementConflictError(conflictError('refused'), 'chat settlement: refused'),
+          [postedAnswer(HOLD)]
+        )
+      )
+    );
+
+    await run.done;
+    expect(run.telemetry.captureError).not.toHaveBeenCalled();
+  });
+
+  /** A posted charge whose step reports a token count that is not a whole number. */
+  function unpriceableAnswer(): SettlementCharge {
+    return {
+      ...postedAnswer(HOLD + 50n),
+      observed: { stepUsages: [{ inputTokens: 8.5, outputTokens: 1 }], toolFeeNanoUsd: 0n },
+    };
+  }
+
+  it('leaves a settled run succeeded and records a warning when naming the legs throws', async () => {
+    const run = runSettlingWith(() => Promise.resolve({ billed: [unpriceableAnswer()] }));
+
+    await expect(run.done).resolves.toEqual({ outcome: 'succeeded' });
+    expect(run.telemetry.warn).toHaveBeenCalledWith('settlement above hold capture failed', {
+      runId: RUN_ID,
+    });
+  });
+
+  it('keeps a billed refusal’s code when naming the legs throws', async () => {
+    const run = runSettlingWith(() =>
+      Promise.reject(
+        new BilledSettlementRefusal(
+          new SettlementConflictError(
+            notFoundError('fork gone', undefined, ERROR_CODES.FORK_TIP_CONFLICT),
+            'chat settlement: fork-tip advancement failed'
+          ),
+          [unpriceableAnswer()]
+        )
+      )
+    );
+
+    await expect(run.done).resolves.toEqual({
+      outcome: 'failed',
+      code: ERROR_CODES.FORK_TIP_CONFLICT,
+    });
+  });
+
+  it('captures nothing when settlement failed before committing', async () => {
+    const run = runSettlingWith(() => Promise.reject(new Error('db exploded')));
+
+    await run.done;
+    expect(vi.mocked(run.telemetry.captureError).mock.calls.map((call) => call[1])).not.toContain(
+      'settlement_above_hold'
+    );
   });
 });

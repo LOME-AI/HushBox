@@ -207,4 +207,16 @@ describe('useTrialChatStore', () => {
       expect(useTrialChatStore.getState().messages.map((m) => m.id)).toEqual(['m1']);
     });
   });
+
+  describe('setMessages', () => {
+    it('replaces the thread with the given rows', () => {
+      const m1 = makeTrialMessage('m1', 'user', 'Hello');
+      const m2 = makeTrialMessage('m2', 'assistant', 'Hi');
+      useTrialChatStore.getState().addMessage(makeTrialMessage('m0', 'user', 'Earlier'));
+
+      useTrialChatStore.getState().setMessages([m1, m2]);
+
+      expect(useTrialChatStore.getState().messages).toEqual([m1, m2]);
+    });
+  });
 });

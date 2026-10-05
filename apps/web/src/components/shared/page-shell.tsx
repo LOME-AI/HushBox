@@ -3,7 +3,7 @@ import { HamburgerButton } from '@/components/sidebar/hamburger-button';
 import { MoreOptionsMenu } from '@/components/shared/more-options-menu';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 
-type PageSlotName = 'title' | 'center' | 'shield' | 'facepile' | 'newChat' | 'strip';
+type PageSlotName = 'title' | 'center' | 'shield' | 'facepile' | 'newChat' | 'strip' | 'pane';
 
 type PageSlots = Readonly<Record<PageSlotName, HTMLElement | null>>;
 
@@ -23,7 +23,8 @@ interface PageShellProps {
 
 /**
  * One header row, a strip below it on phones, then the page. The header draws the
- * controls every page shares; a page fills the rest through `PageHeader`.
+ * controls every page shares; a page fills the rest through `PageHeader`. Beside that
+ * column, a page may publish a pane that stands the shell's full height, header row included.
  */
 export function PageShell({
   menuButton = true,
@@ -37,62 +38,73 @@ export function PageShell({
   const [facepile, setFacepile] = React.useState<HTMLElement | null>(null);
   const [newChat, setNewChat] = React.useState<HTMLElement | null>(null);
   const [strip, setStrip] = React.useState<HTMLElement | null>(null);
+  const [pane, setPane] = React.useState<HTMLElement | null>(null);
   const [headerTestId, setHeaderTestId] = React.useState<string | undefined>();
   const context = React.useMemo(
-    () => ({ slots: { title, center, shield, facepile, newChat, strip }, setHeaderTestId }),
-    [title, center, shield, facepile, newChat, strip]
+    () => ({
+      slots: { title, center, shield, facepile, newChat, strip, pane },
+      setHeaderTestId,
+    }),
+    [title, center, shield, facepile, newChat, strip, pane]
   );
 
   return (
     <PageShellContext value={context}>
-      <div className="flex min-h-0 flex-1 flex-col">
-        {/* One row; at large text sizes the controls wrap to a second row rather than
+      {/* The pane host: a pane measures this row to decide whether it docks beside the
+          column or lies over it, so the header row is part of what it stands beside. */}
+      <div className="@container/panehost relative flex min-h-0 flex-1">
+        <div className="group/page-column flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* One row; at large text sizes the controls wrap to a second row rather than
             overlap. */}
-        <header
-          data-testid={headerTestId ?? 'page-header'}
-          data-chrome=""
-          className="group/app-header bg-background @container/app-header flex min-h-[var(--app-header-height)] shrink-0 flex-wrap content-center items-center gap-x-1 gap-y-1 border-b py-1 pr-2 pl-1 md:gap-x-2 md:px-4"
-        >
-          {menuButton && <HamburgerButton />}
-          <div
-            ref={setTitle}
-            data-page-slot="title"
-            className="flex min-w-0 flex-1 items-center group-has-[[data-page-slot=center]:not(:empty)]/app-header:max-w-max md:group-has-[[data-page-slot=center]:not(:empty)]/app-header:min-w-10"
-          />
-          {/* While a page fills the centre, the title stops at its text so the centre
+          <header
+            data-testid={headerTestId ?? 'page-header'}
+            data-chrome=""
+            className="group/app-header bg-background @container/app-header flex min-h-[var(--app-header-height)] shrink-0 flex-wrap content-center items-center gap-x-1 gap-y-1 border-b py-1 pr-2 pl-1 md:gap-x-2 md:px-4"
+          >
+            {menuButton && <HamburgerButton />}
+            <div
+              ref={setTitle}
+              data-page-slot="title"
+              className="flex min-w-0 flex-1 items-center group-has-[[data-page-slot=center]:not(:empty)]/app-header:max-w-max md:group-has-[[data-page-slot=center]:not(:empty)]/app-header:min-w-10"
+            />
+            {/* While a page fills the centre, the title stops at its text so the centre
               follows it, and the controls keep to the header's end. From 768 the title keeps
               2.5rem, about a first word, so at large text the row wraps before the title
               vanishes; below 768 the centre's switcher is hidden and takes no room. */}
-          <div
-            ref={setCenter}
-            data-page-slot="center"
-            className="flex min-w-0 shrink-0 items-center empty:hidden"
-          />
-          <div className="flex shrink-0 items-center justify-end gap-2 group-has-[[data-page-slot=center]:not(:empty)]/app-header:ms-auto">
             <div
-              ref={setShield}
-              data-page-slot="shield"
-              className="flex items-center empty:hidden"
+              ref={setCenter}
+              data-page-slot="center"
+              className="flex min-w-0 shrink-0 items-center empty:hidden"
             />
-            <ThemeToggle />
-            {/* Shown at every width while it is a phone's only way to the member list. */}
-            <div
-              ref={setFacepile}
-              data-page-slot="facepile"
-              className="flex items-center empty:hidden"
-            />
-            <div
-              ref={setNewChat}
-              data-page-slot="new-chat"
-              className="@max-header-new-chat/app-header:hidden flex items-center empty:hidden md:hidden"
-            />
-            <MoreOptionsMenu />
+            <div className="flex shrink-0 items-center justify-end gap-2 group-has-[[data-page-slot=center]:not(:empty)]/app-header:ms-auto">
+              <div
+                ref={setShield}
+                data-page-slot="shield"
+                className="flex items-center empty:hidden"
+              />
+              <ThemeToggle />
+              {/* Below 768 the strip under the header, when drawn, carries the members; without
+                one the facepile is a phone's only way to the member list. */}
+              <div
+                ref={setFacepile}
+                data-page-slot="facepile"
+                className="flex items-center empty:hidden max-md:group-has-[[data-page-slot=strip]:not(:empty)]/page-column:hidden"
+              />
+              <div
+                ref={setNewChat}
+                data-page-slot="new-chat"
+                className="@max-header-new-chat/app-header:hidden flex items-center empty:hidden md:hidden"
+              />
+              <MoreOptionsMenu />
+            </div>
+          </header>
+          <div ref={setStrip} data-page-slot="strip" className="empty:hidden md:hidden" />
+          <div data-page-slot="region" className="flex min-h-0 flex-1 flex-col">
+            {children}
           </div>
-        </header>
-        <div ref={setStrip} data-page-slot="strip" className="empty:hidden md:hidden" />
-        <div data-page-slot="region" className="flex min-h-0 flex-1 flex-col">
-          {children}
         </div>
+        {/* Empty unless a page publishes a pane, whose own box then lays out in the host row. */}
+        <div ref={setPane} data-page-slot="pane" className="contents" />
       </div>
     </PageShellContext>
   );

@@ -14,7 +14,7 @@ function buildModel(overrides: Partial<Model> = {}): Model {
     provider: 'Anthropic',
     modality: 'text',
     contextLength: 200_000,
-    pricing: { inputPerToken: '3450', outputPerToken: '17250' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '3450', outputPerToken: '17250' },
     description: 'A capable model.',
     supportedParameters: [],
     ...overrides,
@@ -63,8 +63,56 @@ function nameOf(element: HTMLElement): HTMLElement {
 }
 
 describe('ModelInfo', () => {
-  it('renders nothing before the model is known', () => {
-    expect(renderInfo()).toBeNull();
+  describe('before the model is known', () => {
+    function placeholder(signedIn: boolean): HTMLElement {
+      const { container } = render(
+        <ModelInfo model={undefined} selectionCount={1} signedIn={signedIn} />
+      );
+      const element = container.querySelector<HTMLElement>('[data-slot="model-info-placeholder"]');
+      if (element === null) throw new Error('no placeholder rendered');
+      return element;
+    }
+
+    it('draws no readout', () => {
+      expect(renderInfo()).toBeNull();
+    });
+
+    it('holds its place with a placeholder hidden from assistive technology', () => {
+      const element = placeholder(true);
+
+      expect(element).toHaveAttribute('aria-hidden', 'true');
+      expect(element).toHaveClass('invisible');
+      expect(element.textContent.trim()).toBe('');
+    });
+
+    it("sets the placeholder's label line in the model name's type role", () => {
+      expect(slots(placeholder(true), 'model-info-placeholder-label')[0]).toHaveClass(
+        'text-title-3'
+      );
+    });
+
+    it("sets an account's placeholder rate line in the rates' type role", () => {
+      expect(slots(placeholder(true), 'model-info-placeholder-rates')[0]).toHaveClass(
+        'text-caption',
+        'font-mono'
+      );
+    });
+
+    it("gives a visitor's placeholder no rate line", () => {
+      expect(slots(placeholder(false), 'model-info-placeholder-rates')).toHaveLength(0);
+    });
+  });
+
+  it('keeps the placeholder in the readout’s own cell once the model is known', () => {
+    const element = readout();
+    const cell = element.parentElement;
+    const reserved = cell?.querySelector('[data-slot="model-info-placeholder"]');
+
+    expect(reserved).not.toBeNull();
+    expect(reserved?.parentElement).toBe(cell);
+    expect(cell).toHaveClass('grid');
+    expect(element).toHaveClass('col-start-1', 'row-start-1');
+    expect(reserved).toHaveClass('col-start-1', 'row-start-1');
   });
 
   it('is one centred paragraph in the UI face, muted, at the small UI step', () => {

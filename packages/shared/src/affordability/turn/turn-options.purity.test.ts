@@ -123,6 +123,7 @@ const SELECTION: Selection = {
   modality: 'text',
   pinned: {},
   webSearch: true,
+  effortAuto: true,
 };
 
 describe('behavioural purity', () => {

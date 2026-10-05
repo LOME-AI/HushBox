@@ -121,3 +121,25 @@ export function exceedsTrialBudget(model: PriceableModel, promptChars: number): 
   }
   return trialTurnCostNanoUsd(model.pricing, promptChars) > TRIAL_MESSAGE_COST_CAP_NANO_USD;
 }
+
+/**
+ * The coarse prompt-character basis the trial classification prices its minimal
+ * exchange over. A fixed figure, not the turn's real prompt: the classification
+ * answers "may this model ever be used on trial", which must not move with what a
+ * user typed. At 3 characters per token it is 334 input tokens, and the 2,000
+ * output tokens dominate it.
+ */
+export const TRIAL_CLASSIFICATION_PROMPT_CHARS = 1000;
+
+/**
+ * Premium for a trial payer: {@link isPremiumModel}, OR a trial exchange of
+ * {@link TRIAL_CLASSIFICATION_PROMPT_CHARS} that runs past the trial per-message
+ * cap. The catalog's premium list and the trial tier's row verdict both read it,
+ * so a model the list calls premium is refused to a trial payer as premium rather
+ * than as a message too costly to send.
+ */
+export function isTrialPremiumModel(input: PremiumClassificationInput): boolean {
+  return (
+    isPremiumModel(input) || exceedsTrialBudget(input.model, TRIAL_CLASSIFICATION_PROMPT_CHARS)
+  );
+}

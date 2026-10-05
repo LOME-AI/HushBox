@@ -173,6 +173,7 @@ function selectionOf(draw: Draw, shape: Shape): Selection {
     modality: 'text',
     pinned: draw.pin === undefined ? {} : { effort: draw.pin },
     webSearch: draw.webSearch,
+    effortAuto: draw.pin === undefined,
   };
 }
 
@@ -227,27 +228,22 @@ function rungOf(
 }
 
 /**
- * The ceiling a rung runs at on one row: its own budget solve's when the row
- * publishes one for that rung, which it does for every rung the turn can run. A
- * searching turn prices each rung at its own tool loop, so that is the ceiling
- * the rung's thinking budget and answer share; a rung the row publishes nothing
- * for is graded at the row's own ceiling.
+ * The ceiling a rung runs at on one row: the row's ceiling in the same set of the
+ * same turn with effort pinned at that rung. A row's rung is graded exactly as
+ * the row is under a pin at that rung, and a searching turn prices the pinned
+ * rung at its own tool loop, so that ceiling is what the rung's thinking budget
+ * and answer share.
  */
-function rungCeilingOf(entry: ModelEntry, optionId: OptionId): number {
-  return (
-    entry.rungCeilings.find((rung) => rung.effort === optionId)?.ceilingTokens ??
-    entry.ceilingTokens
-  );
-}
+type RungCeiling = (entry: ModelEntry, optionId: OptionId) => number;
 
 /** A candidate row's own per-rung list, each rung graded at the ceiling it runs at. */
-function candidateRungsOf(entry: ModelEntry): readonly Rung[] {
+function candidateRungsOf(entry: ModelEntry, ceilingAt: RungCeiling): readonly Rung[] {
   if (entry.kind !== 'candidate') return [];
   const model = BY_ID.get(String(entry.modelId));
   if (model === undefined) return [];
   return entry.dimensions.flatMap((dimension) =>
     dimension.options.map((option) =>
-      rungOf('candidate row', model, rungCeilingOf(entry, option.optionId), option)
+      rungOf('candidate row', model, ceilingAt(entry, option.optionId), option)
     )
   );
 }
@@ -259,7 +255,7 @@ function candidateRungsOf(entry: ModelEntry): readonly Rung[] {
  * is an OR over the arrangements the classifier could pick, and grading every
  * candidate row against it would be reading a different claim.
  */
-function unionRungsOf(set: OptionSet): readonly Rung[] {
+function unionRungsOf(set: OptionSet, ceilingAt: RungCeiling): readonly Rung[] {
   const siblings = set.all.flatMap((entry) => {
     const model = entry.kind === 'pinned' ? BY_ID.get(String(entry.modelId)) : undefined;
     return model === undefined ? [] : [{ model, entry }];
@@ -267,7 +263,7 @@ function unionRungsOf(set: OptionSet): readonly Rung[] {
   return set.turnDimensions.flatMap((dimension) =>
     dimension.options.flatMap((option) =>
       siblings.map((sibling) =>
-        rungOf('turn union', sibling.model, rungCeilingOf(sibling.entry, option.optionId), option)
+        rungOf('turn union', sibling.model, ceilingAt(sibling.entry, option.optionId), option)
       )
     )
   );
@@ -277,20 +273,37 @@ function unionRungsOf(set: OptionSet): readonly Rung[] {
 function sweep(over: readonly Draw[], shape: Shape): readonly Rung[] {
   const rungs: Rung[] = [];
   for (const draw of over) {
-    const options = getTurnOptions(
-      {
-        spendableNanoUsd: nanoUSD(draw.spendable),
-        heldNanoUsd: nanoUSD(draw.held),
-        payerTier: 'paid',
-        payer: 'self',
-      },
-      draw.basis,
-      selectionOf(draw, shape),
-      { models: CATALOG, nowMs: NOW_MS }
-    );
-    for (const set of [options.admissible, options.affordable]) {
-      for (const entry of set.all) rungs.push(...candidateRungsOf(entry));
-      if (shape === 'pinned') rungs.push(...unionRungsOf(set));
+    const funding = {
+      spendableNanoUsd: nanoUSD(draw.spendable),
+      heldNanoUsd: nanoUSD(draw.held),
+      payerTier: 'paid' as const,
+      payer: 'self' as const,
+    };
+    const selection = selectionOf(draw, shape);
+    const optionsAt = (pinned: Selection): ReturnType<typeof getTurnOptions> =>
+      getTurnOptions(funding, draw.basis, pinned, { models: CATALOG, nowMs: NOW_MS });
+    const options = optionsAt(selection);
+    const pinnedRuns = new Map<OptionId, ReturnType<typeof getTurnOptions>>();
+    const pinnedRun = (optionId: OptionId): ReturnType<typeof getTurnOptions> => {
+      const cached = pinnedRuns.get(optionId);
+      if (cached !== undefined) return cached;
+      const run = optionsAt({ ...selection, pinned: { effort: optionId }, effortAuto: false });
+      pinnedRuns.set(optionId, run);
+      return run;
+    };
+    for (const pass of ['admissible', 'affordable'] as const) {
+      const ceilingAt: RungCeiling = (entry, optionId) => {
+        const row = pinnedRun(optionId)[pass].all.find(
+          (pinnedEntry) => pinnedEntry.modelId === entry.modelId
+        );
+        if (row === undefined) {
+          throw new Error(`no row for ${String(entry.modelId)} with effort pinned at ${optionId}`);
+        }
+        return row.ceilingTokens;
+      };
+      const set = options[pass];
+      for (const entry of set.all) rungs.push(...candidateRungsOf(entry, ceilingAt));
+      if (shape === 'pinned') rungs.push(...unionRungsOf(set, ceilingAt));
     }
   }
   return rungs;

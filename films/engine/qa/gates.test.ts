@@ -121,6 +121,7 @@ function inputs(): GateInputs {
       onsets: [],
       colour: [],
       chartPsnr: 50,
+      privacy: { verdict: 'clean', findings: [] },
     },
   };
 }

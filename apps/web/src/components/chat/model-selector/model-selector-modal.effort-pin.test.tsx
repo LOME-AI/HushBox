@@ -62,7 +62,7 @@ vi.mock('@/hooks/models/models', async (importOriginal) => {
 
 function catalogRow(
   id: string,
-  pricing: { inputPerToken: string; outputPerToken: string },
+  pricing: { anchorContextTokens: number; inputPerToken: string; outputPerToken: string },
   reasoning?: Model['reasoning']
 ): Model {
   return {
@@ -87,7 +87,7 @@ function catalogRow(
  */
 const REASONER = catalogRow(
   'reasoner',
-  { inputPerToken: '10000', outputPerToken: '30000' },
+  { anchorContextTokens: 1_000_000, inputPerToken: '10000', outputPerToken: '30000' },
   { supportedEfforts: ['low', 'medium', 'high'] }
 );
 const CATALOG = [REASONER];
@@ -96,7 +96,11 @@ const CATALOG = [REASONER];
  * A model with no reasoning metadata at all: the effort axis offers it nothing,
  * not even off, so no pin resolves on it.
  */
-const LADDERLESS = catalogRow('ladderless', { inputPerToken: '100', outputPerToken: '200' });
+const LADDERLESS = catalogRow('ladderless', {
+  anchorContextTokens: 1_000_000,
+  inputPerToken: '100',
+  outputPerToken: '200',
+});
 
 function renderPicker(models: Model[] = CATALOG): void {
   mockModels.current = { models, premiumIds: new Set<string>() };

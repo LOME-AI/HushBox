@@ -37,7 +37,7 @@ function psnr(mse: number): number {
   return 10 * Math.log10((255 * 255) / mse);
 }
 
-export interface Neighbour {
+interface Neighbour {
   frame: number;
   /** The decoded frame's error against this neighbour's reference. */
   error: number;

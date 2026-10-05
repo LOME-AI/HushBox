@@ -5,6 +5,7 @@ import {
   applyMarkupInverseFloorToPicoUsd,
   usdToPicoUsd,
 } from '@hushbox/shared';
+import type { MaxPrice } from '@hushbox/shared';
 
 /**
  * Money math for the billing slice and the ModelProvider port's fee seam. The
@@ -46,6 +47,17 @@ export function billableRateToMaxPriceUsdPerMillion(billableNanoPerToken: bigint
   const picoPerToken = applyMarkupInverseFloorToPicoUsd(billableNanoPerToken);
   const digits = picoPerToken.toString().padStart(PER_MILLION_FRACTION_DIGITS + 1, '0');
   return `${digits.slice(0, -PER_MILLION_FRACTION_DIGITS)}.${digits.slice(-PER_MILLION_FRACTION_DIGITS)}`;
+}
+
+/** A pair of billable token rates un-baked into the call's `max_price`, one cap per rate. */
+export function billableRatesToMaxPrice(rates: {
+  readonly input: bigint;
+  readonly output: bigint;
+}): MaxPrice {
+  return {
+    prompt: billableRateToMaxPriceUsdPerMillion(rates.input),
+    completion: billableRateToMaxPriceUsdPerMillion(rates.output),
+  };
 }
 
 /** Fail-fast guard, run at module init: the two rate constants must agree. */

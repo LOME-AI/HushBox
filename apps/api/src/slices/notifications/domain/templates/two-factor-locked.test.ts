@@ -84,4 +84,33 @@ describe('twoFactorLockedEmail', () => {
     const { html, text } = render();
     expect(`${html}${text}`).not.toContain('undefined');
   });
+
+  describe('when the ceiling froze two-factor sign-in', () => {
+    function renderFrozen(): RenderedEmail {
+      return renderEmail(twoFactorLockedEmail, { userName: 'Alice' }, { sentAt: SENT_AT });
+    }
+
+    it('keeps the subject', () => {
+      expect(renderFrozen().subject).toBe(SUBJECT);
+    });
+
+    it('states the pause and the recovery reset in the inbox preview line', () => {
+      expect(renderFrozen().html).toContain(
+        '>Too many wrong two-factor codes. Two-factor sign-in is paused until you reset your password.</div>'
+      );
+    });
+
+    it('points to the recovery-phrase reset in the statement paragraph', () => {
+      const statement =
+        'Someone signed in to your HushBox account with your password, then entered too many wrong two-factor codes. Two-factor sign-in is paused until you reset your password with your recovery phrase.';
+      expect(renderFrozen().html).toMatch(
+        new RegExp(`<p class="email-paragraph" [^>]*>${literal(statement)}</p>`)
+      );
+    });
+
+    it('names no wait in minutes', () => {
+      const { html, text } = renderFrozen();
+      expect(`${html}${text}`).not.toContain('minutes');
+    });
+  });
 });

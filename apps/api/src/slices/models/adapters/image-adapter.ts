@@ -1,6 +1,6 @@
 import { generateImage, NoContentGeneratedError, NoImageGeneratedError } from 'ai';
 import { z } from 'zod';
-import { mediaRoutingOptions } from '@hushbox/shared';
+import { imageRoutingOptions } from '@hushbox/shared';
 import {
   classifyInferenceFailure,
   emptyCompletionError,
@@ -17,10 +17,12 @@ import type { InferOptions, ModelProvider } from '../ports/index.js';
 /**
  * The image-family adapter behind the ModelProvider port: the AI SDK's
  * `generateImage` against OpenRouter's `/images` endpoint (non-streaming
- * generate). Every call pins the ZDR routing block via `mediaRoutingOptions()`
- * (carried in `extraBody.provider`). OpenRouter's dedicated images API returns
- * NO inline cost, so the finish carries none — settlement falls back to the
- * deterministic estimate.
+ * generate). The Images API carries no `zdr` field, so every call is pinned to
+ * the descriptor's ZDR endpoint tags via `imageRoutingOptions()`, and a
+ * descriptor without a pin is refused before any request. The images API
+ * returns the call's cost in `usage.cost`, which the SDK drops, so the adapter
+ * reads it off the responses themselves and the finish carries it as the inline
+ * cost settlement bills.
  */
 interface CreateImageAdapterOptions {
   readonly apiKey: string;
@@ -41,6 +43,7 @@ const callParametersSchema = z.strictObject({
   n: z.number().int().positive().optional(),
   size: z.templateLiteral([z.number(), 'x', z.number()]).optional(),
   aspectRatio: z.templateLiteral([z.number(), ':', z.number()]).optional(),
+  resolution: z.string().min(1).optional(),
 });
 
 type CallParameters = z.infer<typeof callParametersSchema>;
@@ -78,27 +81,76 @@ function mapImageUsage(usage: ImageModelUsage): Usage {
   return { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 };
 }
 
+const imagesCostSchema = z.looseObject({
+  usage: z.looseObject({ cost: z.number().nonnegative() }),
+});
+
+/**
+ * The summed `usage.cost` of one call's `/images` responses, read off a clone of
+ * each, or `undefined` when any of them carried none: a partial sum would bill
+ * less than the call cost as if it were exact. A successful response whose body
+ * is not JSON throws out of the fetch, as the SDK's own read of it would.
+ */
+interface CostTap {
+  readonly fetch: typeof globalThis.fetch;
+  readonly costUsd: () => number | undefined;
+}
+
+function tapImagesCost(base: typeof globalThis.fetch | undefined): CostTap {
+  const costs: (number | undefined)[] = [];
+  const tapped: typeof globalThis.fetch = async (input, init) => {
+    const response = await (base ?? globalThis.fetch)(input, init);
+    if (response.ok) {
+      const body: unknown = await response.clone().json();
+      costs.push(imagesCostSchema.safeParse(body).data?.usage.cost);
+    }
+    return response;
+  };
+  return {
+    fetch: tapped,
+    costUsd: () => {
+      const [first, ...rest] = costs;
+      let sum = first;
+      for (const cost of rest) {
+        sum = sum === undefined || cost === undefined ? undefined : sum + cost;
+      }
+      return sum;
+    },
+  };
+}
+
 interface InferImageInput {
-  provider: OpenRouterProvider;
+  apiKey: string;
+  fetch: typeof globalThis.fetch | undefined;
   request: InferenceRequest;
+  zdrPin: readonly [string, ...string[]];
   options: InferOptions;
 }
 
 async function* inferImage(input: InferImageInput): AsyncGenerator<InferenceEvent> {
-  const { provider, request, options } = input;
+  const { request, options } = input;
   const parameters = parseCallParameters(request.parameters);
   const prompt = mediaPromptFromInputs(request.inputs);
+  // A provider per call, so the cost tap sees only this call's responses.
+  const tap = tapImagesCost(input.fetch);
+  const provider: OpenRouterProvider = createOpenRouterProvider({
+    apiKey: input.apiKey,
+    fetch: tap.fetch,
+  });
 
   let result: GenerateImageResult;
   try {
     result = await generateImage({
-      model: provider.imageModel(request.model, mediaRoutingOptions()),
+      model: provider.imageModel(request.model, imageRoutingOptions(input.zdrPin)),
       prompt,
       maxRetries: 0,
       ...(options.signal === undefined ? {} : { abortSignal: options.signal }),
       ...(parameters.n === undefined ? {} : { n: parameters.n }),
       ...(parameters.size === undefined ? {} : { size: parameters.size }),
       ...(parameters.aspectRatio === undefined ? {} : { aspectRatio: parameters.aspectRatio }),
+      ...(parameters.resolution === undefined
+        ? {}
+        : { providerOptions: { openrouter: { resolution: parameters.resolution } } }),
     });
   } catch (error) {
     // A successful call that yielded zero images — the media analogue of the
@@ -111,16 +163,14 @@ async function* inferImage(input: InferImageInput): AsyncGenerator<InferenceEven
     throw classifyInferenceFailure(error);
   }
 
+  const costUsd = tap.costUsd();
   yield* mediaOutputEvents(result.images, options.mapFilePart);
   // The generating call's own metadata: the result's aggregate merges every
   // call down to their per-image arrays, so a generation id cannot survive it.
-  // No cost argument — OpenRouter's images API returns no inline cost.
-  yield mediaFinishEvent(result.calls[0]?.providerMetadata, mapImageUsage(result.usage));
+  yield mediaFinishEvent(result.calls[0]?.providerMetadata, mapImageUsage(result.usage), costUsd);
 }
 
 export function createImageAdapter(options: CreateImageAdapterOptions): ModelProvider {
-  const provider = createOpenRouterProvider(options);
-
   return {
     infer(
       request: InferenceRequest,
@@ -128,7 +178,16 @@ export function createImageAdapter(options: CreateImageAdapterOptions): ModelPro
       inferOptions: InferOptions = {}
     ): AsyncIterable<InferenceEvent> {
       validateInferenceCall(request, descriptor);
-      return inferImage({ provider, request, options: inferOptions });
+      if (descriptor.zdrPin === undefined) {
+        throw invalidRequestError(`Image model ${descriptor.id} has no ZDR endpoint pin`);
+      }
+      return inferImage({
+        apiKey: options.apiKey,
+        fetch: options.fetch,
+        request,
+        zdrPin: descriptor.zdrPin,
+        options: inferOptions,
+      });
     },
   };
 }

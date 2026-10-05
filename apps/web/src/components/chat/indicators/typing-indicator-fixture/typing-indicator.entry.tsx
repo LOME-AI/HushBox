@@ -4,14 +4,15 @@ import { flushSync } from 'react-dom';
 import { TEST_IDS } from '@hushbox/shared';
 import { PromptInput } from '@/components/chat/input/prompt-input';
 import { ChatColumn } from '@/components/chat/layout/chat-column';
+import { InputDock } from '@/components/chat/layout/input-dock';
 import { TypingIndicator } from '../typing-indicator';
 import './typing-indicator.css';
 
 /**
  * Real-browser fixture for `typing-indicator.browser.test.ts`: a group member's typing line at
- * the foot of the message column, above the input dock as the chat layout draws it (a hairline
- * and 1rem of padding above the composer), with the real `PromptInput` in the dock, its data
- * hooks stubbed so the context gauge sits on the composer's top edge. The query string sets
+ * the foot of the message column, above the chat layout's own `InputDock` (a hairline and 1rem
+ * of padding above the composer), with the real `PromptInput` in the dock, its data hooks
+ * stubbed so the context gauge sits on the composer's top edge. The query string sets
  * the text scale (`scale=141`) the way the app's classes do, the theme (`theme=dark`), and
  * `slot=renamed` renames the composer's top-edge slot, the control that shows the line's
  * clearance rests on that slot's name.
@@ -67,7 +68,7 @@ function Conversation(): React.JSX.Element {
       <div className="flex min-h-0 flex-1 flex-col justify-end">
         <TypingIndicator typingUserIds={new Set(['u-writer'])} members={MEMBERS} />
       </div>
-      <div className="bg-background flex-shrink-0 border-t py-4">
+      <InputDock>
         <ChatColumn>
           <PromptInput
             value={value}
@@ -78,7 +79,7 @@ function Conversation(): React.JSX.Element {
             onSelectModality={() => undefined}
           />
         </ChatColumn>
-      </div>
+      </InputDock>
     </div>
   );
 }

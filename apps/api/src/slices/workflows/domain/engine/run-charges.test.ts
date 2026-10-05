@@ -69,6 +69,28 @@ describe('collectCharge', () => {
     });
   });
 
+  it('carries what the call observed through to the charge', () => {
+    const observed = {
+      stepUsages: [{ inputTokens: 205_000, outputTokens: 64_000 }],
+      toolFeeNanoUsd: 7n,
+    };
+    const charges: SettlementCharge[] = [];
+    collectCharge(
+      charges,
+      'node',
+      textSuccess({
+        billing: { modelId: 'vendor/model', providerName: 'vendor', modality: 'text', observed },
+      })
+    );
+    expect(charges[0]?.observed).toEqual(observed);
+  });
+
+  it('leaves the observation off a charge whose call observed none', () => {
+    const charges: SettlementCharge[] = [];
+    collectCharge(charges, 'node', textSuccess());
+    expect(charges[0]).not.toHaveProperty('observed');
+  });
+
   it('carries the reasoning time through to the charge', () => {
     const charges: SettlementCharge[] = [];
     collectCharge(

@@ -4,62 +4,62 @@ exports[`email template html is byte-stable > chargeback-lock 1`] = `
 "<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="dark">
-  <title>HushBox</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark light">
+<meta name="supported-color-schemes" content="dark light">
+<title>Your account was locked</title>
+<style>
+:root { color-scheme: dark light; supported-color-schemes: dark light; }
+@media (max-width: 30em) {
+  .email-canvas-pad { padding: 24px 12px !important; }
+  .email-card-pad { padding: 24px 20px !important; }
+}
+@media (prefers-color-scheme: light) {
+  .email-wordmark { color: #1a1a1a !important; }
+  .email-wordmark-accent { color: #ec4755 !important; }
+  .email-heading { color: #1a1a1a !important; }
+  .email-section-heading { color: #1a1a1a !important; }
+  .email-paragraph { color: #1a1a1a !important; }
+  .email-op-line { color: #1a1a1a !important; }
+  .email-fine-print { color: #4d4a45 !important; }
+  .email-link { color: #ec4755 !important; }
+  .email-button { color: #ffffff !important; }
+  .email-fallback { color: #4d4a45 !important; }
+  .email-fallback-link { color: #ec4755 !important; }
+  .email-table-label { color: #4d4a45 !important; }
+  .email-table-value { color: #1a1a1a !important; }
+  .email-log-title { color: #1a1a1a !important; }
+  .email-log-meta { color: #4d4a45 !important; }
+  .email-bottom { color: #4d4a45 !important; }
+  .email-bottom-link { color: #ec4755 !important; }
+  .email-code { color: #1a1a1a !important; }
+  .email-foot-text { color: #4d4a45 !important; }
+  .email-foot-link { color: #ec4755 !important; }
+  .email-button-fill { background-color: #ec4755 !important; }
+  .email-code-fill { background-color: #eae8e3 !important; }
+  .email-surface-canvas { background-color: #faf9f6 !important; }
+  .email-surface-card { background-color: #faf5ed !important; border-color: #b5b1a8 !important; }
+  .email-surface-rule { border-color: #d1cfc9 !important; }
+}
+</style>
 </head>
-<body style="margin: 0; padding: 0; background-color: #0a0a0a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0a0a0a;">
-    <tr>
-      <td align="center" style="padding: 40px 20px;">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
-          <!-- Header -->
-          <tr>
-            <td align="center" style="padding: 20px 0; border-bottom: 1px solid #27272a;">
-              <span style="font-size: 24px; font-weight: 700; color: #fafafa; letter-spacing: 2px; font-family: 'Merriweather', Georgia, serif;">Hush<span style="color: #ec4755;">Box</span></span>
-            </td>
-          </tr>
-          <!-- Content Card -->
-          <tr>
-            <td style="padding: 40px 0;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #171717; border-radius: 12px; border: 1px solid #27272a;">
-                <tr>
-                  <td style="padding: 40px;">
-                    
-    <h1 style="margin: 0 0 16px 0; color: #fafafa; font-size: 24px; font-weight: 600;">
-      Account Locked
-    </h1>
-    <p style="margin: 0 0 8px 0; color: #fafafa; font-size: 16px; line-height: 1.5;">
-      Hi Sam,
-    </p>
-    <p style="margin: 0 0 16px 0; color: #a1a1aa; font-size: 16px; line-height: 1.5;">
-      Your HushBox account has been locked because of a payment dispute on a recent charge.
-    </p>
-    <p style="margin: 0; color: #a1a1aa; font-size: 14px; line-height: 1.5;">
-      The lock stays in place until the dispute is resolved. Contact us at <a href="mailto:legal@hushbox.ai" style="color: #ec4755; text-decoration: none;">legal@hushbox.ai</a> to resolve it.
-    </p>
-  
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <!-- Footer -->
-          <tr>
-            <td align="center" style="padding: 20px 0; border-top: 1px solid #27272a;">
-              <p style="margin: 0 0 8px 0; color: #a1a1aa; font-size: 12px;">
-                &copy; 2026 LOME-AI LLC
-              </p>
-              <p style="margin: 0; color: #a1a1aa; font-size: 12px;">
-                Questions? <a href="mailto:hello@hushbox.ai" style="color: #ec4755; text-decoration: none;">hello@hushbox.ai</a>
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
+<body class="email-surface-canvas" style="margin:0;padding:0;background-color:#0c0b0a;">
+<div class="email-preheader" style="display:none;max-height:0;overflow:hidden;mso-hide:all;">A recent charge was disputed. The lock stays until the dispute is resolved.</div>
+<table role="presentation" class="email-surface-canvas" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;background-color:#0c0b0a;">
+<tr><td align="center" class="email-canvas-pad" style="padding:40px 20px;">
+<table role="presentation" class="email-column" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;border-collapse:collapse;">
+<tr><td align="center" class="email-top email-surface-rule" style="padding:20px 0;border-bottom:1px solid #3d3a36;"><span class="email-wordmark" style="display:inline-block;font-family:Georgia, 'Times New Roman', serif;font-size:24px;font-weight:700;line-height:1.2;letter-spacing:2px;color:#f2f1ef;">Hush<span class="email-wordmark-accent" style="color:#ec4755;">Box</span></span></td></tr>
+<tr><td style="padding:40px 0;">
+<table role="presentation" class="email-surface-card" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;background-color:#1a1816;border:1px solid #3d3a36;border-radius:12px;">
+<tr><td class="email-card-pad" style="padding:40px;"><h1 class="email-heading" style="margin:0 0 16px;font-family:Georgia, 'Times New Roman', serif;font-size:22px;font-weight:700;line-height:1.3;color:#f2f1ef;overflow-wrap:anywhere;word-break:break-word;">Your account was locked</h1><p class="email-paragraph" style="margin:0 0 16px;font-family:Georgia, 'Times New Roman', serif;font-size:16px;font-weight:400;line-height:1.6;color:#f2f1ef;overflow-wrap:anywhere;word-break:break-word;">Hi Sam,</p><p class="email-paragraph" style="margin:0 0 16px;font-family:Georgia, 'Times New Roman', serif;font-size:16px;font-weight:400;line-height:1.6;color:#f2f1ef;overflow-wrap:anywhere;word-break:break-word;">Your HushBox account has been locked because of a payment dispute on a recent charge.</p><p class="email-paragraph" style="margin:0 0 16px;font-family:Georgia, 'Times New Roman', serif;font-size:16px;font-weight:400;line-height:1.6;color:#f2f1ef;overflow-wrap:anywhere;word-break:break-word;">The lock stays in place until the dispute is resolved. Contact us to resolve it.</p><table role="presentation" class="email-button-wrap" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:8px 0 12px;"><tr><td align="center" class="email-button-fill" bgcolor="#ec4755" style="padding:0;background-color:#ec4755;border-radius:6px;"><a class="email-button email-button-fill" href="mailto:billing@hushbox.ai" style="display:block;padding:14px 20px;background-color:#ec4755;border-radius:6px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:20px;text-align:center;text-decoration:none;color:#ffffff;">Email the billing team</a></td></tr></table><p class="email-fallback" style="margin:0 0 0;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;font-weight:400;line-height:1.45;color:#bcb9b3;word-break:break-all;">Or write to <a class="email-fallback-link" href="mailto:billing@hushbox.ai" style="color:#ec4755;text-decoration:none;">billing@hushbox.ai</a></p></td></tr>
+</table>
+</td></tr>
+<tr><td align="center" class="email-bottom email-surface-rule" style="padding:20px 0;border-top:1px solid #3d3a36;text-align:center;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:12px;font-weight:400;line-height:1.5;color:#bcb9b3;"><p style="margin:0 0 8px;">&copy; 2026 LOME-AI LLC</p><p style="margin:0;">Questions? <a class="email-bottom-link" href="mailto:hello@hushbox.ai" style="color:#ec4755;text-decoration:none;">hello@hushbox.ai</a></p></td></tr>
+</table>
+</td></tr>
+</table>
 </body>
-</html>"
+</html>
+"
 `;

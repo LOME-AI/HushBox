@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { Node as NodeSchema, serializeSegments, textTag } from '@hushbox/shared';
+import { Node as NodeSchema, nanoUSD, serializeSegments, textTag } from '@hushbox/shared';
 import { planReasoning, reasoningPlanModelFrom } from '@hushbox/shared/affordability';
 import { TEST_DAY_END, TEST_DAY_START, isoAt, secondsAt } from '@hushbox/shared/test-time';
 import { tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
@@ -13,6 +13,7 @@ import type {
   CanonicalReasoningEffort,
   InferenceEvent,
   InferenceRequest,
+  MaxPrice,
   Modality,
   ModelDescriptor,
   Node,
@@ -48,6 +49,12 @@ function descriptor(id: string): ModelDescriptor {
   };
 }
 
+/** Each candidate's cap, distinct so a request names the binding it was priced on. */
+const CANDIDATE_MAX_PRICE: Readonly<Record<string, MaxPrice>> = {
+  [CHEAP]: { prompt: '0.250434', completion: '1.563478' },
+  [HARD]: { prompt: '7.500000', completion: '28.125217' },
+};
+
 function binding(id: string): ModelBinding {
   return {
     descriptor: descriptor(id),
@@ -55,6 +62,24 @@ function binding(id: string): ModelBinding {
     // Same order of magnitude as the fixture inline costs, so the inline path
     // never trips the absurd-cost sanity bound and falls back to the estimate.
     price: () => ok(1_000_000n),
+    reserveMedia: () => ok(1_000_000n),
+    maxPrice: () => CANDIDATE_MAX_PRICE[id] ?? { prompt: '0.000000', completion: '0.000000' },
+  };
+}
+
+/** The reservation admission holds for a one-step slot answer, as the node receives it. */
+function slotReservation(): NonNullable<NodeRunContext['reservation']> {
+  return {
+    nodeId: 'answer',
+    modelId: HARD,
+    pricing: tokenPricingFixture({ input: 1n, output: 1n }),
+    quantities: { promptTokens: 7, persists: false, newMessageChars: 0 },
+    steps: 1,
+    wireCapTokens: 64,
+    stepTiers: [],
+    providerNanoUsd: nanoUSD(0n),
+    storageNanoUsd: nanoUSD(0n),
+    heldNanoUsd: nanoUSD(0n),
   };
 }
 
@@ -149,6 +174,8 @@ function makeCtx(emitted: InferenceEvent[], options: CtxOptions = {}): NodeRunCo
     clock: { now: () => 0 },
     rng: { random: () => 0.5 },
     signal: new AbortController().signal,
+    spend: { isOpen: () => true, report: () => undefined },
+    runId: undefined,
     emit: (event): void => {
       emitted.push(event);
     },
@@ -188,6 +215,31 @@ function envelopeDeps(
 function decision(overrides: Partial<TurnDecision> = {}): TurnDecision {
   return { prompt: 'pick a model for me', modelId: CHEAP, effort: 'medium', ...overrides };
 }
+
+describe('createSmartModelExecution — the price reservation', () => {
+  it('routes the answer under the max_price of the candidate it resolved', async () => {
+    const requests: InferenceRequest[] = [];
+    const provider = providerByModel({ [CHEAP]: CHEAP_ANSWER }, requests);
+    const execution = createSmartModelExecution(envelopeDeps(provider));
+
+    await execution.run(decisionNode(), [decision({ modelId: CHEAP })], {
+      ...makeCtx([]),
+      reservation: slotReservation(),
+    });
+
+    expect(requests.at(-1)?.routing).toEqual({ maxPrice: CANDIDATE_MAX_PRICE[CHEAP] });
+  });
+
+  it('sends an answer the engine reserved nothing for without routing', async () => {
+    const requests: InferenceRequest[] = [];
+    const provider = providerByModel({ [HARD]: HARD_ANSWER }, requests);
+    const execution = createSmartModelExecution(envelopeDeps(provider));
+
+    await execution.run(decisionNode(), [decision({ modelId: HARD })], makeCtx([]));
+
+    expect(requests.at(-1)?.routing).toBeUndefined();
+  });
+});
 
 describe('createSmartModelExecution — the decision envelope', () => {
   it("answers on the envelope's prompt when its input port declares the decision", async () => {
@@ -896,5 +948,43 @@ describe('createSmartModelExecution — remaining failure edges', () => {
 
     expect(result.isErr()).toBe(true);
     expect(requests).toHaveLength(0);
+  });
+});
+
+describe("createSmartModelExecution — the run's spend gate", () => {
+  it('starts no answer call when the gate is closed', async () => {
+    const requests: InferenceRequest[] = [];
+    const execution = createSmartModelExecution(
+      envelopeDeps(providerByModel({ [CHEAP]: CHEAP_ANSWER, [HARD]: HARD_ANSWER }, requests))
+    );
+
+    await execution.run(decisionNode(), [decision()], {
+      ...makeCtx([]),
+      spend: { isOpen: (): boolean => false, report: vi.fn() },
+    });
+
+    expect(requests).toHaveLength(0);
+  });
+
+  it("asks the run's spend gate before the answer's next step", async () => {
+    const gate = { open: true };
+    const answers: boolean[] = [];
+    const provider: ModelProvider = {
+      infer: (_request, _descriptor, options) =>
+        (async function* stream(): AsyncGenerator<InferenceEvent> {
+          await Promise.resolve();
+          gate.open = false;
+          answers.push(options?.continuation?.mayStartNextStep([0.002]) ?? true);
+          yield* CHEAP_ANSWER;
+        })(),
+    };
+    const execution = createSmartModelExecution(envelopeDeps(provider));
+
+    await execution.run(decisionNode(), [decision()], {
+      ...makeCtx([]),
+      spend: { isOpen: (): boolean => gate.open, report: vi.fn() },
+    });
+
+    expect(answers).toEqual([false]);
   });
 });

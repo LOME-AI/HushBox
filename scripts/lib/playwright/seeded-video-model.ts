@@ -25,7 +25,7 @@
  * turn is then sendable without the client having to snap any axis. They are the
  * values a video model realistically offers.
  */
-import { applyMarkupCeil } from '@hushbox/shared';
+import { applyMarkupCeilFromUsdDecimal } from '@hushbox/shared';
 import { mediaParameterSpecs } from '@hushbox/shared/affordability';
 import { DESCRIPTOR_VERSION } from '@hushbox/api/dev-seed';
 import { E2E_SEEDED_VIDEO_MODEL_IDS } from './model-ids.js';
@@ -34,7 +34,7 @@ import type { UpsertCatalogParams } from '@hushbox/api/dev-seed';
 export { E2E_SEEDED_VIDEO_MODEL_IDS } from './model-ids.js';
 
 /**
- * Raw PROVIDER per-second rates in nano-USD ($0.05/s at 720p, $0.08/s at 1080p).
+ * Raw PROVIDER per-second rates as the vendor lists them ($0.05/s at 720p, $0.08/s at 1080p).
  * 1080p is priced strictly above 720p because `video-generation.spec.ts` asserts
  * the cost preview rises with the resolution at a fixed duration; equal rates
  * would let that spec pass over a broken estimator. This object is also the
@@ -42,25 +42,25 @@ export { E2E_SEEDED_VIDEO_MODEL_IDS } from './model-ids.js';
  * lookup, so deriving both from one literal makes "every declared resolution has
  * a rate" true by construction rather than by review.
  */
-const SYNTHETIC_PER_SECOND_PROVIDER_NANO_USD = {
-  '720p': 50_000_000n,
-  '1080p': 80_000_000n,
+const SYNTHETIC_PER_SECOND_PROVIDER_USD = {
+  '720p': '0.05',
+  '1080p': '0.08',
 } as const;
 
-const SYNTHETIC_RESOLUTIONS = Object.keys(SYNTHETIC_PER_SECOND_PROVIDER_NANO_USD);
+const SYNTHETIC_RESOLUTIONS = Object.keys(SYNTHETIC_PER_SECOND_PROVIDER_USD);
 const SYNTHETIC_ASPECT_RATIOS = ['16:9', '9:16'] as const;
 const SYNTHETIC_DURATIONS_SECONDS = [4, 6, 8] as const;
 
 /**
  * The stored matrix. The catalog invariant since descriptor v2 is billable
- * (after-fee) rates only — baked with the SAME ceil-markup helper normalize
- * uses, so these rows can never drift from what `catalog:refresh` would store
- * for a real per-second-priced model.
+ * (after-fee) rates only — baked from the vendor decimal with the SAME
+ * one-round-up helper normalize uses, so these rows can never drift from what
+ * `catalog:refresh` would store for a real per-second-priced model.
  */
 const SYNTHETIC_PER_SECOND_BILLABLE_NANO_USD: Record<string, string> = Object.fromEntries(
-  Object.entries(SYNTHETIC_PER_SECOND_PROVIDER_NANO_USD).map(([resolution, providerNano]) => [
+  Object.entries(SYNTHETIC_PER_SECOND_PROVIDER_USD).map(([resolution, providerUsd]) => [
     resolution,
-    applyMarkupCeil(providerNano).toString(),
+    String(applyMarkupCeilFromUsdDecimal(providerUsd)),
   ])
 );
 

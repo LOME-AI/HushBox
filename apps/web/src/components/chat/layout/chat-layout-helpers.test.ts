@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { serializeSegments } from '@hushbox/shared';
+import { TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
 import {
   getMobileInputStyle,
   getContentAreaStyle,
@@ -88,7 +89,7 @@ describe('resolveChatLayoutDerivedState', () => {
     conversationId: 'conv-1',
     role: 'assistant',
     content: 'hello',
-    createdAt: '',
+    createdAt: isoAt(TEST_DAY_START),
   };
 
   it('passes premiumIds through untouched', () => {
@@ -102,43 +103,100 @@ describe('resolveChatLayoutDerivedState', () => {
     expect(result.premiumIds).toBe(premiumIds);
   });
 
-  it('returns null shared-message fields when shareMessageId is null', () => {
+  it('hands over no shared reply while no message is selected', () => {
     const result = resolveChatLayoutDerivedState({
       premiumIds: new Set(),
       shareMessageId: null,
       messages: [baseMessage],
     });
 
-    expect(result.sharedMessageContent).toBeNull();
-    expect(result.sharedMessageEpochNumber).toBeNull();
-    expect(result.sharedMessageWrappedContentKey).toBeNull();
-    expect(result.sharedMessageMediaItems).toBeNull();
+    expect(result.sharedMessage).toBeNull();
   });
 
-  it('extracts shared-message fields when the shared message is found', () => {
-    const shared: Message = {
-      ...baseMessage,
+  it('hands over no shared reply when the selected id matches no message', () => {
+    const result = resolveChatLayoutDerivedState({
+      premiumIds: new Set(),
+      shareMessageId: 'missing',
+      messages: [baseMessage],
+    });
+
+    expect(result.sharedMessage).toBeNull();
+  });
+
+  /** A thread message carrying every field the link publishes and every field it withholds. */
+  const THREAD_MESSAGE: Message = {
+    ...baseMessage,
+    id: 'shared',
+    content: 'shared content',
+    modelName: 'anthropic/claude-sonnet-4.5',
+    isSmartModel: true,
+    reasoningTokens: 1204,
+    reasoningEffort: 'high',
+    reasoningDurationMs: 9000,
+    deleted: false,
+    epochNumber: 7,
+    wrappedContentKey: 'wrapped-key',
+    mediaItems: [],
+    senderId: 'sender-42',
+    cost: '1234567890',
+    inputTokens: 4321,
+    outputTokens: 8765,
+    resolvedModelName: 'Claude Sonnet 4.5',
+  };
+
+  it('hands over exactly the fields the link publishes', () => {
+    const result = resolveChatLayoutDerivedState({
+      premiumIds: new Set(),
+      shareMessageId: 'shared',
+      messages: [baseMessage, THREAD_MESSAGE],
+    });
+
+    expect(result.sharedMessage).toStrictEqual({
       id: 'shared',
       content: 'shared content',
+      createdAt: baseMessage.createdAt,
+      modelName: 'anthropic/claude-sonnet-4.5',
+      isSmartModel: true,
+      reasoningTokens: 1204,
+      reasoningEffort: 'high',
+      reasoningDurationMs: 9000,
+      deleted: false,
       epochNumber: 7,
       wrappedContentKey: 'wrapped-key',
       mediaItems: [],
       senderId: 'sender-42',
-    };
+    });
+  });
+
+  it('leaves out the cost, the token counts and the resolved name the link withholds', () => {
     const result = resolveChatLayoutDerivedState({
       premiumIds: new Set(),
       shareMessageId: 'shared',
-      messages: [baseMessage, shared],
+      messages: [THREAD_MESSAGE],
     });
 
-    expect(result.sharedMessageContent).toBe('shared content');
-    expect(result.sharedMessageEpochNumber).toBe(7);
-    expect(result.sharedMessageWrappedContentKey).toBe('wrapped-key');
-    expect(result.sharedMessageMediaItems).toEqual([]);
-    expect(result.sharedMessageSenderId).toBe('sender-42');
+    const keys = Object.keys(result.sharedMessage ?? {});
+    expect(keys).not.toContain('cost');
+    expect(keys).not.toContain('inputTokens');
+    expect(keys).not.toContain('outputTokens');
+    expect(keys).not.toContain('resolvedModelName');
   });
 
-  it('keeps embedded reasoning on an assistant shared-message preview', () => {
+  it('adds no key for a published field the message does not carry', () => {
+    const result = resolveChatLayoutDerivedState({
+      premiumIds: new Set(),
+      shareMessageId: 'm1',
+      messages: [baseMessage],
+    });
+
+    expect(result.sharedMessage).toStrictEqual({
+      id: 'm1',
+      content: 'hello',
+      createdAt: baseMessage.createdAt,
+    });
+  });
+
+  it('keeps the framed text whole, reasoning included', () => {
     // A share link publishes the reasoning, so the preview must be able to
     // show it. The raw framed text travels and the display surface parses it,
     // exactly as the public share page parses the same field.
@@ -152,94 +210,8 @@ describe('resolveChatLayoutDerivedState', () => {
       shareMessageId: 'shared',
       messages: [shared],
     });
-    expect(result.sharedMessageContent).toBe(raw);
-  });
 
-  it('carries the framed text through whatever role sent the message', () => {
-    const raw = serializeSegments([
-      { kind: 'reasoning', children: [{ kind: 'text', text: 'typed by a user' }] },
-      { kind: 'text', text: 'literally' },
-    ]);
-    const shared: Message = { ...baseMessage, id: 'shared', role: 'user', content: raw };
-    const result = resolveChatLayoutDerivedState({
-      premiumIds: new Set(),
-      shareMessageId: 'shared',
-      messages: [shared],
-    });
-    expect(result.sharedMessageContent).toBe(raw);
-  });
-
-  it('carries the reasoning token count and effort rung the link publishes', () => {
-    const shared: Message = {
-      ...baseMessage,
-      id: 'shared',
-      reasoningTokens: 1204,
-      reasoningEffort: 'high',
-    };
-    const result = resolveChatLayoutDerivedState({
-      premiumIds: new Set(),
-      shareMessageId: 'shared',
-      messages: [shared],
-    });
-
-    expect(result.sharedMessageReasoningTokens).toBe(1204);
-    expect(result.sharedMessageReasoningEffort).toBe('high');
-  });
-
-  it('nulls the reasoning fields for a message that recorded none', () => {
-    const result = resolveChatLayoutDerivedState({
-      premiumIds: new Set(),
-      shareMessageId: 'm1',
-      messages: [baseMessage],
-    });
-
-    expect(result.sharedMessageReasoningTokens).toBeNull();
-    expect(result.sharedMessageReasoningEffort).toBeNull();
-  });
-
-  it('nulls the reasoning fields when no message is selected', () => {
-    const result = resolveChatLayoutDerivedState({
-      premiumIds: new Set(),
-      shareMessageId: null,
-      messages: [baseMessage],
-    });
-
-    expect(result.sharedMessageReasoningTokens).toBeNull();
-    expect(result.sharedMessageReasoningEffort).toBeNull();
-  });
-
-  it('canonicalizes an absent senderId to an empty string', () => {
-    const result = resolveChatLayoutDerivedState({
-      premiumIds: new Set(),
-      shareMessageId: null,
-      messages: [baseMessage],
-    });
-
-    expect(result.sharedMessageSenderId).toBe('');
-  });
-
-  it('returns null shared-message fields when the id matches no message', () => {
-    const result = resolveChatLayoutDerivedState({
-      premiumIds: new Set(),
-      shareMessageId: 'missing',
-      messages: [baseMessage],
-    });
-
-    expect(result.sharedMessageContent).toBeNull();
-  });
-
-  it('falls back to null/empty for a found message missing optional fields', () => {
-    const result = resolveChatLayoutDerivedState({
-      premiumIds: new Set(),
-      shareMessageId: 'm1',
-      messages: [baseMessage],
-    });
-
-    expect(result.sharedMessageContent).toBe('hello');
-    expect(result.sharedMessageEpochNumber).toBeNull();
-    expect(result.sharedMessageWrappedContentKey).toBeNull();
-    expect(result.sharedMessageMediaItems).toBeNull();
-    expect(result.sharedMessageSenderId).toBe('');
+    expect(result.sharedMessage?.content).toBe(raw);
   });
 });
 

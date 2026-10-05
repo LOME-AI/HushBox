@@ -161,6 +161,12 @@ export interface Selection {
   readonly modality: Modality;
   readonly pinned: Readonly<Partial<Record<DimensionId, OptionId>>>;
   readonly webSearch: boolean;
+  /**
+   * Whether the send leaves its effort to the classifier (`auto`). A send that
+   * names no effort at all also leaves the axis open in `pinned`, but only an
+   * `auto` send has its replies capped per rung, so the two are told apart here.
+   */
+  readonly effortAuto: boolean;
 }
 
 /**
@@ -390,12 +396,22 @@ interface ModelEntryBase {
   /** `ceiling(m)` — `min(providerCap, contextHeadroom, budgetBuys)`, in tokens. */
   readonly ceilingTokens: number;
   /**
-   * This answer's ceiling at each rung the turn's menu marks available (and, on a
-   * candidate row, at each rung the row itself offers), in the domain's ascending
-   * order, each from that rung's own budget solve. On a tool-carrying turn a
-   * rung's loop sets its price, so the rungs buy different ceilings; on a turn
-   * with no tool they buy the same one. Empty when no rung is available; a rung is
-   * absent when the row's arrangement cannot answer at that rung's loop.
+   * `min(providerCap, contextHeadroom)`, in tokens: the ceiling with no money
+   * bound, at the prompt the ceiling was graded on, which every rung shares.
+   * The balance cuts an answer exactly when the ceiling it is capped at is below
+   * this: the graded {@link ModelEntryBase.ceilingTokens}, or a rung's ceiling
+   * in {@link ModelEntryBase.rungCeilings}. Zero on a row nothing prices.
+   */
+  readonly answerRoomTokens: number;
+  /**
+   * This answer's ceiling at each rung the turn's replies are capped at one by
+   * one, in the domain's ascending order, each from that rung's own budget solve.
+   * Those are the menu's available rungs on an `auto` send that searches beside a
+   * pinned sibling and leaves two or more rungs to decide between: the searching
+   * sibling's loop sets each rung's price, so the rungs buy different ceilings.
+   * On every other turn the list is empty, and a Smart-slot candidate's reply is
+   * capped at {@link ModelEntryBase.ceilingTokens}. On a candidate row a rung is
+   * absent when its arrangement cannot answer at that rung's loop.
    */
   readonly rungCeilings: readonly RungCeiling[];
 }

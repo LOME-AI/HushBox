@@ -2,13 +2,11 @@ import { TEST_IDS } from '@hushbox/shared';
 import { TIMEOUTS } from '../config/timeouts.js';
 import { requireEnv } from './env.js';
 import {
-  catalogPerImageCharge,
   expectBalanceDelta,
   expectExactCharge,
   mockGenerationCharge,
   readMockChargeBasis,
   readMoneyState,
-  readServedModelPricing,
   spendOf,
   storedMediaCharge,
   storedTextCharge,
@@ -102,24 +100,15 @@ export async function readGeneratedMedia(
 }
 
 /**
- * What one generated artifact was billed: the generation at the rate its own
- * call-shape family charges, plus the storage fee on the bytes persisted.
- *
- * The two families price from different sources, and that is the product's
- * rule rather than a testing convenience: an image call carries no inline
- * provider cost, so settlement bills the deterministic catalog rate, while a
- * video call bills the inline cost the provider returned — which for the E2E
- * mock is the cost it declares.
+ * What one generated artifact was billed: the generation at the inline cost
+ * the provider returned — which for the E2E mock is the cost it declares, for
+ * an image and a video alike — plus the storage fee on the bytes persisted.
  */
 export async function generatedArtifactCharge(
   request: APIRequestContext,
-  kind: MediaKind,
   item: GeneratedMediaItem
 ): Promise<DerivedNanoUsd> {
-  const generation =
-    kind === 'image'
-      ? catalogPerImageCharge(await readServedModelPricing(request, item.modelName), 1)
-      : mockGenerationCharge(await readMockChargeBasis(request), 1);
+  const generation = mockGenerationCharge(await readMockChargeBasis(request), 1);
   return sumOfCharges(generation, storedMediaCharge(item.byteLength));
 }
 
@@ -131,7 +120,7 @@ export async function generatedArtifactCharge(
  * message carries a cost badge and a model nametag.
  *
  * The amount is derived, never written: the artifact's rate comes from the
- * served catalog row or the mock's declared cost, its storage from the byte
+ * mock's declared cost, its storage from the byte
  * length the conversation reports, and the prompt's storage from the prompt the
  * helper itself sent. A badge that merely renders a `$` proves none of that,
  * which is what this replaced.
@@ -174,7 +163,7 @@ export async function assertCostAndNametagForFreshGeneration(
   // The prompt is stored once for the whole turn, so its fee rides this single
   // charge alongside the artifact's own.
   const expected = sumOfCharges(
-    await generatedArtifactCharge(request, kind, item),
+    await generatedArtifactCharge(request, item),
     storedTextCharge(prompt.length)
   );
   await expectExactCharge(request, conversationId, expected);

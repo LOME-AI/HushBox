@@ -78,25 +78,52 @@ function Rate({ rate }: Readonly<{ rate: ModelInfoRate }>): React.JSX.Element {
   );
 }
 
+const READOUT_CLASS = 'text-ui-sm text-muted-foreground m-0 text-center font-sans';
+
+/** Both layers sit in the one grid cell, so the cell is as tall as the taller of them. */
+const LAYER_CLASS = 'col-start-1 row-start-1';
+
 /**
- * The new chat's readout of the composer's model, under the greeting: the chip's swatch and
- * label, who makes the model (or the Smart Model's role), and an account's rates. The two
- * groups share a line where the column holds both, so a phone reads two lines.
+ * The readout's lines, drawn invisibly in the readout's own type roles, while the model is
+ * not yet known: the label line and, for an account, the rate line, which a phone sets on a
+ * line of its own as it does the Smart Model's rates. The new chat's composer sits directly
+ * under this block, so the readout's arrival must not change its height.
  */
-export function ModelInfo({
+function Placeholder({ signedIn }: Readonly<{ signedIn: boolean }>): React.JSX.Element {
+  return (
+    <p
+      aria-hidden="true"
+      data-slot="model-info-placeholder"
+      className={cn(READOUT_CLASS, LAYER_CLASS, 'invisible')}
+    >
+      <span data-slot="model-info-placeholder-label" className="text-title-3 inline-block">
+        {'\u00A0'}
+      </span>
+      {signedIn ? (
+        <>
+          {' '}
+          <span
+            data-slot="model-info-placeholder-rates"
+            className="text-caption inline-block font-mono max-md:w-full"
+          >
+            {'\u00A0'}
+          </span>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
+function Readout({
   model,
   selectionCount,
   signedIn,
-}: Readonly<ModelInfoProps>): React.JSX.Element | null {
-  if (model === undefined) return null;
+}: Readonly<{ model: Model; selectionCount: number; signedIn: boolean }>): React.JSX.Element {
   const { swatch, label, maker, rates } = modelInfoFacts(model, selectionCount, signedIn);
   const whoLast = rates.length === 0;
 
   return (
-    <p
-      data-testid={TEST_IDS.modelInfo}
-      className="text-ui-sm text-muted-foreground m-0 text-center font-sans"
-    >
+    <p data-testid={TEST_IDS.modelInfo} className={cn(READOUT_CLASS, LAYER_CLASS)}>
       <Group>
         <Fact
           last={maker === undefined && whoLast}
@@ -128,5 +155,26 @@ export function ModelInfo({
         </>
       )}
     </p>
+  );
+}
+
+/**
+ * The new chat's readout of the composer's model, under the greeting: the chip's swatch and
+ * label, who makes the model (or the Smart Model's role), and an account's rates. The two
+ * groups share a line where the column holds both, so a phone reads two lines. Its place is
+ * held from first paint, before the catalog names the model.
+ */
+export function ModelInfo({
+  model,
+  selectionCount,
+  signedIn,
+}: Readonly<ModelInfoProps>): React.JSX.Element {
+  return (
+    <div className="grid">
+      <Placeholder signedIn={signedIn} />
+      {model === undefined ? null : (
+        <Readout model={model} selectionCount={selectionCount} signedIn={signedIn} />
+      )}
+    </div>
   );
 }

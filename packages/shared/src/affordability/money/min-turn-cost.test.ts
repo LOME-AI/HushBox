@@ -182,6 +182,7 @@ function optionsAt(
       // The producer puts the tool on every pinned sibling, so a case carries it
       // on all of its siblings or on none.
       webSearch: input.siblings.some(({ tools }) => tools.length > 0),
+      effortAuto: input.reasoningEffort === 'auto',
     },
     // The pool is the siblings themselves: too small to carry a price
     // threshold, and released at the epoch, so neither premium leg fires and no
@@ -428,6 +429,7 @@ describe('the bound against a prompt the producer sees split into components', (
         modality: 'text',
         pinned: {},
         webSearch: false,
+        effortAuto: true,
       },
       { models: [MODEL], nowMs: PREMIUM_RECENCY_MS }
     );

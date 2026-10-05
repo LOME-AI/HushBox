@@ -247,9 +247,8 @@ async function freshStill(
 
 /**
  * A POSIX path inside the render's bundle, on disk, where its server serves it.
- * The UI pass writes there, never under the package: every bundle hashes the
- * whole package tree for the root's module discovery, so a file appearing
- * under it while another render bundles fails that bundle.
+ * The UI pass writes there because the look host fetches the UI's pixels from
+ * the bundle server's root, and the bundle's removal takes them with it.
  */
 function bundleFile(serveUrl: string, posix: string): string {
   return path.join(serveUrl, ...posix.split('/'));

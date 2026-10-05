@@ -4,9 +4,10 @@
  * fail-closed defects last). `unclassifiable-modality`, `unknown-pricing-unit`,
  * `missing-release-date`, `missing-aspect-ratio` (a media row whose catalog
  * entry describes no shape domain — unrepresentable data, never a fabricated
- * default) and `unrepresentable-token-limit` (a language row stating a token
- * window or output ceiling that is not a whole positive count) are fail-closed
- * defects that alert; `deprecated`,
+ * default), `unrepresentable-token-limit` (a language row stating a token
+ * window or output ceiling that is not a whole positive count) and
+ * `unrepresentable-endpoint-price` (a ZDR endpoint a text call can reach lists a
+ * price the token schedule cannot bound) are fail-closed defects that alert; `deprecated`,
  * `token-priced-image`, `token-priced-video`, `megapixel-priced-image`,
  * `missing-pricing`, `non-zdr` (only ZDR-reachable models are persisted),
  * `non-conversational` (specialty code-tooling and moderation models),
@@ -39,6 +40,7 @@ export const EXCLUDE_REASONS = [
   'unknown-pricing-unit',
   'missing-aspect-ratio',
   'unrepresentable-token-limit',
+  'unrepresentable-endpoint-price',
 ] as const;
 
 export type ExcludeReason = (typeof EXCLUDE_REASONS)[number];

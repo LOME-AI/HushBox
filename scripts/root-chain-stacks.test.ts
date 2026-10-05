@@ -652,9 +652,9 @@ describe('the stack a workflow job runs against', () => {
 
 /**
  * The flag a command names a build's mode under. A build's mode decides which
- * generated frontend env file it bakes, and that file is a build's sole supply,
- * so a mode named on a command line is a stack chosen there — beside, and free
- * to disagree with, the one the environment names.
+ * generated frontend env file it bakes, so a mode named on a command line is a
+ * stack chosen there — beside, and free to disagree with, the one the
+ * environment names.
  */
 const MODE_FLAG = '--mode';
 
@@ -836,7 +836,7 @@ describe('the mode a build resolves', () => {
 
     expect(
       defects,
-      `these commands decide a build's mode for themselves: ${JSON.stringify(defects)}. A build's mode names the generated env file it bakes, which is its sole supply, so a mode named on a command line is a stack chosen beside the one ${ENV_MODE_VARIABLE} names`
+      `these commands decide a build's mode for themselves: ${JSON.stringify(defects)}. A build's mode names the generated env file it bakes, so a mode named on a command line is a stack chosen beside the one ${ENV_MODE_VARIABLE} names`
     ).toEqual([]);
   });
 

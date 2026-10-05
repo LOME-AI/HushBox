@@ -33,7 +33,7 @@ import {
   predicateCode,
   reducerCode,
 } from '../../../workflows/index.js';
-import { createEstimateRun, createToolRegistry } from '../../../models/index.js';
+import { callMaxPrice, createEstimateRun, createToolRegistry } from '../../../models/index.js';
 import {
   compileMultiModelTurnOutcome,
   createTurnCompileRegistries,
@@ -236,7 +236,13 @@ function telemetry(): Telemetry {
 function bindingFor(id: string): ModelBinding | undefined {
   const descriptor = resolve(id);
   if (descriptor === undefined) return undefined;
-  return { descriptor, ports: { in: [textTag()], out: textTag() }, price: () => ok(1n) };
+  return {
+    descriptor,
+    ports: { in: [textTag()], out: textTag() },
+    price: () => ok(1n),
+    reserveMedia: () => ok(1n),
+    maxPrice: (bound) => callMaxPrice(descriptor.pricing, bound),
+  };
 }
 
 const NO_SUB_WORKFLOWS: Record<string, SubWorkflowBinding | undefined> = {};
@@ -321,7 +327,7 @@ async function runTurn(build: MultiModelTurnBuild, answer: string): Promise<Ran>
             costCircuitLimitNanoUsd: 10n ** 13n,
           },
         }),
-      settlement: () => Promise.resolve(),
+      settlement: () => Promise.resolve({ billed: [] }),
     },
     runKey: 'decided-rung-run',
     emit: () => {},

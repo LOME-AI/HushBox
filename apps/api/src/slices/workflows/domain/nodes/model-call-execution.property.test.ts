@@ -7,6 +7,7 @@ import { providerUsdToBillableNanoUsd } from '../../../billing/index.js';
 import { ok } from '../../../../lib/result/index.js';
 import { createValueStore } from '../engine/value-store.js';
 import { createModelCallExecution } from './model-call-execution.js';
+import { callMaxPrice } from '../../../models/index.js';
 import type { InferenceEvent, ModelDescriptor, Node } from '@hushbox/shared';
 import type { ModelProvider } from '../../../models/index.js';
 import type { EngineClock, NodeRunContext } from '../engine/execution-registry.js';
@@ -106,6 +107,8 @@ async function reasoningDurationOf(events: readonly TimedEvent[]): Promise<numbe
     clock: stream.clock,
     rng: { random: () => 0.5 },
     signal: new AbortController().signal,
+    spend: { isOpen: () => true, report: () => undefined },
+    runId: undefined,
   };
   const result = await createModelCallExecution({
     provider: stream.provider,
@@ -113,6 +116,8 @@ async function reasoningDurationOf(events: readonly TimedEvent[]): Promise<numbe
       descriptor: DESCRIPTOR,
       ports: { in: [textTag()], out: textTag() },
       price: () => ok(50n),
+      reserveMedia: () => ok(50n),
+      maxPrice: (bound) => callMaxPrice(DESCRIPTOR.pricing, bound),
     },
     schemas: { resolveSchema: () => undefined },
     usdToBillableNanoUsd: providerUsdToBillableNanoUsd,

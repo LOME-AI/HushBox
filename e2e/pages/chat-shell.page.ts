@@ -1,7 +1,24 @@
 import { type Page, type Locator } from '@playwright/test';
-import { TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
+import { TEST_ID_BUILDERS, TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
 import { expect } from '../helpers/expect.js';
 import { TIMEOUTS } from '../config/timeouts.js';
+
+/**
+ * A reply of a compare turn: the Virtuoso row the turn draws as, and the reply's column in the
+ * turn, in the order the turn asked its models.
+ */
+export interface CompareReplyAddress {
+  readonly row: number;
+  readonly column: number;
+}
+
+/** A message by its Virtuoso row, which holds one message, or a compare turn's reply. */
+export type MessageAddress = number | CompareReplyAddress;
+
+/** The Virtuoso row an address sits in. */
+export function rowOf(address: MessageAddress): number {
+  return typeof address === 'number' ? address : address.row;
+}
 
 /** Escape a value for safe interpolation into a `[attr="…"]` CSS selector. */
 export function escapeAttributeValue(value: string): string {
@@ -35,6 +52,16 @@ export class ChatShellPage {
 
   readonly viewport: Locator;
 
+  readonly commandPalette: Locator;
+
+  readonly commandPaletteInput: Locator;
+
+  readonly sidebarSearchRow: Locator;
+
+  readonly moreOptionsButton: Locator;
+
+  readonly accessibilityPanel: Locator;
+
   constructor(page: Page) {
     this.page = page;
     // Locate the prompt textarea by stable testid — the placeholder/aria-label
@@ -47,6 +74,15 @@ export class ChatShellPage {
     this.newChatPage = page.getByTestId(TEST_IDS.newChatPage);
     this.suggestionChips = page.getByText('Need inspiration? Try these:');
     this.viewport = page.locator('[data-slot="scroll-area-viewport"]');
+    this.commandPalette = page.getByTestId(TEST_IDS.commandPalette);
+    this.commandPaletteInput = page.getByTestId(TEST_IDS.commandPaletteInput);
+    this.sidebarSearchRow = page.getByTestId(TEST_IDS.sidebarSearchRow);
+    this.moreOptionsButton = page.getByRole('button', { name: 'More options', exact: true });
+    // The pane is an `aside` named by its title in its docked and sheet forms alike.
+    this.accessibilityPanel = page.getByRole('complementary', {
+      name: 'Accessibility',
+      exact: true,
+    });
   }
 
   async goto(): Promise<void> {
@@ -57,6 +93,48 @@ export class ChatShellPage {
     await this.page
       .locator(`[${TEST_SIGNALS.appStable}="true"]`)
       .waitFor({ state: 'visible', timeout });
+  }
+
+  /** Wait until the session has settled with no account signed in. */
+  async waitForSignedOut(timeout: number = TIMEOUTS.APP_STABLE): Promise<void> {
+    await this.page
+      .locator(`[${TEST_SIGNALS.signedOut}="true"]`)
+      .waitFor({ state: 'visible', timeout });
+  }
+
+  /** Open the command palette from the sidebar's Search row or by its shortcut. */
+  async openPalette(via: 'search' | 'shortcut'): Promise<void> {
+    await (via === 'search' ? this.sidebarSearchRow.click() : this.pressAppShortcut('mod+k'));
+    await expect(this.commandPalette).toBeVisible({ timeout: TIMEOUTS.MODAL });
+  }
+
+  /** Open the accessibility panel from the header's More options menu. */
+  async openAccessibilityPanel(): Promise<void> {
+    await this.moreOptionsButton.click();
+    await this.page.getByRole('menuitem', { name: 'Accessibility', exact: true }).click();
+    await expect(this.accessibilityPanel).toBeVisible({ timeout: TIMEOUTS.MODAL });
+  }
+
+  /** The palette row whose label is exactly `name`. */
+  paletteOption(name: string): Locator {
+    return this.commandPalette
+      .getByTestId(TEST_IDS.commandPaletteOption)
+      .filter({ has: this.page.getByText(name, { exact: true }) });
+  }
+
+  /**
+   * Press an app shortcut written as `mod+<keys>`, `<keys>` in Playwright's notation. `mod`
+   * becomes the accelerator the app's own Search hint names: Meta where it draws `⌘`, Control
+   * otherwise. Playwright's `ControlOrMeta` follows the host OS instead, so on a Linux host it
+   * presses Control under a Mac user agent, where the app takes Meta alone inside a text field.
+   * The hint is drawn only for a signed-in account with the sidebar expanded.
+   */
+  async pressAppShortcut(combo: `mod+${string}`): Promise<void> {
+    const hint = this.sidebarSearchRow.locator('kbd');
+    await expect(hint).toBeAttached({ timeout: TIMEOUTS.APP_STABLE });
+    const drawn = await hint.textContent();
+    const modifier = drawn?.startsWith('⌘') === true ? 'Meta' : 'Control';
+    await this.page.keyboard.press(`${modifier}${combo.slice('mod'.length)}`);
   }
 
   /**
@@ -291,6 +369,30 @@ export class ChatShellPage {
       .getByTestId(TEST_IDS.messageItem);
   }
 
+  /**
+   * The message at `address`: a row that holds one message, as {@link getMessage} reads it,
+   * or one reply of the compare turn a row holds, by its column. A compare turn is one row
+   * holding all its replies, so a row index alone matches every one of them.
+   */
+  getMessageAt(address: MessageAddress): Locator {
+    if (typeof address === 'number') return this.getMessage(address);
+    return this.compareColumnAt(address).getByTestId(TEST_IDS.messageItem);
+  }
+
+  /** The column holding a compare turn's reply, in the row the turn draws as. */
+  compareColumnAt({ row, column }: CompareReplyAddress): Locator {
+    return this.messageList
+      .locator(`[data-item-index="${String(row)}"]`)
+      .getByTestId(TEST_ID_BUILDERS.compareColumn(column));
+  }
+
+  /** The tab selecting a compare turn's reply, in the row the turn draws as. */
+  compareTabAt({ row, column }: CompareReplyAddress): Locator {
+    return this.messageList
+      .locator(`[data-item-index="${String(row)}"]`)
+      .getByTestId(TEST_ID_BUILDERS.compareTab(column));
+  }
+
   /** Get the last message item. */
   getLastMessage(): Locator {
     return this.messageList.getByTestId(TEST_IDS.messageItem).last();
@@ -316,7 +418,8 @@ export class ChatShellPage {
    * Deterministically park a virtualized row in view. Uses Virtuoso's native
    * `scrollIntoView({ index, done })` via the dev/E2E-gated window backdoor in
    * `MessageList`. Resolves when the target row is measured and mounted —
-   * `getMessage(index)` is guaranteed to resolve afterwards. Avoids the
+   * the row is asserted rather than its message, because a compare turn's row
+   * holds one message item per reply. Avoids the
    * iPhone-15 virtualization failure mode where `scrollTop = 0` alone leaves
    * the target unmounted because a tall media tile dominates the viewport.
    *
@@ -342,7 +445,9 @@ export class ChatShellPage {
       await function_(index_);
     }, index);
     // Short deadline so the outer poll can retry on re-virtualize.
-    await expect(this.getMessage(index)).toBeAttached({ timeout: TIMEOUTS.QUICK });
+    await expect(this.messageList.locator(`[data-item-index="${String(index)}"]`)).toBeAttached({
+      timeout: TIMEOUTS.QUICK,
+    });
   }
 
   /**

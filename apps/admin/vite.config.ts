@@ -9,10 +9,15 @@ import { headersPlugin } from '../../scripts/lib/bundling/headers-vite-plugin.ts
 import { prePaintScriptsPlugin } from '../../scripts/lib/bundling/pre-paint-scripts-plugin.ts';
 import { BUILD_TARGET } from '../../scripts/lib/bundling/seam.ts';
 import { generateAdminHeaders } from '../../scripts/generate-headers.ts';
-import { appBundleOptions, verifyBundle } from '../../scripts/verify-bundle.ts';
+import {
+  shippingBundleOptions,
+  verifyBundle,
+  type VerifyBundleOptions,
+} from '../../scripts/verify-bundle.ts';
 import { missingPortVariable } from '../../scripts/lib/stack/generated-port.ts';
 import { stackModeFrom } from '../../scripts/lib/stack/stack-mode.ts';
 import { buildEnvMode, frontendEnvFilePlugin } from '../../scripts/lib/bundling/build-mode.ts';
+import type { EnvMode } from '@hushbox/shared';
 import type { Plugin } from 'vite';
 
 const rootDir = resolve(import.meta.dirname, '../..');
@@ -31,15 +36,24 @@ const distDir = resolve(import.meta.dirname, 'dist');
 // hook makes that ordering explicit instead of resting on how the bundler
 // schedules `closeBundle` across plugins — which is not a fixed guarantee:
 // Rollup starts parallel hooks together, Rolldown runs them sequentially.
-function finalizeAdminDistPlugin(): Plugin {
+function finalizeAdminDistPlugin(mode: EnvMode): Plugin {
   return {
     name: 'finalize-admin-dist',
     apply: 'build',
     async closeBundle() {
       await generateAdminHeaders({ distDir });
-      await verifyBundle(appBundleOptions(rootDir, 'apps/admin'));
+      await verifyBundle(adminBundleOptions(mode));
     },
   };
+}
+
+/**
+ * What the finished admin dist is verified with. A shipping build is held to
+ * the production environment file it baked, and overrides none of it: the
+ * workspace build that runs this one hands it no prefixed variable.
+ */
+export function adminBundleOptions(mode: EnvMode): VerifyBundleOptions {
+  return shippingBundleOptions(rootDir, 'apps/admin', mode);
 }
 
 export default defineConfig(({ command }) => {
@@ -116,7 +130,7 @@ export default defineConfig(({ command }) => {
       // plugin's `apply: 'serve'` keeps it out of every build that writes one.
       marketingPreviewIndexPlugin(),
       prePaintScriptsPlugin(),
-      finalizeAdminDistPlugin(),
+      finalizeAdminDistPlugin(mode),
       // Applies the generated _headers to `vite preview` responses, so the admin
       // E2E suite (which drives the preview build) enforces the production CSP —
       // the same mechanism the web bundle uses. Inert in dev (see plugin doc).

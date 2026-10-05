@@ -261,10 +261,8 @@ describe('identity routes: TOTP-verify lockout', () => {
       pending
     );
     expect(frozen.status).toBe(429);
-    const body = await frozen.json<{ code: string; details: { retryAfterSeconds: number } }>();
-    expect(body.code).toBe(ERROR_CODES.TOO_MANY_ATTEMPTS);
-    expect(body.details.retryAfterSeconds).toBeGreaterThan(window.windowSeconds);
-  });
+    expect(await frozen.json()).toEqual({ code: ERROR_CODES.TWO_FACTOR_FROZEN });
+  }, 120_000);
 
   it('verifies at most the cap even under concurrent distinct wrong codes', async () => {
     const { account, cookie } = await registerLoginFull();
@@ -290,10 +288,10 @@ describe('identity routes: TOTP-verify lockout', () => {
   });
 });
 
-describe('identity routes: the email on the first trip of the login 2FA gate', () => {
+describe('identity routes: the once-per-run email at login 2FA', () => {
   const window = IDENTITY_KEYS.twoFactorLockout;
 
-  function sentTo(email: string): { to: string; lockoutMinutes: number }[] {
+  function sentTo(email: string): { to: string; lockoutMinutes: number | undefined }[] {
     return sentTwoFactorLocked.filter((sent) => sent.to === email);
   }
 
@@ -311,6 +309,40 @@ describe('identity routes: the email on the first trip of the login 2FA gate', (
     await redis.del(rateLimitKey(window, userId)._unsafeUnwrap());
   }
 
+  /**
+   * Spends `count` wrong codes the way a paced guesser does: a fresh login per
+   * window, never more than the window admits, then the window waited out — so
+   * the gate never refuses one of them.
+   */
+  async function spendPacedFailures(
+    account: { email: string; password: string; userId: string },
+    secret: string,
+    count: number
+  ): Promise<void> {
+    let spent = 0;
+    while (spent < count) {
+      const pending = sessionCookieOf(await login(account.email, account.password));
+      const inThisWindow = Math.min(window.maxAttempts, count - spent);
+      for (let n = 0; n < inThisWindow; n += 1) {
+        await expectStatus(
+          post('/auth/login/2fa/verify', { code: wrongCode(secret) }, pending),
+          400
+        );
+      }
+      spent += inThisWindow;
+      await lapseTheWindow(account.userId);
+    }
+  }
+
+  /** Presents one more wrong code at a fresh login, expecting the freeze to refuse it. */
+  async function expectFrozen(
+    account: { email: string; password: string },
+    secret: string
+  ): Promise<void> {
+    const pending = sessionCookieOf(await login(account.email, account.password));
+    await expectStatus(post('/auth/login/2fa/verify', { code: wrongCode(secret) }, pending), 429);
+  }
+
   it('emails the account holder the window length when the gate first trips', async () => {
     const { account, cookie } = await registerLoginFull();
     const secret = await enrollTotp(cookie);
@@ -321,6 +353,39 @@ describe('identity routes: the email on the first trip of the login 2FA gate', (
       { to: account.email, lockoutMinutes: window.windowSeconds / 60 },
     ]);
   });
+
+  it('emails once, at the freeze, a guesser who never trips the gate', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+    const ceiling = IDENTITY_KEYS.twoFactorCeiling;
+
+    await spendPacedFailures(account, secret, ceiling.maxAttempts - 1);
+    expect(sentTo(account.email)).toEqual([]);
+
+    await spendPacedFailures(account, secret, 1);
+    // A freeze has no window to name: the email states no wait in minutes.
+    expect(sentTo(account.email)).toEqual([{ to: account.email, lockoutMinutes: undefined }]);
+
+    await expectFrozen(account, secret);
+    expect(sentTo(account.email)).toHaveLength(1);
+  }, 120_000);
+
+  it('sends only the gate-trip email for a run that trips the gate and then freezes', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+    const ceiling = IDENTITY_KEYS.twoFactorCeiling;
+    await tripTheGate(account.email, account.password, secret);
+    expect(sentTo(account.email)).toHaveLength(1);
+    await lapseTheWindow(account.userId);
+
+    // The trip spent the window's admissions against the ceiling too.
+    await spendPacedFailures(account, secret, ceiling.maxAttempts - window.maxAttempts);
+    await expectFrozen(account, secret);
+
+    expect(sentTo(account.email)).toEqual([
+      { to: account.email, lockoutMinutes: window.windowSeconds / 60 },
+    ]);
+  }, 120_000);
 
   it('sends nothing for a second trip before any code verifies', async () => {
     const { account, cookie } = await registerLoginFull();

@@ -155,8 +155,8 @@ test.describe('Multi-Model Regeneration', SPEC_MATRIX, () => {
     let body: RegenerateRequestBody = {};
     await test.step('click Regenerate on the second tile — capture the request body', async () => {
       const requestPromise = captureNextRegenerateRequest(authenticatedPage);
-      // Index 2 = second assistant in the rendered list (0=user, 1=first assistant, 2=second).
-      await chatPage.clickRegenerate(2);
+      // Row 1 is the compare turn after the user row; column 1 is its second reply.
+      await chatPage.clickRegenerate({ row: 1, column: 1 });
       body = parseRegenerateBody(await requestPromise);
     });
 

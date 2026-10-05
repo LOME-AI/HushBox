@@ -12,7 +12,8 @@ import { TIMEOUTS } from '../config/timeouts.js';
 
 export class MemberSidebarPage {
   readonly page: Page;
-  readonly facepile: Locator;
+  /** The header's facepile from 768, or the member strip under the header below it. */
+  readonly opener: Locator;
   readonly sidebar: Locator;
   readonly content: Locator;
   readonly searchInput: Locator;
@@ -22,7 +23,10 @@ export class MemberSidebarPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.facepile = page.getByTestId(TEST_IDS.memberFacepile);
+    this.opener = page
+      .getByTestId(TEST_IDS.memberFacepile)
+      .or(page.getByTestId(TEST_IDS.memberStrip))
+      .filter({ visible: true });
     this.sidebar = page.getByTestId(TEST_IDS.memberSidebar);
     this.content = page.getByTestId(TEST_IDS.memberSidebarContent);
     this.searchInput = page.getByTestId(TEST_IDS.memberSearchInput);
@@ -33,7 +37,7 @@ export class MemberSidebarPage {
 
   async openViaFacepile(): Promise<void> {
     const isExpanded = await this.searchInput.isVisible().catch(() => false);
-    if (!isExpanded) await this.facepile.click();
+    if (!isExpanded) await this.opener.click();
     await this.waitForLoaded();
     // On a phone the pane fills the screen as a modal overlay; waiting for it to be visible
     // lets Playwright's actionability check wait out its entrance before the next step.

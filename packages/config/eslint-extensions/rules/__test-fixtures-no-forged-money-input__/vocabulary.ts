@@ -24,7 +24,6 @@ export type ServedChargeBasis = Served<{
   echoPrefix: string;
   echoSuffix: string;
 }>;
-export type ServedModelPricing = Served<{ perImage: string }>;
 export type ServedAttributionRow = Served<{ messageId: string; payerId: string }>;
 
 export interface MoneyState {
@@ -52,10 +51,6 @@ export interface APIRequestContext {
 }
 
 export declare function readMockChargeBasis(request: APIRequestContext): Promise<ServedChargeBasis>;
-export declare function readServedModelPricing(
-  request: APIRequestContext,
-  modelId: string
-): Promise<ServedModelPricing>;
 export declare function readMoneyState(request: APIRequestContext): Promise<MoneyState>;
 export declare function readSettledCharge(
   request: APIRequestContext,
@@ -77,10 +72,6 @@ export declare function mockGenerationCharge(
 export declare function mockTextTurnCharge(
   basis: ServedChargeBasis,
   turn: MockTextTurn
-): DerivedNanoUsd;
-export declare function catalogPerImageCharge(
-  pricing: ServedModelPricing,
-  images: number
 ): DerivedNanoUsd;
 export declare function storedTextCharge(chars: number): DerivedNanoUsd;
 export declare function sumOfCharges(...parts: readonly DerivedNanoUsd[]): DerivedNanoUsd;

@@ -220,20 +220,32 @@ export const CI_SECRETS: Record<string, Credential> = {
   },
 };
 
+/** One identifier held as a secret. */
+interface CiIdentifier {
+  /** Where a client artifact carries the value by design; absent when none does. */
+  readonly shipsIn?: string;
+}
+
+/** Where the deep-link pair is published: the association files under `.well-known`. */
+const DEEP_LINK_FILES = 'the deep-link association files the web origin serves';
+
 /**
  * Workflow `secrets.NAME` values that are identifiers, not credentials: an id,
  * a bucket name, an alias, a fingerprint, or the per-run token GitHub mints.
  * Held as secrets for convenience; holding one grants nothing.
  */
-export const CI_IDENTIFIERS: readonly string[] = [
-  'GITHUB_TOKEN',
-  'HUSHBOX_SYNC_APP_ID',
-  'ANDROID_KEY_ALIAS',
-  'ASC_KEY_ID',
-  'ASC_ISSUER_ID',
-  'MATCH_GIT_URL',
-  'APPLE_TEAM_ID',
-  'ANDROID_CERT_SHA256_FINGERPRINT',
-  'CASSETTE_R2_ACCOUNT_ID',
-  'CASSETTE_R2_BUCKET',
-];
+export const CI_IDENTIFIER_DECLARATIONS: Readonly<Record<string, CiIdentifier>> = {
+  GITHUB_TOKEN: {},
+  HUSHBOX_SYNC_APP_ID: {},
+  ANDROID_KEY_ALIAS: {},
+  ASC_KEY_ID: {},
+  ASC_ISSUER_ID: {},
+  MATCH_GIT_URL: {},
+  APPLE_TEAM_ID: { shipsIn: DEEP_LINK_FILES },
+  ANDROID_CERT_SHA256_FINGERPRINT: { shipsIn: DEEP_LINK_FILES },
+  CASSETTE_R2_ACCOUNT_ID: {},
+  CASSETTE_R2_BUCKET: {},
+};
+
+/** The names {@link CI_IDENTIFIER_DECLARATIONS} declares. */
+export const CI_IDENTIFIERS: readonly string[] = Object.keys(CI_IDENTIFIER_DECLARATIONS);

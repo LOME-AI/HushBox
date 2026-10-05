@@ -60,9 +60,9 @@ function badgeNanoUsd(text: string): bigint {
  * generation), and every coarser unit quantizes them into noise — cents collapse
  * a whole tile to zero, and micros still lose 13% of one.
  *
- * The badge text is always `$`-prefixed: `MessageCost` is the only renderer of
- * this test id (`apps/web/src/components/chat/message/message-cost.tsx:31`) and
- * it formats through `formatNanoUsdCost`, which always emits the sign.
+ * The badge text is always `$`-prefixed: `CostPill` (in `cost-pill.tsx`) is the
+ * only renderer of this test id, its text is the figure alone, and it formats
+ * through `formatNanoUsdCost`, which always emits the sign.
  */
 async function sumDisplayedMessageCost(
   scope: Locator | Page

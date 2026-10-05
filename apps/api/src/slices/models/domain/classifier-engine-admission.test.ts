@@ -15,10 +15,11 @@ import { describe, expect, it } from 'vitest';
 import { ModelDescriptor, classifierEngineOf, modelId } from '@hushbox/shared';
 import { DAY_MS, secondsAt } from '@hushbox/shared/test-time';
 
+import { zdrEndpointFixture } from './catalog/gateway-fixtures.js';
 import { normalizeCatalog } from './catalog/normalize.js';
 import { smartModelPool } from './smart-model/candidates.js';
 
-import type { LanguageMetadata } from './catalog/gateway-metadata.js';
+import type { LanguageMetadata, LanguageTokenPricing } from './catalog/gateway-metadata.js';
 
 /** The refresh clock the fixtures are dated against. */
 const NOW_MS = Date.UTC(2024, 0, 1);
@@ -31,18 +32,26 @@ const NOW_MS = Date.UTC(2024, 0, 1);
  */
 const FIXTURE_RELEASE_SECONDS = secondsAt(NOW_MS - 48 * DAY_MS);
 
-function languageModel(id: string, prompt: string, completion: string): LanguageMetadata {
+/** A text model and the rates its one ZDR endpoint lists. */
+interface PricedModel {
+  readonly model: LanguageMetadata;
+  readonly rates: LanguageTokenPricing;
+}
+
+function languageModel(id: string, prompt: string, completion: string): PricedModel {
   return {
-    source: 'language',
-    id,
-    provider: 'vendor',
-    inputModalities: ['text'],
-    outputModalities: ['text'],
-    supportedParameters: ['temperature', 'max_tokens'],
-    contextLength: 128_000,
-    pricing: { prompt, completion },
-    releasedAt: FIXTURE_RELEASE_SECONDS,
-    deprecated: false,
+    model: {
+      source: 'language',
+      id,
+      provider: 'vendor',
+      inputModalities: ['text'],
+      outputModalities: ['text'],
+      supportedParameters: ['temperature', 'max_tokens'],
+      contextLength: 128_000,
+      releasedAt: FIXTURE_RELEASE_SECONDS,
+      deprecated: false,
+    },
+    rates: { prompt, completion },
   };
 }
 
@@ -52,9 +61,15 @@ const FREE = languageModel('vendor/free', '0', '0');
 const AT_FLOOR = languageModel('vendor/at-floor', '0.0000001', '0.0000001');
 const DEARER = languageModel('vendor/dearer', '0.0000025', '0.00001');
 
-function admittedDescriptors(models: readonly LanguageMetadata[]): readonly ModelDescriptor[] {
-  const zdr = new Set(models.map((model) => model.id));
-  return normalizeCatalog([...models], zdr, NOW_MS).flatMap((entry) =>
+function admittedDescriptors(models: readonly PricedModel[]): readonly ModelDescriptor[] {
+  const zdr = new Map(
+    models.map(({ model, rates }) => [model.id, [zdrEndpointFixture({ pricing: { ...rates } })]])
+  );
+  return normalizeCatalog(
+    models.map(({ model }) => model),
+    zdr,
+    NOW_MS
+  ).flatMap((entry) =>
     entry.kind === 'normalized' ? [ModelDescriptor.parse({ ...entry.content, fetchedAt: 0 })] : []
   );
 }

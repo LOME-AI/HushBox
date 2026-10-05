@@ -60,7 +60,7 @@ test.describe('Welcome cost section', SPEC_MATRIX, () => {
   test('says pricing is unavailable when the catalog read fails', async ({
     unauthenticatedPage: page,
   }) => {
-    expectApiErrors(page, [/503 GET \S*\/models$/m]);
+    expectApiErrors(page, [/503 Service Unavailable GET \S*\/models$/m]);
     expectConsoleErrors(page, [
       (error) => error.url.endsWith('/models') && error.text.includes('status of 503'),
     ]);

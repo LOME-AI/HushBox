@@ -98,6 +98,7 @@ function soloSelection(pin: OptionId | undefined, webSearch: boolean): Selection
     modality: 'text',
     pinned: pin === undefined ? {} : { effort: pin },
     webSearch,
+    effortAuto: pin === undefined,
   };
 }
 
@@ -107,6 +108,7 @@ const SLOT_BESIDE_SONNET: Selection = {
   modality: 'text',
   pinned: {},
   webSearch: true,
+  effortAuto: true,
 };
 
 function optionsAt(
@@ -183,6 +185,7 @@ describe('a searching turn prices the loop of the rung it runs at', () => {
         modality: 'text',
         pinned: {},
         webSearch: true,
+        effortAuto: true,
       },
       { models: [LADDERLESS], nowMs: NOW_MS }
     );

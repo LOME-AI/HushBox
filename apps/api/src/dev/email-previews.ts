@@ -143,7 +143,8 @@ export const EMAIL_TEMPLATE_PREVIEWS: readonly {
   {
     name: 'chargeback-lock',
     label: 'Chargeback Lock',
-    render: (): string => chargebackLockEmail({ userName: 'Alice' }).html,
+    render: (): string =>
+      renderEmail(chargebackLockEmail, { userName: 'Alice' }, { sentAt: PREVIEW_SENT_AT }).html,
   },
   {
     name: 'admin-op-notification',

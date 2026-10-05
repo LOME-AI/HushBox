@@ -31,7 +31,7 @@ Open to change unless the founder fixes them:
 
 ## Length
 
-40 s, one piece (the founder's instruction of 2026-09-30, replacing 30 s). A 15 s cutdown follows once the film is delivered.
+40 s, one piece (the founder's instruction of 2026-09-30, replacing 30 s). No cutdown (the founder's instruction of 2026-10-04).
 
 ## 2026-09-29, from the round-1 verdict
 

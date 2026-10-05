@@ -150,8 +150,8 @@ interface MediaPreviewProps {
   contentType: 'image' | 'audio' | 'video';
   /**
    * Accessibility prefix. Images get `"{ariaPrefix} media"`; video/audio get
-   * `"{ariaPrefix} video"` / `"{ariaPrefix} audio"`. Keep short — e.g.,
-   * `"Generated"` for member-side, `"Shared"` for share-recipient side.
+   * `"{ariaPrefix} video"` / `"{ariaPrefix} audio"`. Keep short, a noun such
+   * as `"Generated"`.
    */
   ariaPrefix: string;
   /**

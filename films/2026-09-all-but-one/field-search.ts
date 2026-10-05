@@ -38,7 +38,7 @@ type Ctx = LookContext<'2d'>;
 const TAU = Math.PI * 2;
 
 /** The one slot in the field that is HushBox's: its centre and the logo's drawn width. */
-export const HUSH_SLOT = { x: 640, y: 1180, size: 96 };
+const HUSH_SLOT = { x: 640, y: 1180, size: 96 };
 /** The slot's clear margin: no gold mark is drawn inside the logo's box and this border. */
 const CLEAR = 70;
 
@@ -48,7 +48,7 @@ const ABLAZE = bf(39);
 const RUSH = bf(39.5);
 const HUSH = bf(40.5);
 /** The drop: the slot lights Signal Red. */
-export const LIT_BEAT = 41;
+const LIT_BEAT = 41;
 const LIT = bf(LIT_BEAT);
 const REACH = bf(42.5);
 const BURN = bf(43);

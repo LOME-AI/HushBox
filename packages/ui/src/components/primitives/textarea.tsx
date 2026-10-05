@@ -38,6 +38,14 @@ export const TEXTAREA_MIRROR_CLASSES = `px-3 py-2 ${TEXTAREA_TYPE_SCALE_CLASSES}
 export const TEXTAREA_WRAP_CLASSES = 'whitespace-pre-wrap wrap-anywhere';
 
 /**
+ * The wrap a `<textarea>` computes natively, `pre-wrap` with `break-word`, for an
+ * element that draws text over this textarea and must compute the same wrap it does.
+ * Not {@link TEXTAREA_WRAP_CLASSES}: its `anywhere`, and the `word-break` this repo's
+ * `wrap-anywhere` utility adds, serve only a replica sharing the textarea's grid cell.
+ */
+export const TEXTAREA_NATIVE_WRAP_CLASSES = 'whitespace-pre-wrap wrap-break-word';
+
+/**
  * The border the sizing replica below must carry too: the two elements share
  * one grid cell and the replica drives the row's height, so a border on the
  * textarea alone makes its border-box height taller than the replica's by

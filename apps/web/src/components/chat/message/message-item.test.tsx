@@ -3,16 +3,26 @@ import { screen, fireEvent, act, within } from '@testing-library/react';
 import { noticeText, serializeSegments, TEST_IDS } from '@hushbox/shared';
 import { useTtsPlaybackStore } from '@hushbox/ui/accessibility/store';
 import { LAYOUT } from '@hushbox/shared/design-tokens';
-import { SECOND_MS, TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
+import {
+  HOUR_MS,
+  SECOND_MS,
+  TEST_DAY_START,
+  TEST_LOCAL_DAY_START,
+  isoAt,
+  setClock,
+} from '@hushbox/shared/test-time';
 import { MessageItem } from '@/components/chat/message/message-item';
 import { useSegmentViewState } from '@/components/chat/segments/segment-view-state';
 import { modelSwatch } from '@/lib/utils/model-color';
 import { renderWithProviders } from '@/test-utils/render';
+import { buildChatContext, resolveMessageActions } from '@/lib/chat/message-actions';
+import { groupSenderRuns, groupSiblingReplies } from '@/lib/chat/sibling-replies';
 import type { MessageGroup } from '@/lib/chat/sender';
 import type { Message } from '@/lib/api/api';
 import type { MessageAction } from '@/lib/chat/message-actions';
 import type { ResolvedReasoningEffort } from '@hushbox/shared';
 import type { ModelsData } from '@/hooks/models/models';
+import type { ComparePresentation } from '@/components/chat/message/ai-message-block';
 
 // Counts the row's reads of the raw text field. Reasoning, search rows and
 // answer ride the same field, and every block needs the tree, so the row parses
@@ -245,6 +255,114 @@ describe('MessageItem', () => {
     renderWithProviders(<MessageItem message={userMessage} allowedActions={ALL_USER_ACTIONS} />);
     const column = screen.getByTestId('message-item').parentElement;
     expect(column).toHaveClass('px-4', 'md:px-6');
+  });
+
+  describe('a reply in a compare group', () => {
+    const COMPARE: ComparePresentation = {
+      swatch: modelSwatch('openai/gpt-5') === 1 ? 2 : 1,
+      sidePadding: 'px-0',
+      textScale: 'text-body-sub',
+    };
+    const reply: Message = { ...assistantMessage, cost: '1360000', modelName: 'openai/gpt-5' };
+
+    it("sets the reply at the group's side padding rather than in the chat column", () => {
+      renderWithProviders(
+        <MessageItem message={reply} allowedActions={ALL_AI_ACTIONS} compare={COMPARE} />
+      );
+      const column = screen.getByTestId('message-item').parentElement;
+      expect(column).toHaveClass('px-0');
+      expect(column).not.toHaveClass('px-4');
+      expect(column?.style.maxWidth).toBe('');
+    });
+
+    it('shows the cost alone in its footer', () => {
+      const { container } = renderWithProviders(
+        <MessageItem message={reply} allowedActions={ALL_AI_ACTIONS} compare={COMPARE} />
+      );
+      expect(screen.getByTestId(TEST_IDS.messageCost)).toBeInTheDocument();
+      expect(container.querySelector('time')).toBeNull();
+    });
+
+    it('fills its column, so its footer can sit at the column end', () => {
+      renderWithProviders(
+        <MessageItem message={reply} allowedActions={ALL_AI_ACTIONS} compare={COMPARE} />
+      );
+      const item = screen.getByTestId('message-item');
+      expect(item.parentElement).toHaveClass('flex', 'flex-1', 'flex-col');
+      expect(item).toHaveClass('flex', 'flex-1', 'flex-col');
+    });
+
+    it('pins its footer to the end of its column', () => {
+      renderWithProviders(
+        <MessageItem message={reply} allowedActions={ALL_AI_ACTIONS} compare={COMPARE} />
+      );
+      const footer = screen.getByTestId(TEST_IDS.messageCost).closest('[data-chrome]');
+      expect(footer?.parentElement).toHaveClass('flex-1');
+      expect(footer?.previousElementSibling).toHaveClass('flex-1');
+    });
+
+    it('leaves the space below its turn to the group', () => {
+      renderWithProviders(
+        <MessageItem message={reply} allowedActions={ALL_AI_ACTIONS} compare={COMPARE} />
+      );
+      expect(screen.getByTestId('message-item')).not.toHaveClass('pb-7.5');
+    });
+
+    it('wears the swatch the group assigns', () => {
+      const { container } = renderWithProviders(
+        <MessageItem message={reply} allowedActions={ALL_AI_ACTIONS} compare={COMPARE} />
+      );
+      expect(container.querySelector('[data-slot="swatch"]')).toHaveClass(
+        `bg-model-${String(COMPARE.swatch)}`
+      );
+    });
+
+    describe("the group's leading control", () => {
+      const LEADING: ComparePresentation = {
+        ...COMPARE,
+        leadingControl: <button type="button">Continue with this model</button>,
+      };
+
+      it("starts the control row, ahead of the reply's controls", () => {
+        renderWithProviders(
+          <MessageItem
+            message={reply}
+            allowedActions={new Set<MessageAction>(['copy', 'regenerate'])}
+            compare={LEADING}
+          />
+        );
+        const leading = screen.getByRole('button', { name: 'Continue with this model' });
+        expect(leading.nextElementSibling).toBe(screen.getByTestId(TEST_IDS.messageActions));
+      });
+
+      it('shows while the reply streams, when its own controls have yet to arrive', () => {
+        renderWithProviders(
+          <MessageItem
+            message={reply}
+            allowedActions={new Set<MessageAction>()}
+            isStreaming
+            compare={LEADING}
+          />
+        );
+        expect(
+          screen.getByRole('button', { name: 'Continue with this model' })
+        ).toBeInTheDocument();
+      });
+
+      it('is not drawn on a failed reply, whose slot stands in for its control row', () => {
+        renderWithProviders(
+          <MessageItem
+            message={{ ...reply, errorCode: 'STREAM_ERROR' }}
+            allowedActions={new Set<MessageAction>(['copy'])}
+            isError
+            compare={LEADING}
+          />
+        );
+        expect(
+          screen.queryByRole('button', { name: 'Continue with this model' })
+        ).not.toBeInTheDocument();
+      });
+    });
   });
 
   it('applies fit-content width with right alignment for user messages', () => {
@@ -702,6 +820,99 @@ describe('MessageItem', () => {
     });
   });
 
+  describe("a failed model's reply", () => {
+    const failed: Message = {
+      id: 'failed-1',
+      conversationId: 'conv-1',
+      role: 'assistant',
+      content: '',
+      createdAt: isoAt(TEST_DAY_START),
+      modelName: 'GPT-4o',
+      errorCode: 'STREAM_ERROR',
+    };
+
+    function slot(): HTMLElement {
+      const box = screen
+        .getByTestId(TEST_IDS.modelErrorMessage)
+        .closest<HTMLElement>('[data-severity]');
+      if (box === null) throw new Error('the error text sits in no notice');
+      return box;
+    }
+
+    it('draws no action row', () => {
+      renderWithProviders(
+        <MessageItem
+          message={failed}
+          isError
+          onRegenerate={vi.fn()}
+          allowedActions={ERROR_AI_ACTIONS}
+        />
+      );
+      expect(screen.queryByTestId(TEST_IDS.messageActions)).not.toBeInTheDocument();
+    });
+
+    it("re-runs the reply from the slot's Regenerate through the row's handler", () => {
+      const onRegenerate = vi.fn();
+      renderWithProviders(
+        <MessageItem
+          message={failed}
+          isError
+          onRegenerate={onRegenerate}
+          allowedActions={ERROR_AI_ACTIONS}
+        />
+      );
+      fireEvent.click(within(slot()).getByRole('button', { name: 'Regenerate' }));
+      expect(onRegenerate).toHaveBeenCalledWith('failed-1');
+    });
+
+    it('offers no Regenerate in the slot when the reply may not be re-run', () => {
+      renderWithProviders(
+        <MessageItem
+          message={failed}
+          isError
+          onRegenerate={vi.fn()}
+          allowedActions={new Set<MessageAction>(['copy'])}
+        />
+      );
+      expect(within(slot()).queryByRole('button', { name: 'Regenerate' })).not.toBeInTheDocument();
+    });
+
+    it('offers no Regenerate in the slot when the list gives no handler', () => {
+      renderWithProviders(
+        <MessageItem message={failed} isError allowedActions={ERROR_AI_ACTIONS} />
+      );
+      expect(within(slot()).queryByRole('button', { name: 'Regenerate' })).not.toBeInTheDocument();
+    });
+
+    it('offers no Regenerate on a failed reply whose sender deleted their account', () => {
+      renderWithProviders(
+        <MessageItem
+          message={{ ...failed, deleted: true }}
+          isError
+          onRegenerate={vi.fn()}
+          allowedActions={ERROR_AI_ACTIONS}
+        />
+      );
+      expect(screen.queryByRole('button', { name: 'Regenerate' })).not.toBeInTheDocument();
+    });
+
+    it("refuses the slot's Regenerate with the re-run's refusal", () => {
+      renderWithProviders(
+        <MessageItem
+          message={failed}
+          isError
+          onRegenerate={vi.fn()}
+          allowedActions={ERROR_AI_ACTIONS}
+          regenerateRefusal="insufficient_funds"
+        />
+      );
+      expect(within(slot()).getByRole('button', { name: 'Regenerate' })).toHaveAttribute(
+        'aria-disabled',
+        'true'
+      );
+    });
+  });
+
   // Retry re-runs the turn through the same handler Regenerate uses, so it is the
   // same paid action and carries the same verdict.
   describe('retry on a user message', () => {
@@ -858,10 +1069,58 @@ describe('MessageItem', () => {
       renderWithProviders(
         <MessageItem message={assistantMessageWithCost} allowedActions={NO_ACTIONS} />
       );
-      expect(screen.getByTestId('message-cost').parentElement).toHaveClass(
+      expect(screen.getByTestId('message-cost').closest('[data-chrome]')).toHaveClass(
         'min-h-8',
         'pointer-coarse:min-h-11'
       );
+    });
+
+    it('says Saved encrypted on a stored reply', () => {
+      renderWithProviders(
+        <MessageItem
+          message={{ ...assistantMessage, wrappedContentKey: 'wrapped', epochNumber: 1 }}
+          allowedActions={ALL_AI_ACTIONS}
+        />
+      );
+      expect(screen.getByText('Saved encrypted')).toBeInTheDocument();
+    });
+
+    it('says nothing about storage on a reply no stored row backs, as on the trial', () => {
+      renderWithProviders(
+        <MessageItem message={assistantMessageWithCost} allowedActions={ALL_AI_ACTIONS} />
+      );
+      expect(screen.queryByText('Saved encrypted')).not.toBeInTheDocument();
+    });
+
+    /** A reply made an hour into the local reference day, and a clock at that day's midday. */
+    const localReply = {
+      ...assistantMessage,
+      createdAt: isoAt(TEST_LOCAL_DAY_START + HOUR_MS),
+    };
+
+    it('dates a settled reply', () => {
+      setClock(TEST_LOCAL_DAY_START + 12 * HOUR_MS);
+      renderWithProviders(<MessageItem message={localReply} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getByText('Today')).toHaveAttribute('datetime', localReply.createdAt);
+    });
+
+    it('leaves a streaming reply undated', () => {
+      setClock(TEST_LOCAL_DAY_START + 12 * HOUR_MS);
+      renderWithProviders(
+        <MessageItem message={localReply} isStreaming allowedActions={NO_ACTIONS} />
+      );
+      expect(document.querySelector('time')).toBeNull();
+    });
+
+    it('dates no user message', () => {
+      setClock(TEST_LOCAL_DAY_START + 12 * HOUR_MS);
+      renderWithProviders(
+        <MessageItem
+          message={{ ...userMessage, createdAt: isoAt(TEST_LOCAL_DAY_START + HOUR_MS) }}
+          allowedActions={ALL_USER_ACTIONS}
+        />
+      );
+      expect(document.querySelector('time')).toBeNull();
     });
 
     it('draws no footer row while a reply streams', () => {
@@ -1389,6 +1648,83 @@ describe('MessageItem', () => {
       renderWithProviders(<MessageItem message={userMessage} allowedActions={ALL_USER_ACTIONS} />);
       expect(screen.queryByTestId('sender-label')).not.toBeInTheDocument();
     });
+    describe("a failed edit's unsaved question after the stored one", () => {
+      const stored = createMsg({ id: 'q-stored', senderId: 'user-1', content: 'Stored question' });
+      const unsaved = createMsg({
+        id: 'q-unsaved',
+        senderId: 'user-1',
+        content: 'Edited question',
+        unsavedQuestion: true,
+      });
+      const chat = buildChatContext({
+        isAuthenticated: true,
+        isLinkGuest: false,
+        privilege: 'owner',
+        currentUserId: 'user-1',
+        isGroupChat: true,
+      });
+
+      /** The thread's group rows, each drawn from its first message as the list draws it. */
+      function renderThread(thread: Message[]): void {
+        const rows = groupSenderRuns(groupSiblingReplies(thread)).flatMap((row) =>
+          row.kind === 'group' ? [row.group] : []
+        );
+        renderWithProviders(
+          <>
+            {rows.map((group) => {
+              const first = group.messages[0]!;
+              return (
+                <MessageItem
+                  key={group.id}
+                  message={first}
+                  group={group}
+                  isGroupChat
+                  currentUserId="user-1"
+                  members={members}
+                  onRegenerate={vi.fn<(messageId: string) => void>()}
+                  onEdit={vi.fn<(messageId: string, content: string) => void>()}
+                  allowedActions={resolveMessageActions(chat, {
+                    message: first,
+                    isStreaming: false,
+                    isError: false,
+                    isMultiModel: false,
+                    canRegenerate: true,
+                  })}
+                />
+              );
+            })}
+          </>
+        );
+      }
+
+      function bubbleOf(messageId: string): HTMLElement {
+        const item = screen
+          .getAllByTestId('message-item')
+          .find((el) => el.dataset['messageId'] === messageId);
+        if (item === undefined) throw new Error(`no bubble for ${messageId}`);
+        return item;
+      }
+
+      it('draws the two questions as two bubbles', () => {
+        renderThread([stored, unsaved]);
+        expect(screen.getAllByTestId('message-item')).toHaveLength(2);
+      });
+
+      it('offers Copy alone on the unsaved question', () => {
+        renderThread([stored, unsaved]);
+        const names = within(bubbleOf('q-unsaved'))
+          .getAllByRole('button')
+          .map((button) => button.getAttribute('aria-label'));
+        expect(names).toEqual(['Copy']);
+      });
+
+      it("keeps the stored question's own Retry and Edit", () => {
+        renderThread([stored, unsaved]);
+        const bubble = within(bubbleOf('q-stored'));
+        expect(bubble.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+        expect(bubble.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+      });
+    });
   });
 
   describe('model nametag', () => {
@@ -1407,10 +1743,31 @@ describe('MessageItem', () => {
     });
 
     it('shows streaming modelName when message has no modelName', () => {
-      const aiMsg = {
+      const aiMsg: Message = {
         id: 'ai-2',
         conversationId: 'conv-1',
-        role: 'assistant' as const,
+        role: 'assistant',
+        content: 'Hello!',
+        createdAt: isoAt(TEST_DAY_START),
+        modelName: null,
+      };
+      renderWithProviders(
+        <MessageItem
+          message={aiMsg}
+          isStreaming
+          modelName="Claude 3.5 Sonnet"
+          allowedActions={ALL_AI_ACTIONS}
+        />
+      );
+      const nametag = screen.getByTestId('model-nametag');
+      expect(nametag).toHaveTextContent('Claude 3.5 Sonnet');
+    });
+
+    it('shows "AI" on a stored reply with no modelName, even when a selected modelName is passed', () => {
+      const aiMsg: Message = {
+        id: 'ai-2b',
+        conversationId: 'conv-1',
+        role: 'assistant',
         content: 'Hello!',
         createdAt: isoAt(TEST_DAY_START),
         modelName: null,
@@ -1423,7 +1780,7 @@ describe('MessageItem', () => {
         />
       );
       const nametag = screen.getByTestId('model-nametag');
-      expect(nametag).toHaveTextContent('Claude 3.5 Sonnet');
+      expect(nametag).toHaveTextContent(/^AI$/);
     });
 
     it('shows "AI" fallback when neither source has modelName', () => {
@@ -1513,10 +1870,9 @@ describe('MessageItem', () => {
       };
     }
 
-    // Inverted from four assertions that placed the rung in the nametag as an
-    // uppercase bordered chip. A reasoned turn stacked three cost idioms in
-    // three vocabularies (chip, token count, money); the rung now rides the
-    // reasoning row, which takes that to two.
+    // The rung shows only as the reply head's effort tag: the retired
+    // `message-effort-chip` element stays gone, and the reasoning row carries
+    // no effort level.
     it('renders no effort chip beside the model name', async () => {
       renderWithProviders(
         <MessageItem message={aiMessageWithLevel('high')} allowedActions={ALL_AI_ACTIONS} />
@@ -1525,14 +1881,13 @@ describe('MessageItem', () => {
       expect(screen.queryByTestId('message-effort-chip')).not.toBeInTheDocument();
     });
 
-    it('labels the reasoning row with the resolved level', async () => {
+    it('names the resolved level in the reply head, never on the reasoning row', async () => {
       renderWithProviders(
         <MessageItem message={aiMessageWithLevel('high')} allowedActions={ALL_AI_ACTIONS} />
       );
       await act(async () => {});
-      expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(
-        'Reasoning · High effort'
-      );
+      expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(/^Reasoned$/);
+      expect(screen.getByTestId(TEST_IDS.effortTag)).toHaveTextContent('High effort');
     });
 
     it('labels the row with no rung when no level was recorded', async () => {
@@ -1540,8 +1895,8 @@ describe('MessageItem', () => {
         <MessageItem message={aiMessageWithLevel()} allowedActions={ALL_AI_ACTIONS} />
       );
       await act(async () => {});
-      expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent('Reasoning');
-      expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).not.toHaveTextContent('effort');
+      expect(screen.getByTestId(TEST_IDS.thinkingDisclosureToggle)).toHaveTextContent(/^Reasoned$/);
+      expect(screen.queryByTestId(TEST_IDS.effortTag)).not.toBeInTheDocument();
     });
 
     it('labels multi-model siblings with their own levels, so a downgraded one says so', async () => {
@@ -1555,16 +1910,12 @@ describe('MessageItem', () => {
         </>
       );
       await act(async () => {});
-      const rows = screen.getAllByTestId(TEST_IDS.thinkingDisclosureToggle);
-      expect(rows.map((row) => row.textContent)).toEqual([
-        'Reasoning · Max effort',
-        'Reasoning · Lite effort',
-      ]);
+      const tags = screen.getAllByTestId(TEST_IDS.effortTag);
+      expect(tags.map((tag) => tag.textContent)).toEqual(['Max effort', 'Lite effort']);
     });
 
-    // The ruled cost of moving the rung onto the reasoning row: a turn with no
-    // reasoning has no row, so it shows no rung. Pinned so a reader meets this
-    // as a decision rather than as a gap.
+    // A turn that did not reason draws no reasoning row, and the retired
+    // `message-effort-chip` element stays absent on it as well.
     it('shows no rung at all on a turn that did not reason', async () => {
       const unreasoned = {
         ...aiMessageWithLevel('high'),

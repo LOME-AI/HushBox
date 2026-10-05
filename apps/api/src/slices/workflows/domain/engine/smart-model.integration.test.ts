@@ -20,6 +20,7 @@ import {
 import { useIntegrationProvider } from '../../../models/adapters/integration.setup.js';
 import { portsAccepting } from './model-ports.js';
 import { TURN_DECISION_SCHEMA_NAME, decisionDomainInput } from '../nodes/turn-decision.js';
+import { callMaxPrice } from '../../../models/index.js';
 import type {
   InferenceEvent,
   ModelDescriptor,
@@ -33,6 +34,7 @@ import type { NodeRegistryContext } from '../compile/context.js';
 import type { ModelBinding } from '../nodes/model-call-execution.js';
 import type { SubWorkflowBinding } from './live-execution-registry.js';
 import type { EngineAdmissionDecision } from './hooks.js';
+import type { NodeRunContext } from './execution-registry.js';
 
 /** An inert fixture stamp: nothing in this file reads it against a clock. */
 const FIXTURE_STAMP_SECONDS = secondsAt(TEST_DAY_START);
@@ -97,19 +99,39 @@ function makeTelemetry(): Telemetry {
   };
 }
 
+/**
+ * Each model's price at its dearest standard-tier endpoint, as the public ZDR
+ * listing priced it on 2026-10-04, baked billable: at or above its anchor, the
+ * cheapest eligible ZDR endpoint. A real call routes under the `max_price`
+ * derived from it (these rates × 5/4, rounded up, un-baked), and is refused for
+ * price only when no listed endpoint is priced within that `max_price`.
+ */
+const LISTED_PRICING: Readonly<Record<string, ModelDescriptor['pricing']>> = {
+  [CLASSIFIER_MODEL_ID]: tokenPricingFixture({
+    input: 190n,
+    output: 759n,
+    anchorContextTokens: 128_000,
+  }),
+  [ANSWER_MODEL_ID]: tokenPricingFixture({
+    input: 2875n,
+    output: 11_500n,
+    anchorContextTokens: 128_000,
+  }),
+};
+
 /** A minimal text→text descriptor per candidate id (ports/pricing only — the
  * real inline cost comes from the gateway, not `price`). */
 function descriptorFor(id: string): ModelDescriptor {
   return {
     id,
     provider: id.split('/')[0] ?? id,
-    version: '3',
+    version: '4',
     inputs: ['text'],
     outputs: ['text'],
     parameters: {},
     behaviors: [],
     limits: {},
-    pricing: tokenPricingFixture({ input: 1n, output: 1n }),
+    pricing: LISTED_PRICING[id] ?? tokenPricingFixture({ input: 1n, output: 1n }),
     zdrReachable: true,
     releasedAt: FIXTURE_STAMP_SECONDS,
     fetchedAt: 0,
@@ -117,10 +139,13 @@ function descriptorFor(id: string): ModelDescriptor {
 }
 
 function bindingFor(id: string): ModelBinding {
+  const descriptor = descriptorFor(id);
   return {
-    descriptor: descriptorFor(id),
+    descriptor,
     ports: { in: [textTag()], out: textTag() },
     price: () => ok(5n),
+    reserveMedia: () => ok(5n),
+    maxPrice: (bound) => callMaxPrice(descriptor.pricing, bound),
   };
 }
 
@@ -224,6 +249,22 @@ function expectBilledTextGeneration(charge: SettlementRequest['charges'][number]
   expect(charge.tokens?.outputTokens ?? 0).toBeGreaterThan(0);
 }
 
+/** The one-step call admission reserves for a node, as the node receives it. */
+function reservedCall(nodeId: string, modelId: string): NonNullable<NodeRunContext['reservation']> {
+  return {
+    nodeId,
+    modelId,
+    pricing: descriptorFor(modelId).pricing,
+    quantities: { promptTokens: 0, persists: false, newMessageChars: 0 },
+    steps: 1,
+    wireCapTokens: 0,
+    stepTiers: [],
+    providerNanoUsd: nanoUSD(0n),
+    storageNanoUsd: nanoUSD(0n),
+    heldNanoUsd: nanoUSD(0n),
+  };
+}
+
 async function runSmartModelTurn(provider: ModelProvider): Promise<LiveRun> {
   const settlements: SettlementRequest[] = [];
   const events: { readonly event: InferenceEvent }[] = [];
@@ -242,7 +283,14 @@ async function runSmartModelTurn(provider: ModelProvider): Promise<LiveRun> {
   const executor = createWorkflowExecutor({
     registries,
     execution,
-    estimateRun: () => ok({ totalNanoUsd: nanoUSD(100n), calls: [] }),
+    estimateRun: () =>
+      ok({
+        totalNanoUsd: nanoUSD(100n),
+        calls: [
+          reservedCall('classify', CLASSIFIER_MODEL_ID),
+          reservedCall('answer', ANSWER_MODEL_ID),
+        ],
+      }),
     clock: { now: () => 1000 },
     rng: { random: () => 0.5 },
     telemetry: makeTelemetry(),
@@ -269,7 +317,7 @@ async function runSmartModelTurn(provider: ModelProvider): Promise<LiveRun> {
       admission: () => Promise.resolve(grant(1_000_000_000n)),
       settlement: (request) => {
         settlements.push(request);
-        return Promise.resolve();
+        return Promise.resolve({ billed: [] });
       },
     },
     runKey: RUN_KEY,

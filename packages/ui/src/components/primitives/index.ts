@@ -4,6 +4,7 @@ export { Input, type InputProps } from './input';
 export {
   Textarea,
   TEXTAREA_MIRROR_CLASSES,
+  TEXTAREA_NATIVE_WRAP_CLASSES,
   TEXTAREA_TYPE_SCALE_CLASSES,
   TEXTAREA_WRAP_CLASSES,
 } from './textarea';

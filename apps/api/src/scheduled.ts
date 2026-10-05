@@ -158,20 +158,6 @@ export function cronEntriesFor(cron: string, deps: CronDependencies): CronEntry[
       const billingProbes = createBillingAuditProbes(deps.db, deps.redis, deps.now);
       const { isProduction } = createEnvUtilities(deps.env);
       return [
-        createCatalogRefreshEntry({
-          db: deps.db,
-          fetch: deps.catalogFetch,
-          gatewayBaseUrl: deps.gatewayBaseUrl,
-          telemetry: deps.telemetry,
-          now: deps.now,
-          recordSighting: createCatalogSightingRecorder(deps.db),
-          // The start delay spreads a production fleet's triggers across the
-          // provider's catalog; one local Worker is no fleet, so outside
-          // production it is pure waiting ahead of every refresh.
-          ...(isProduction ? { jitter: deps.refreshJitter } : {}),
-          // Production keeps the 6-connection cap; dev refreshes fan out wider.
-          endpointConcurrency: isProduction ? 6 : 30,
-        }),
         createMediaGcEntry(() =>
           // Thread the flush-capable cron telemetry (createTelemetry binds
           // scheduleFlush to ctx.waitUntil) so a captured GC delete failure is
@@ -223,6 +209,22 @@ export function cronEntriesFor(cron: string, deps: CronDependencies): CronEntry[
               }),
             ]),
           now: deps.now,
+        }),
+        // Last: its production start delay is a sleep before any database use,
+        // so placed anywhere earlier it would hold up every entry after it.
+        createCatalogRefreshEntry({
+          db: deps.db,
+          fetch: deps.catalogFetch,
+          gatewayBaseUrl: deps.gatewayBaseUrl,
+          telemetry: deps.telemetry,
+          now: deps.now,
+          recordSighting: createCatalogSightingRecorder(deps.db),
+          // The start delay spreads a production fleet's triggers across the
+          // provider's catalog; one local Worker is no fleet, so outside
+          // production it is pure waiting ahead of every refresh.
+          ...(isProduction ? { jitter: deps.refreshJitter } : {}),
+          // Production keeps the 6-connection cap; dev refreshes fan out wider.
+          endpointConcurrency: isProduction ? 6 : 30,
         }),
       ];
     })
@@ -356,9 +358,13 @@ export function createScheduledHandler(
       if (checksIn) {
         telemetry.checkIn('in_progress');
       }
-      await runCronEntries(entries, telemetry);
+      const { anyFailed } = await runCronEntries(entries, telemetry);
       if (checksIn) {
-        telemetry.checkIn('ok');
+        if (anyFailed) {
+          telemetry.checkIn('error');
+        } else {
+          telemetry.checkIn('ok');
+        }
       }
     } finally {
       // After every committing transaction the pass opened, before the
@@ -381,9 +387,11 @@ export const productionScheduledRuntime: ScheduledRuntime = {
       );
     }
     const { isDev } = createEnvUtilities(env);
+    // Entries run one at a time on this one connection, so an overlapping
+    // statement is a defect to refuse where it is issued, not a waiter to queue.
     return isDev
-      ? createDb(databaseUrl, { neonDev: LOCAL_NEON_DEV_CONFIG })
-      : createDb(databaseUrl);
+      ? createDb(databaseUrl, { neonDev: LOCAL_NEON_DEV_CONFIG, serial: true })
+      : createDb(databaseUrl, { serial: true });
   },
   createRedis(env: ScheduledBindings): Redis {
     const url = env.UPSTASH_REDIS_REST_URL;

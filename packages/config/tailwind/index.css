@@ -315,6 +315,9 @@
   --text-chat-greeting--line-height: 1.2;
   --text-chat-greeting--font-weight: 700;
   --text-chat-greeting--letter-spacing: -0.025em;
+  --text-share-title: 1.5rem;
+  --text-share-title--line-height: 1.25;
+  --text-share-title--font-weight: 700;
   --text-site-post-title: 2.25rem;
   --text-site-post-title--line-height: 1.111;
   --text-site-post-title--font-weight: 700;
@@ -376,6 +379,8 @@
     --text-site-title--line-height: 1.111;
     --text-chat-greeting: 2.75rem;
     --text-chat-greeting--line-height: 1.15;
+    --text-share-title: 1.875rem;
+    --text-share-title--line-height: 1.25;
     --text-site-post-title: 3rem;
     --text-site-post-title--line-height: 1;
   }

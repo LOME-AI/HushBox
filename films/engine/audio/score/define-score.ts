@@ -31,7 +31,7 @@ export interface ScoreFilm {
 }
 
 /** An event resolved to the sample its anchor lands on. */
-export interface TimedEvent {
+interface TimedEvent {
   sample: number;
   /** The anchor that lands on `sample`; null lands the instrument's own anchor there. */
   anchor: Anchor | null;

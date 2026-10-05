@@ -121,6 +121,7 @@ export {
   TrendingDown,
   TrendingUp,
   Type,
+  Undo2,
   User,
   UserMinus,
   UserPlus,

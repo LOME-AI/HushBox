@@ -56,12 +56,13 @@ export const E2E_TEXT_PINNED_EFFORT: CanonicalReasoningEffort = 'high';
  * Both terms are read only over candidates this set does not already hold whose
  * ZDR reachability rests on MORE THAN ONE distinct provider. That is a bar
  * ahead of the ordering rather than a third term inside it, because it decides
- * whether an id is exposed at all: reachability is set membership over the live
- * endpoint-granular ZDR listing, so a membership carried by one provider's
- * endpoints ends the moment that provider withdraws zero data retention, while
- * one carried by endpoints from several distinct providers ends only when all
- * of them do — and an id that leaves the set is excluded as `non-zdr` and
- * refused by `assertE2eModelsPresent`. Among what clears the bar the margin
+ * whether an id is exposed at all: a text id stays reachable only while one of
+ * its live ZDR endpoints can anchor it — standard tier, accepting every
+ * parameter the model may be sent, with readable limits — so reachability
+ * carried by one provider's endpoints ends the moment that provider withdraws
+ * zero data retention, while one carried by such endpoints from several
+ * distinct providers ends only when all of them do — and an id left with none
+ * is excluded as `non-zdr` and refused by `assertE2eModelsPresent`. Among what clears the bar the margin
  * under the percentile decides, and time before the age cutoff separates
  * equals: the percentile moves with the pool and can reclassify a row with no
  * commit in this repo, while the age edge advances at exactly one day per day

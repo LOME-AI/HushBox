@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { modelSchema, noticeText } from '@hushbox/shared';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import { modelSchema, noticeText, TEST_IDS } from '@hushbox/shared';
 import { createModelStoreStub, type ModelStoreStub } from '@/test-utils/model-store-mock';
 import {
-  ImageAspectRatioControl,
   VideoAspectRatioControl,
   VideoResolutionControl,
   VideoDurationControl,
@@ -56,39 +55,10 @@ vi.mock('@/stores/model', async (importOriginal) => {
 });
 
 /**
- * A selected image model whose catalog row declares `ratios`. Since ingestion
+ * A selected video model whose catalog row declares `ratios`. Since ingestion
  * excludes a media row that declares no aspect ratio, "a model is selected"
  * always implies a declared domain — there is no global list behind it.
  */
-function selectImageModelOffering(ratios: readonly string[], activeRatio = '1:1'): void {
-  mockModels({
-    models: [
-      {
-        id: 'fictional/image',
-        name: 'Image',
-        provider: 'Fictional',
-        description: 'Image generation model.',
-        modality: 'image',
-        contextLength: 0,
-        supportedParameters: [],
-        pricing: { perImage: '40000000', dearestPerImage: '40000000' },
-        supportedAspectRatios: [...ratios],
-      },
-    ],
-  });
-  resetModelStoreStub({
-    activeModality: 'image',
-    imageConfig: { aspectRatio: activeRatio },
-    selections: {
-      text: [],
-      image: [{ id: 'fictional/image', name: 'Image' }],
-      audio: [],
-      video: [],
-    },
-  });
-}
-
-/** The video twin of {@link selectImageModelOffering}. */
 function selectVideoModelOffering(ratios: readonly string[], activeRatio = '16:9'): void {
   mockModels({
     models: [
@@ -120,95 +90,7 @@ function selectVideoModelOffering(ratios: readonly string[], activeRatio = '16:9
   });
 }
 
-const IMAGE_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16'] as const;
-
-describe('ImageAspectRatioControl', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetModelStoreStub({ activeModality: 'image', imageConfig: { aspectRatio: '1:1' } });
-  });
-
-  it('renders a pill for every ratio the selected model offers', () => {
-    selectImageModelOffering(IMAGE_RATIOS);
-    render(<ImageAspectRatioControl />);
-    expect(screen.getByRole('button', { name: '1:1' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '4:3' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '3:4' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '9:16' })).toBeInTheDocument();
-  });
-
-  it('marks the active aspect ratio with aria-pressed=true', () => {
-    selectImageModelOffering(IMAGE_RATIOS, '16:9');
-    render(<ImageAspectRatioControl />);
-    expect(screen.getByRole('button', { name: '16:9' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '1:1' })).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  it('calls setImageConfig when an aspect ratio is clicked', () => {
-    selectImageModelOffering(IMAGE_RATIOS);
-    render(<ImageAspectRatioControl />);
-    fireEvent.click(screen.getByRole('button', { name: '16:9' }));
-    expect(modelStoreStubRef.current.setImageConfig).toHaveBeenCalledWith({
-      aspectRatio: '16:9',
-    });
-  });
-
-  it('exposes the aspect ratio group with a screen-reader-only legend', () => {
-    selectImageModelOffering(IMAGE_RATIOS);
-    render(<ImageAspectRatioControl />);
-    expect(screen.getByText(/aspect ratio/i)).toBeInTheDocument();
-  });
-
-  it('renders each ratio as a proportional shape pill with the ratio as label', () => {
-    selectImageModelOffering(IMAGE_RATIOS);
-    render(<ImageAspectRatioControl />);
-    const shapes = screen.getAllByTestId('aspect-ratio-shape');
-    expect(shapes).toHaveLength(5);
-    const square = screen
-      .getByRole('button', { name: '1:1' })
-      .querySelector<HTMLElement>('[data-testid="aspect-ratio-shape"]')!;
-    expect(square.style.aspectRatio).toBe('1 / 1');
-    const wide = screen
-      .getByRole('button', { name: '16:9' })
-      .querySelector<HTMLElement>('[data-testid="aspect-ratio-shape"]')!;
-    expect(wide.style.aspectRatio).toBe('16 / 9');
-  });
-
-  it('narrows ratios to the intersection across selected models', () => {
-    mockModels({
-      models: [
-        {
-          id: 'fictional/narrow-image',
-          name: 'Narrow Image',
-          provider: 'Fictional',
-          description: 'Image generation model.',
-          modality: 'image',
-          contextLength: 0,
-          supportedParameters: [],
-          pricing: { perImage: '40000000', dearestPerImage: '40000000' },
-          supportedAspectRatios: ['1:1', '16:9'],
-        },
-      ],
-    });
-    resetModelStoreStub({
-      activeModality: 'image',
-      imageConfig: { aspectRatio: '1:1' },
-      selections: {
-        text: [],
-        image: [{ id: 'fictional/narrow-image', name: 'Narrow' }],
-        audio: [],
-        video: [],
-      },
-    });
-    render(<ImageAspectRatioControl />);
-    expect(screen.getByRole('button', { name: '1:1' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '4:3' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '3:4' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '9:16' })).not.toBeInTheDocument();
-  });
-});
+const VIDEO_RATIOS = ['16:9', '9:16', '1:1'] as const;
 
 describe('VideoAspectRatioControl', () => {
   beforeEach(() => {
@@ -221,27 +103,27 @@ describe('VideoAspectRatioControl', () => {
 
   it('renders a pill for every ratio the selected model offers', () => {
     selectVideoModelOffering(['16:9', '9:16']);
-    render(<VideoAspectRatioControl />);
+    render(<VideoAspectRatioControl heading="Aspect ratio" />);
     expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '9:16' })).toBeInTheDocument();
   });
 
   it('does not render a ratio the selected model does not offer', () => {
     selectVideoModelOffering(['16:9', '9:16']);
-    render(<VideoAspectRatioControl />);
+    render(<VideoAspectRatioControl heading="Aspect ratio" />);
     expect(screen.queryByRole('button', { name: '1:1' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '4:3' })).not.toBeInTheDocument();
   });
 
   it('marks the active aspect ratio with aria-pressed=true', () => {
     selectVideoModelOffering(['16:9', '9:16'], '9:16');
-    render(<VideoAspectRatioControl />);
+    render(<VideoAspectRatioControl heading="Aspect ratio" />);
     expect(screen.getByRole('button', { name: '9:16' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('writes setVideoConfig when aspect ratio changes', () => {
     selectVideoModelOffering(['16:9', '9:16']);
-    render(<VideoAspectRatioControl />);
+    render(<VideoAspectRatioControl heading="Aspect ratio" />);
     fireEvent.click(screen.getByRole('button', { name: '9:16' }));
     expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
       aspectRatio: '9:16',
@@ -250,15 +132,15 @@ describe('VideoAspectRatioControl', () => {
 
   it('renders each video ratio as a proportional shape pill', () => {
     selectVideoModelOffering(['16:9', '9:16']);
-    render(<VideoAspectRatioControl />);
-    const wide = screen
-      .getByRole('button', { name: '16:9' })
-      .querySelector<HTMLElement>('[data-testid="aspect-ratio-shape"]')!;
-    expect(wide.style.aspectRatio).toBe('16 / 9');
-    const tall = screen
-      .getByRole('button', { name: '9:16' })
-      .querySelector<HTMLElement>('[data-testid="aspect-ratio-shape"]')!;
-    expect(tall.style.aspectRatio).toBe('9 / 16');
+    render(<VideoAspectRatioControl heading="Aspect ratio" />);
+    const proportion = (ratio: string): number => {
+      const shape = within(screen.getByRole('button', { name: ratio })).getByTestId(
+        TEST_IDS.aspectRatioShape
+      );
+      return Number.parseFloat(shape.style.width) / Number.parseFloat(shape.style.height);
+    };
+    expect(proportion('16:9')).toBeCloseTo(16 / 9, 2);
+    expect(proportion('9:16')).toBeCloseTo(9 / 16, 2);
   });
 
   it('narrows ratios to the intersection across selected video models', () => {
@@ -290,7 +172,7 @@ describe('VideoAspectRatioControl', () => {
         video: [{ id: 'fictional/landscape-only', name: 'Landscape Only' }],
       },
     });
-    render(<VideoAspectRatioControl />);
+    render(<VideoAspectRatioControl heading="Aspect ratio" />);
     expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '9:16' })).not.toBeInTheDocument();
   });
@@ -307,7 +189,7 @@ describe('VideoResolutionControl', () => {
       videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
       selections: { text: [], image: [], audio: [], video: [] },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     expect(screen.getByText(/Select a video model to see resolution options/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /720p/i })).not.toBeInTheDocument();
   });
@@ -342,7 +224,7 @@ describe('VideoResolutionControl', () => {
         video: [{ id: 'fictional/video', name: 'Video' }],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     const pill = screen.getByRole('button', { name: '1440p' });
     expect(pill).toHaveTextContent('1440p');
   });
@@ -375,7 +257,7 @@ describe('VideoResolutionControl', () => {
         video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     expect(screen.getByRole('button', { name: '720p' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '1080p' })).toBeInTheDocument();
   });
@@ -408,7 +290,7 @@ describe('VideoResolutionControl', () => {
         video: [{ id: 'video/no-pricing', name: 'No Pricing' }],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     // A model with no per-resolution pricing contributes no options, so the
     // agreed intersection is empty and no resolution buttons render.
     expect(screen.queryByRole('button', { name: '720p' })).not.toBeInTheDocument();
@@ -439,7 +321,7 @@ describe('VideoResolutionControl', () => {
         video: [{ id: 'video/absent-pricing', name: 'Absent Pricing' }],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     expect(screen.queryByRole('button', { name: '720p' })).not.toBeInTheDocument();
   });
 
@@ -471,7 +353,7 @@ describe('VideoResolutionControl', () => {
         video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     const hdButton = screen.getByRole('button', { name: '720p' });
     expect(hdButton).toHaveTextContent('HD');
     expect(hdButton).toHaveTextContent('720p');
@@ -508,7 +390,7 @@ describe('VideoResolutionControl', () => {
         video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     expect(screen.queryByTestId('resolution-price')).not.toBeInTheDocument();
     expect(screen.queryByText(/\$\d+\.\d+\/s/)).not.toBeInTheDocument();
   });
@@ -541,7 +423,7 @@ describe('VideoResolutionControl', () => {
         video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     expect(screen.queryByRole('button', { name: /720p/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /1080p/ })).toBeInTheDocument();
   });
@@ -574,7 +456,7 @@ describe('VideoResolutionControl', () => {
         video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     fireEvent.click(screen.getByRole('button', { name: '1080p' }));
     expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
       resolution: '1080p',
@@ -611,7 +493,7 @@ describe('VideoResolutionControl', () => {
         video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     expect(screen.getByRole('button', { name: '1080p' })).toBeInTheDocument();
     expect(modelStoreStubRef.current.setVideoConfig).not.toHaveBeenCalled();
   });
@@ -627,7 +509,7 @@ describe('VideoDurationControl', () => {
   });
 
   it('falls back to the 1-8s legacy bounds when no model is selected', () => {
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     const slider = screen.getByRole('slider');
     expect(slider).toHaveAttribute('min', '1');
     expect(slider).toHaveAttribute('max', '8');
@@ -635,7 +517,7 @@ describe('VideoDurationControl', () => {
   });
 
   it('writes setVideoConfig when duration changes (no model — no snap)', () => {
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     const slider = screen.getByRole('slider');
     fireEvent.change(slider, { target: { value: '6' } });
     expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
@@ -644,12 +526,12 @@ describe('VideoDurationControl', () => {
   });
 
   it('displays the current duration next to the slider', () => {
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     expect(screen.getByText(/4s/i)).toBeInTheDocument();
   });
 
   it('exposes the duration in aria-valuetext for screen readers', () => {
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     const slider = screen.getByRole('slider');
     expect(slider).toHaveAttribute('aria-valuetext', '4 seconds');
   });
@@ -683,7 +565,7 @@ describe('VideoDurationControl', () => {
         video: [{ id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     const slider = screen.getByRole('slider');
     expect(slider).toHaveAttribute('min', '4');
     expect(slider).toHaveAttribute('max', '8');
@@ -718,7 +600,7 @@ describe('VideoDurationControl', () => {
         video: [{ id: 'video/unsorted-durations', name: 'Unsorted Durations' }],
       },
     });
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     const slider = screen.getByRole('slider');
     expect(slider).toHaveAttribute('min', '4');
     expect(slider).toHaveAttribute('max', '8');
@@ -753,7 +635,7 @@ describe('VideoDurationControl', () => {
         video: [{ id: 'video/no-durations', name: 'No Durations' }],
       },
     });
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     // No snap occurs because there is no supported-duration set.
     expect(modelStoreStubRef.current.setVideoConfig).not.toHaveBeenCalled();
   });
@@ -787,7 +669,7 @@ describe('VideoDurationControl', () => {
         video: [{ id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     expect(modelStoreStubRef.current.setVideoConfig).not.toHaveBeenCalled();
   });
 
@@ -820,7 +702,7 @@ describe('VideoDurationControl', () => {
         video: [{ id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     const slider = screen.getByRole('slider');
     fireEvent.change(slider, { target: { value: '5' } });
     expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
@@ -874,7 +756,7 @@ describe('VideoDurationControl', () => {
         ],
       },
     });
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     const slider = screen.getByRole('slider');
     expect(slider).toHaveAttribute('min', '6');
     expect(slider).toHaveAttribute('max', '8');
@@ -919,7 +801,7 @@ describe('VideoResolutionControl + 4K', () => {
         video: [{ id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     const fourK = screen.getByRole('button', { name: /^4k$/i });
     expect(fourK).toBeInTheDocument();
     expect(fourK).toHaveTextContent('4K');
@@ -979,7 +861,7 @@ describe('VideoResolutionControl + 4K', () => {
         ],
       },
     });
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     expect(screen.queryByRole('button', { name: /4k/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /720p/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /1080p/i })).toBeInTheDocument();
@@ -1091,8 +973,9 @@ describe('MediaCostLine', () => {
     it('renders the estimate through the shared unit-price formatter', () => {
       // The panel already prices per-image rates with `nanoUnitPriceUsd`; the
       // estimate line must round the same way, which a float dollar conversion
-      // does not at a half-thousandth tie (145_500_000 nano → $0.146, not
-      // $0.145). Positive on the exact string, not a shape regex.
+      // does not at a half-thousandth tie (1_012_640 to generate plus the run's
+      // 377_487_360 to keep is 378_500_000 nano → $0.378, not $0.379). Positive
+      // on the exact string, not a shape regex.
       mockModels({
         models: [
           {
@@ -1103,7 +986,7 @@ describe('MediaCostLine', () => {
             modality: 'image',
             contextLength: 0,
             supportedParameters: [],
-            pricing: { perImage: '1500000', dearestPerImage: '1500000' },
+            pricing: { perImage: '1012640', dearestPerImage: '1012640' },
           },
         ],
       });
@@ -1118,7 +1001,7 @@ describe('MediaCostLine', () => {
         },
       });
       render(<MediaCostLine modality="image" />);
-      expect(screen.getByText('≈ $0.146')).toBeInTheDocument();
+      expect(screen.getByText('≈ $0.378')).toBeInTheDocument();
     });
 
     it('renders an "(estimate)" sublabel below the dollar amount', () => {
@@ -1151,7 +1034,7 @@ describe('MediaCostLine', () => {
     });
 
     describe('in the kit caption style', () => {
-      function renderPricedImage(): void {
+      function renderPricedImage(layout?: 'stacked' | 'inline'): void {
         mockModels({
           models: [
             {
@@ -1176,8 +1059,29 @@ describe('MediaCostLine', () => {
             video: [],
           },
         });
-        render(<MediaCostLine modality="image" />);
+        render(<MediaCostLine modality="image" {...(layout && { layout })} />);
       }
+
+      /** The box holding the figure and its caption. */
+      function costLine(): HTMLElement | null {
+        return screen.getByText('(estimate)').parentElement;
+      }
+
+      it('stacks the caption under the figure by default', () => {
+        renderPricedImage();
+        expect(costLine()).toHaveClass('flex-col', 'items-end');
+      });
+
+      it("sets the caption on the figure's own line when laid out inline", () => {
+        renderPricedImage('inline');
+        expect(costLine()).toHaveClass('flex-row', 'items-baseline', 'gap-1');
+        expect(costLine()).not.toHaveClass('flex-col');
+      });
+
+      it('keeps the figure and the caption in two elements when laid out inline', () => {
+        renderPricedImage('inline');
+        expect(screen.getByText(/^≈ \$0\.\d{3}$/u)).not.toBe(screen.getByText('(estimate)'));
+      });
 
       it('sets the caption at the 0.75rem caption step, which scales with text size', () => {
         renderPricedImage();
@@ -1440,73 +1344,28 @@ describe('a media axis the selected models cannot agree on', () => {
 
   it('replaces the duration slider with a reason the user can act on', () => {
     selectCollidingVideoModels('durationSeconds');
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     expect(screen.getByText(/share no common duration/i)).toBeInTheDocument();
   });
 
   it('replaces the resolution pills with a reason the user can act on', () => {
     selectCollidingVideoModels('resolution');
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     expect(screen.queryByRole('button', { name: '720p' })).not.toBeInTheDocument();
     expect(screen.getByText(/share no common resolution/i)).toBeInTheDocument();
   });
 
   it('distinguishes an unsendable resolution combination from having selected no model', () => {
     selectCollidingVideoModels('resolution');
-    render(<VideoResolutionControl />);
+    render(<VideoResolutionControl heading="Resolution" />);
     expect(screen.queryByText(/select a video model/i)).not.toBeInTheDocument();
   });
 
   it('replaces the video aspect ratio pills with a reason the user can act on', () => {
     selectCollidingVideoModels('aspectRatio');
-    render(<VideoAspectRatioControl />);
+    render(<VideoAspectRatioControl heading="Aspect ratio" />);
     expect(screen.queryByRole('button', { name: '16:9' })).not.toBeInTheDocument();
-    expect(screen.getByText(/share no common aspect ratio/i)).toBeInTheDocument();
-  });
-
-  it('replaces the image aspect ratio pills with a reason the user can act on', () => {
-    mockModels({
-      models: [
-        {
-          id: 'fictional/image-a',
-          name: 'Image A',
-          provider: 'Fictional',
-          description: 'Image generation model.',
-          modality: 'image',
-          contextLength: 0,
-          supportedParameters: [],
-          pricing: { perImage: '40000000', dearestPerImage: '40000000' },
-          supportedAspectRatios: ['1:1'],
-        },
-        {
-          id: 'fictional/image-b',
-          name: 'Image B',
-          provider: 'Fictional',
-          description: 'Image generation model.',
-          modality: 'image',
-          contextLength: 0,
-          supportedParameters: [],
-          pricing: { perImage: '40000000', dearestPerImage: '40000000' },
-          supportedAspectRatios: ['16:9'],
-        },
-      ],
-    });
-    resetModelStoreStub({
-      activeModality: 'image',
-      imageConfig: { aspectRatio: '1:1' },
-      selections: {
-        text: [],
-        image: [
-          { id: 'fictional/image-a', name: 'Image A' },
-          { id: 'fictional/image-b', name: 'Image B' },
-        ],
-        audio: [],
-        video: [],
-      },
-    });
-    render(<ImageAspectRatioControl />);
-    expect(screen.queryByRole('button', { name: '1:1' })).not.toBeInTheDocument();
     expect(screen.getByText(/share no common aspect ratio/i)).toBeInTheDocument();
   });
 });
@@ -1565,6 +1424,7 @@ describe('the greying verdict the producer hands the panel', () => {
     });
     render(
       <VideoResolutionControl
+        heading="Resolution"
         dimensions={refusedOption('resolution', '1080p', ['720p', '1080p'], 'insufficient_funds')}
       />
     );
@@ -1604,6 +1464,7 @@ describe('the greying verdict the producer hands the panel', () => {
     });
     render(
       <VideoResolutionControl
+        heading="Resolution"
         dimensions={refusedOption('resolution', '1080p', ['720p', '1080p'], 'insufficient_funds')}
       />
     );
@@ -1612,13 +1473,14 @@ describe('the greying verdict the producer hands the panel', () => {
   });
 
   it('greys an aspect ratio no selected model can be priced at', () => {
-    selectImageModelOffering(IMAGE_RATIOS);
+    selectVideoModelOffering(VIDEO_RATIOS);
     render(
-      <ImageAspectRatioControl
-        dimensions={refusedOption('aspectRatio', '4:3', [...IMAGE_RATIOS], 'model_not_priceable')}
+      <VideoAspectRatioControl
+        heading="Aspect ratio"
+        dimensions={refusedOption('aspectRatio', '9:16', [...VIDEO_RATIOS], 'model_not_priceable')}
       />
     );
-    expect(screen.getByRole('button', { name: '4:3' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: '9:16' })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText(noticeText('model_not_priceable'))).toBeInTheDocument();
   });
 
@@ -1664,15 +1526,25 @@ describe('the greying verdict the producer hands the panel', () => {
         video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
       },
     });
-    render(<VideoResolutionControl dimensions={gradedOnly('resolution', ['720p'])} />);
+    render(
+      <VideoResolutionControl
+        heading="Resolution"
+        dimensions={gradedOnly('resolution', ['720p'])}
+      />
+    );
     expect(screen.getByRole('button', { name: '1080p' })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText(noticeText('option_not_offered'))).toBeInTheDocument();
   });
 
   it('greys every option of an axis the produced verdict does not carry', () => {
-    selectImageModelOffering(IMAGE_RATIOS);
-    render(<ImageAspectRatioControl dimensions={gradedOnly('resolution', ['720p'])} />);
-    for (const ratio of IMAGE_RATIOS) {
+    selectVideoModelOffering(VIDEO_RATIOS);
+    render(
+      <VideoAspectRatioControl
+        heading="Aspect ratio"
+        dimensions={gradedOnly('resolution', ['720p'])}
+      />
+    );
+    for (const ratio of VIDEO_RATIOS) {
       expect(screen.getByRole('button', { name: ratio })).toHaveAttribute('aria-disabled', 'true');
     }
   });
@@ -1680,9 +1552,9 @@ describe('the greying verdict the producer hands the panel', () => {
   it('renders every option ungreyed while no verdict exists', () => {
     // A pending funding or catalog read has no verdict to render, and greying
     // rows against an absent one refuses options the payer can in fact afford.
-    selectImageModelOffering(IMAGE_RATIOS);
-    render(<ImageAspectRatioControl />);
-    for (const ratio of IMAGE_RATIOS) {
+    selectVideoModelOffering(VIDEO_RATIOS);
+    render(<VideoAspectRatioControl heading="Aspect ratio" />);
+    for (const ratio of VIDEO_RATIOS) {
       expect(screen.getByRole('button', { name: ratio })).not.toHaveAttribute('aria-disabled');
     }
   });
@@ -1696,15 +1568,9 @@ describe('an aspect ratio the selected model does not offer', () => {
   // Pulling the stored ratio back onto the offered set belongs to the app-wide
   // snap, which runs whether or not any of these controls is mounted; a control
   // that corrected the store itself only did so on the surfaces the user opened.
-  it('leaves the stored image aspect ratio to the app-wide snap', () => {
-    selectImageModelOffering(['16:9', '9:16'], '1:1');
-    render(<ImageAspectRatioControl />);
-    expect(modelStoreStubRef.current.setImageConfig).not.toHaveBeenCalled();
-  });
-
   it('leaves the stored video aspect ratio to the app-wide snap', () => {
     selectVideoModelOffering(['1:1', '4:3'], '16:9');
-    render(<VideoAspectRatioControl />);
+    render(<VideoAspectRatioControl heading="Aspect ratio" />);
     expect(modelStoreStubRef.current.setVideoConfig).not.toHaveBeenCalled();
   });
 });
@@ -1791,7 +1657,10 @@ describe('the duration axis reading the same verdict', () => {
   it('greys a duration the payer cannot afford, with the reason the send gate would give', () => {
     selectVideoModelOfferingDurations([4, 6, 8]);
     render(
-      <VideoDurationControl dimensions={videoVerdict([4, 6, 8], { 8: 'insufficient_funds' })} />
+      <VideoDurationControl
+        heading="Duration"
+        dimensions={videoVerdict([4, 6, 8], { 8: 'insufficient_funds' })}
+      />
     );
     expect(durationTick(8)).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText(noticeText('insufficient_funds'))).toBeInTheDocument();
@@ -1800,7 +1669,10 @@ describe('the duration axis reading the same verdict', () => {
   it('leaves a duration the payer can afford selectable', () => {
     selectVideoModelOfferingDurations([4, 6, 8]);
     render(
-      <VideoDurationControl dimensions={videoVerdict([4, 6, 8], { 8: 'insufficient_funds' })} />
+      <VideoDurationControl
+        heading="Duration"
+        dimensions={videoVerdict([4, 6, 8], { 8: 'insufficient_funds' })}
+      />
     );
     expect(durationTick(6)).not.toHaveAttribute('aria-disabled');
   });
@@ -1808,7 +1680,10 @@ describe('the duration axis reading the same verdict', () => {
   it('refuses to select a greyed duration', () => {
     selectVideoModelOfferingDurations([4, 6, 8]);
     render(
-      <VideoDurationControl dimensions={videoVerdict([4, 6, 8], { 8: 'insufficient_funds' })} />
+      <VideoDurationControl
+        heading="Duration"
+        dimensions={videoVerdict([4, 6, 8], { 8: 'insufficient_funds' })}
+      />
     );
     fireEvent.click(durationTick(8));
     expect(modelStoreStubRef.current.setVideoConfig).not.toHaveBeenCalled();
@@ -1817,7 +1692,10 @@ describe('the duration axis reading the same verdict', () => {
   it('refuses a drag that lands on a greyed duration', () => {
     selectVideoModelOfferingDurations([4, 6, 8]);
     render(
-      <VideoDurationControl dimensions={videoVerdict([4, 6, 8], { 8: 'insufficient_funds' })} />
+      <VideoDurationControl
+        heading="Duration"
+        dimensions={videoVerdict([4, 6, 8], { 8: 'insufficient_funds' })}
+      />
     );
     fireEvent.change(screen.getByRole('slider'), { target: { value: '8' } });
     expect(modelStoreStubRef.current.setVideoConfig).not.toHaveBeenCalled();
@@ -1826,7 +1704,10 @@ describe('the duration axis reading the same verdict', () => {
   it('writes a drag that lands on an affordable duration', () => {
     selectVideoModelOfferingDurations([4, 6, 8]);
     render(
-      <VideoDurationControl dimensions={videoVerdict([4, 6, 8], { 8: 'insufficient_funds' })} />
+      <VideoDurationControl
+        heading="Duration"
+        dimensions={videoVerdict([4, 6, 8], { 8: 'insufficient_funds' })}
+      />
     );
     fireEvent.change(screen.getByRole('slider'), { target: { value: '6' } });
     expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({ durationSeconds: 6 });
@@ -1834,14 +1715,14 @@ describe('the duration axis reading the same verdict', () => {
 
   it('greys a duration the produced verdict does not grade', () => {
     selectVideoModelOfferingDurations([4, 6, 8]);
-    render(<VideoDurationControl dimensions={videoVerdict([4, 6])} />);
+    render(<VideoDurationControl heading="Duration" dimensions={videoVerdict([4, 6])} />);
     expect(durationTick(8)).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText(noticeText('option_not_offered'))).toBeInTheDocument();
   });
 
   it('leaves every duration ungreyed while no verdict exists', () => {
     selectVideoModelOfferingDurations([4, 6, 8]);
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     for (const seconds of [4, 6, 8]) {
       expect(durationTick(seconds)).not.toHaveAttribute('aria-disabled');
     }
@@ -1849,7 +1730,7 @@ describe('the duration axis reading the same verdict', () => {
 
   it('writes a dragged duration while no verdict exists', () => {
     selectVideoModelOfferingDurations([4, 6, 8]);
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     fireEvent.change(screen.getByRole('slider'), { target: { value: '8' } });
     expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({ durationSeconds: 8 });
   });
@@ -1863,7 +1744,7 @@ describe('the duration axis reading the same verdict', () => {
       activeModality: 'video',
       videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
     });
-    render(<VideoDurationControl dimensions={videoVerdict([4, 6])} />);
+    render(<VideoDurationControl heading="Duration" dimensions={videoVerdict([4, 6])} />);
     fireEvent.change(screen.getByRole('slider'), { target: { value: '8' } });
     expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({ durationSeconds: 8 });
   });
@@ -1948,30 +1829,23 @@ describe('a send refused because no funding figure was read', () => {
     ];
   }
 
-  it('takes down the image aspect ratio pills and says nothing itself', () => {
-    selectImageModelOffering(IMAGE_RATIOS);
-    render(<ImageAspectRatioControl sendRefusal="send_check_unavailable" />);
-    expect(screen.queryByRole('button', { name: '1:1' })).not.toBeInTheDocument();
-    expect(screen.queryByText(FUNDING_NOTICE)).not.toBeInTheDocument();
-  });
-
   it('takes down the video aspect ratio pills and says nothing itself', () => {
     selectVideoModelDeclaringEveryAxis();
-    render(<VideoAspectRatioControl sendRefusal="send_check_unavailable" />);
+    render(<VideoAspectRatioControl heading="Aspect ratio" sendRefusal="send_check_unavailable" />);
     expect(screen.queryByRole('button', { name: '16:9' })).not.toBeInTheDocument();
     expect(screen.queryByText(FUNDING_NOTICE)).not.toBeInTheDocument();
   });
 
   it('takes down the resolution pills and says nothing itself', () => {
     selectVideoModelDeclaringEveryAxis();
-    render(<VideoResolutionControl sendRefusal="send_check_unavailable" />);
+    render(<VideoResolutionControl heading="Resolution" sendRefusal="send_check_unavailable" />);
     expect(screen.queryByRole('button', { name: '720p' })).not.toBeInTheDocument();
     expect(screen.queryByText(FUNDING_NOTICE)).not.toBeInTheDocument();
   });
 
   it('takes down the duration slider and says nothing itself', () => {
     selectVideoModelDeclaringEveryAxis();
-    render(<VideoDurationControl sendRefusal="send_check_unavailable" />);
+    render(<VideoDurationControl heading="Duration" sendRefusal="send_check_unavailable" />);
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     expect(screen.queryByText(FUNDING_NOTICE)).not.toBeInTheDocument();
   });
@@ -1980,6 +1854,7 @@ describe('a send refused because no funding figure was read', () => {
     selectVideoModelDeclaringEveryAxis();
     render(
       <VideoDurationControl
+        heading="Duration"
         sendRefusal="send_check_unavailable"
         dimensions={everyOptionAffordable()}
       />
@@ -1991,6 +1866,7 @@ describe('a send refused because no funding figure was read', () => {
     selectVideoModelDeclaringEveryAxis();
     render(
       <VideoResolutionControl
+        heading="Resolution"
         sendRefusal="send_check_unavailable"
         dimensions={everyOptionAffordable()}
       />
@@ -2015,16 +1891,16 @@ describe('a send refused because no funding figure was read', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('leaves the image aspect ratio pills in place while the funding read is in flight', () => {
-    selectImageModelOffering(IMAGE_RATIOS);
-    render(<ImageAspectRatioControl />);
-    expect(screen.getByRole('button', { name: '1:1' })).toBeInTheDocument();
+  it('leaves the video aspect ratio pills in place while the funding read is in flight', () => {
+    selectVideoModelOffering(VIDEO_RATIOS);
+    render(<VideoAspectRatioControl heading="Aspect ratio" />);
+    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
     expect(screen.queryByText(FUNDING_NOTICE)).not.toBeInTheDocument();
   });
 
   it('leaves the duration slider in place while the funding read is in flight', () => {
     selectVideoModelDeclaringEveryAxis();
-    render(<VideoDurationControl />);
+    render(<VideoDurationControl heading="Duration" />);
     expect(screen.getByRole('slider')).toBeInTheDocument();
     expect(screen.queryByText(FUNDING_NOTICE)).not.toBeInTheDocument();
   });
@@ -2033,6 +1909,7 @@ describe('a send refused because no funding figure was read', () => {
     selectVideoModelDeclaringEveryAxis();
     render(
       <VideoResolutionControl
+        heading="Resolution"
         sendRefusal="insufficient_funds"
         dimensions={everyOptionAffordable()}
       />
@@ -2087,7 +1964,7 @@ describe('a send refused because no funding figure was read', () => {
         ],
       },
     });
-    render(<VideoAspectRatioControl sendRefusal="send_check_unavailable" />);
+    render(<VideoAspectRatioControl heading="Aspect ratio" sendRefusal="send_check_unavailable" />);
     expect(screen.getByText(/share no common aspect ratio/i)).toBeInTheDocument();
     expect(screen.queryByText(FUNDING_NOTICE)).not.toBeInTheDocument();
   });
@@ -2143,13 +2020,6 @@ describe('a control the caller lays out as a titled section', () => {
     render(<VideoResolutionControl heading="Resolution" sendRefusal="send_check_unavailable" />);
     expect(screen.queryByRole('heading', { name: 'Resolution' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '720p' })).not.toBeInTheDocument();
-  });
-
-  it('renders no heading where the caller lays the axis out without one', () => {
-    selectVideoModelDeclaringResolutionAndDuration();
-    render(<VideoResolutionControl />);
-    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '720p' })).toBeInTheDocument();
   });
 
   it('keeps its heading above the axis conflict that replaces its options', () => {
@@ -2208,12 +2078,5 @@ describe('a control the caller lays out as a titled section', () => {
     render(<VideoDurationControl heading="Duration" />);
     expect(screen.getAllByText(/^Duration$/)).toHaveLength(1);
     expect(screen.getByRole('heading', { name: 'Duration' })).toBeInTheDocument();
-  });
-
-  it('keeps its inline duration label where the caller heads nothing', () => {
-    selectVideoModelDeclaringResolutionAndDuration();
-    render(<VideoDurationControl />);
-    expect(screen.getByText(/^Duration$/)).toBeInTheDocument();
-    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
   });
 });

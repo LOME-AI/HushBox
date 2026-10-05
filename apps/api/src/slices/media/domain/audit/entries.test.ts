@@ -12,6 +12,7 @@ import type {
   BackupVersionCursor,
   BackupVersionPage,
 } from '../../ports/index.js';
+import type { BackupStoreError } from '../../ports/backup-repository.js';
 import type { SafeLogFields, Telemetry } from '../../../../lib/telemetry/index.js';
 
 const NOW = new Date(TEST_DAY_START + 12 * HOUR_MS);
@@ -72,6 +73,13 @@ interface ReaderStub {
   /** Serves a fresh page forever, which is a repository larger than one pass can scan. */
   readonly versionsNeverEnd?: boolean;
   readonly versionsFail?: boolean;
+  /** The HTTP status every failing read was refused with; absent for a read that drew no response. */
+  readonly failureStatus?: number;
+}
+
+function readFailure(stub: ReaderStub, message: string): BackupStoreError {
+  const error = unavailableError(message);
+  return stub.failureStatus === undefined ? error : { ...error, status: stub.failureStatus };
 }
 
 function reader(stub: ReaderStub): BackupRepositoryReader {
@@ -79,14 +87,16 @@ function reader(stub: ReaderStub): BackupRepositoryReader {
     repositoryPrefix: 'repository/',
     newestSnapshotAt: () =>
       stub.listingFails === true
-        ? errAsync(unavailableError('listing refused'))
+        ? errAsync(readFailure(stub, 'listing refused'))
         : okAsync(stub.newestAt ?? null),
     lifecycleRules: () =>
       stub.lifecycleFails === true
-        ? errAsync(unavailableError('lifecycle read refused'))
+        ? errAsync(readFailure(stub, 'lifecycle read refused'))
         : okAsync(stub.rules ?? PROMISED_RULES),
     listObjectVersions: (cursor?: BackupVersionCursor) => {
-      if (stub.versionsFail === true) return errAsync(unavailableError('version listing refused'));
+      if (stub.versionsFail === true) {
+        return errAsync(readFailure(stub, 'version listing refused'));
+      }
       versionRequests.push(cursor);
       if (stub.versionsNeverEnd === true) {
         return okAsync({ versions: [], nextCursor: { keyMarker: 'endless' } });
@@ -215,6 +225,30 @@ describe('createBackupAuditEntry', () => {
     const recorder = await run({ newestAt: NOW, lifecycleFails: true });
 
     expect(codes(recorder)).toEqual(['backup_audit_unavailable']);
+  });
+
+  it('carries the status a refused lifecycle read drew on the captured error, and nothing else', async () => {
+    const recorder = await run({ newestAt: NOW, lifecycleFails: true, failureStatus: 403 });
+
+    const error = soleCapture(recorder, 'backup_audit_unavailable');
+    // The whole key set, as for the other backup tags: the scrub admits this
+    // one on a range check rather than an enumeration.
+    expect(Object.keys(error)).toEqual(['backupStoreStatus']);
+    expect(Reflect.get(error, 'backupStoreStatus')).toBe(403);
+  });
+
+  it('carries the status a refused snapshot listing drew on the captured error, and nothing else', async () => {
+    const recorder = await run({ newestAt: NOW, listingFails: true, failureStatus: 403 });
+
+    const error = soleCapture(recorder, 'backup_audit_unavailable');
+    expect(Object.keys(error)).toEqual(['backupStoreStatus']);
+    expect(Reflect.get(error, 'backupStoreStatus')).toBe(403);
+  });
+
+  it('carries no status on the captured error when the failed read drew no response', async () => {
+    const recorder = await run({ newestAt: NOW, lifecycleFails: true });
+
+    expect(Object.keys(soleCapture(recorder, 'backup_audit_unavailable'))).toEqual([]);
   });
 
   it('reports both findings when the repository is stale and the rule has drifted', async () => {
@@ -357,6 +391,14 @@ describe('createBackupRetentionAuditEntry', () => {
     const recorder = await runRetention({ versionsFail: true });
 
     expect(codes(recorder)).toEqual(['backup_audit_unavailable']);
+  });
+
+  it('carries the status a refused version listing drew on the captured error, and nothing else', async () => {
+    const recorder = await runRetention({ versionsFail: true, failureStatus: 403 });
+
+    const error = soleCapture(recorder, 'backup_audit_unavailable');
+    expect(Object.keys(error)).toEqual(['backupStoreStatus']);
+    expect(Reflect.get(error, 'backupStoreStatus')).toBe(403);
   });
 
   it('resolves its dependencies inside the run, so a missing binding fails this entry alone', async () => {

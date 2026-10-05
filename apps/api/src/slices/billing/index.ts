@@ -43,6 +43,7 @@ export {
   writeThroughSnapshot,
 } from './domain/index.js';
 export { billableRateToMaxPriceUsdPerMillion } from './domain/money.js';
+export { readPayerSpendable } from './domain/wallets/spendable.js';
 
 /**
  * No file imports this from the barrel — the slice's own route reaches the function through

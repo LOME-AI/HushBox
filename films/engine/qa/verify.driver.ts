@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
+import { classifyBinaryBlob } from '@hushbox/scripts/lib/privacy/binary/scan';
+
 import { INSTRUMENTS } from '../audio/instruments/index.js';
 import { defineScore, renderScore } from '../audio/score/index.js';
 import { parseLookTextLine } from '../layout/claims.js';
@@ -12,7 +14,7 @@ import { FilmRenderError } from '../render/film-error.js';
 import { loadFilm } from '../render/films.driver.js';
 import { probeFrames, withNeighbours } from '../render/probe-frames.js';
 import { renderFilmStills, renderFilmVideo } from '../render/render-film.driver.js';
-import { publishFile, publishVideo, withRunDirectory } from '../render/run-directory.js';
+import { publishFile, withRunDirectory } from '../render/run-directory.js';
 import { writeScore } from '../render/score.driver.js';
 import { HEIGHT, WIDTH } from '../time/grid.js';
 
@@ -345,13 +347,14 @@ async function textPairPass(
  * Scores the film, renders its stills, its text pairs and its delivered MP4
  * with the QA channel on, and writes the contact sheet. The stills render into
  * a directory only this call writes, removed when it returns, their bytes kept.
- * The MP4 goes to `videoDirectory`, the caller's own run directory, when given;
- * otherwise it is published to `out/<film-id>.mp4`.
+ * The MP4 goes to `videoDirectory`, the caller's own run directory, and is
+ * never published: only `pnpm films render` writes the delivered
+ * `out/<film-id>.mp4`.
  */
 export async function renderEvidence(
   filmId: string,
   gl: string,
-  videoDirectory?: string
+  videoDirectory: string
 ): Promise<RenderedEvidence> {
   const film = loadFilm(filmId);
   const { spec, score: input } = film.definition;
@@ -378,7 +381,7 @@ export async function renderEvidence(
       probeFrames: probes,
       inputProps: { qa: true },
       onBrowserLog: text.onBrowserLog,
-      ...(videoDirectory === undefined ? {} : { directory: videoDirectory }),
+      directory: videoDirectory,
     });
     const marks = await markStillsPass(
       film,
@@ -524,10 +527,7 @@ async function inspectRgb(
 }
 
 /** Decodes the delivered picture and reads what the picture gates judge. */
-export async function inspectPicture(
-  evidence: RenderedEvidence,
-  file: string
-): Promise<PictureEvidence> {
+async function inspectPicture(evidence: RenderedEvidence, file: string): Promise<PictureEvidence> {
   return { ...(await inspectPlanes(evidence, file)), ...(await inspectRgb(evidence, file)) };
 }
 
@@ -587,6 +587,8 @@ async function inspectDeliveryIn(
       onsets: cueOnsets(rendered.placements, spec.cues, percussive, spec.durationInFrames),
       colour: picture.colour,
       chartPsnr,
+      // No allowlist entry exempts a delivered film, so none is read.
+      privacy: classifyBinaryBlob(file, readBytes(file), []),
     },
     picture,
   };
@@ -657,7 +659,7 @@ export async function runGates(
  * Publishes `out/report.md` and `out/report.json`, the composition measure
  * beside the gates and outside their verdict; returns both files.
  */
-export async function writeVerifyReport(
+async function writeVerifyReport(
   film: LoadedFilm,
   results: readonly GateResult[],
   composition: CompositionReport
@@ -684,18 +686,18 @@ export async function writeVerifyReport(
 /**
  * `pnpm films verify <film>`: renders the film into a directory only this run
  * writes, so a command on the same piece beside it never hands it frames, runs
- * every gate, publishes the MP4 it judged to `out/<film-id>.mp4`, and writes the
- * report with the composition measure, which it also prints and which no
- * reading of changes the verdict. Returns every file written when every gate
- * passes; otherwise throws a `QaGateError` listing each failure, once the MP4
- * and the report are written.
+ * every gate, and writes the report with the composition measure, which it also
+ * prints and which no reading of changes the verdict. The MP4 it judged stays in
+ * that directory and goes with it, so a verify never replaces the delivered
+ * `out/<film-id>.mp4`. Returns every file written when every gate passes;
+ * otherwise throws a `QaGateError` listing each failure, once the report is
+ * written.
  */
 export async function verifyFilm(filmId: string, { gl }: { gl: string }): Promise<string[]> {
   return withRunDirectory(loadFilm(filmId), async (run) => {
     const evidence = await renderEvidence(filmId, gl, run);
     const delivery = await inspectDelivery(evidence, evidence.video.path);
     const results = await runGates(evidence, delivery);
-    const video = publishVideo(evidence.film, evidence.video.path);
     const { composition } = delivery.picture;
     const reports = await writeVerifyReport(evidence.film, results, composition);
     for (const line of compositionLines(composition)) {
@@ -704,6 +706,6 @@ export async function verifyFilm(filmId: string, { gl }: { gl: string }): Promis
     if (!results.every(({ passed }) => passed)) {
       throw new QaGateError(filmId, results);
     }
-    return [...evidence.files, video, ...reports];
+    return [...evidence.files, ...reports];
   });
 }

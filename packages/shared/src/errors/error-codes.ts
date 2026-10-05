@@ -124,6 +124,9 @@ export const ERROR_CODES = {
   INVALID_VERIFICATION_TOKEN: 'INVALID_VERIFICATION_TOKEN',
   LOGIN_TOKEN_INVALID: 'LOGIN_TOKEN_INVALID',
   TOO_MANY_ATTEMPTS: 'TOO_MANY_ATTEMPTS',
+  // TOTP verification refused by the consecutive-failure ceiling. It carries no
+  // retry-after: the remedy it points to is a recovery-phrase reset.
+  TWO_FACTOR_FROZEN: 'TWO_FACTOR_FROZEN',
   STALE_EPOCH: 'STALE_EPOCH',
   WRAP_SET_MISMATCH: 'WRAP_SET_MISMATCH',
   MEMBER_LIMIT_REACHED: 'MEMBER_LIMIT_REACHED',
@@ -345,6 +348,8 @@ export const ERROR_MESSAGES = {
   INVALID_VERIFICATION_TOKEN: 'This verification link is invalid or has expired.',
   LOGIN_TOKEN_INVALID: 'This login link has expired or already been used.',
   TOO_MANY_ATTEMPTS: rateLimitedMessage(),
+  TWO_FACTOR_FROZEN:
+    'Two-factor authentication is locked after too many incorrect codes. Reset your password with your recovery phrase to unlock it.',
   STALE_EPOCH: 'The conversation keys changed. Refresh and try again.',
   WRAP_SET_MISMATCH: 'The key update does not match the current members. Refresh and try again.',
   MEMBER_LIMIT_REACHED: 'This conversation has reached its member limit.',

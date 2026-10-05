@@ -20,7 +20,11 @@ function descriptorOf(modelId: string, overrides: Record<string, unknown> = {}):
     parameters: {},
     behaviors: ['streaming'],
     limits: {},
-    pricing: { kind: 'tokens', anchor: { base: { input: '2500', output: '2500' }, tiers: [] } },
+    pricing: {
+      kind: 'tokens',
+      anchorContextTokens: 1_000_000,
+      anchor: { base: { input: '2500', output: '2500' }, tiers: [] },
+    },
     zdrReachable: true,
     name: 'Test Model',
     releasedAt: FIXTURE_STAMP_SECONDS,

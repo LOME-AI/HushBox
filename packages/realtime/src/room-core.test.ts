@@ -324,7 +324,7 @@ function makeHarness(
       bindHookCalls.push({ context, definition });
       return {
         admission: () => Promise.resolve({ admitted: true, holdRef: 'hold-1' }),
-        settlement: () => Promise.resolve(),
+        settlement: () => Promise.resolve({ billed: [] }),
         // A paid binding mints one answer id; a trial binding mints none.
         assistantMessageIds: context.mode === 'paid' ? [`answer-of-${context.runId}`] : [],
       };

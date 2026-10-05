@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CATALOG_GENERATION_HEX_LENGTH,
   DEADLINE_CLASS_MS,
   DEADLINE_CLASSES,
   MAX_RUN_HARD_STOP_MS,
@@ -648,6 +649,30 @@ describe('WorkflowDefinition', () => {
       storage: { inputChars: 1234 },
     });
     expect(parsed.storage).toEqual({ inputChars: 1234 });
+  });
+
+  it('preserves the catalog generation a turn was priced against', () => {
+    const generation = 'a'.repeat(CATALOG_GENERATION_HEX_LENGTH);
+    const parsed = WorkflowDefinition.parse({ ...smartModel, catalogGeneration: generation });
+    expect(parsed.catalogGeneration).toBe(generation);
+  });
+
+  it('rejects a catalog generation that is not lowercase hex', () => {
+    expect(
+      WorkflowDefinition.safeParse({
+        ...smartModel,
+        catalogGeneration: 'A'.repeat(CATALOG_GENERATION_HEX_LENGTH),
+      }).success
+    ).toBe(false);
+  });
+
+  it('rejects a catalog generation whose length is not the generation length', () => {
+    expect(
+      WorkflowDefinition.safeParse({
+        ...smartModel,
+        catalogGeneration: 'a'.repeat(CATALOG_GENERATION_HEX_LENGTH - 1),
+      }).success
+    ).toBe(false);
   });
 });
 

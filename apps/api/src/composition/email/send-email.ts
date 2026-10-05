@@ -19,9 +19,11 @@ export interface EmailSendDeps {
 }
 
 /**
- * The single compose-and-send seam behind every composition-root email port.
- * Each port builds its own template content (subject + html + text) and passes
- * a `logFailure` callback carrying its own compile-time-literal warn message —
+ * The single send seam behind every composition-root email port. It sends an
+ * email the renderer already wrote: a port reaches it through
+ * {@link renderAndSendEmail}, or directly when one render goes to several
+ * recipients. Each caller passes a `logFailure` callback carrying its own
+ * compile-time-literal warn message —
  * the msg-literal lint requires the literal at the `.warn` call site, so the
  * message stays with the caller while the send + error-map boilerplate is
  * single-sourced here. Best-effort by port doctrine: the failure is logged

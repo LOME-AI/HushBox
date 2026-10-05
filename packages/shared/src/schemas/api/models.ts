@@ -48,6 +48,11 @@ export const wireModelPricingSchema = z.object({
       { message: 'long-context thresholds must be strictly ascending' }
     )
     .optional(),
+  /**
+   * The anchor endpoint's own context, in tokens: a long-context rate at or
+   * beyond it is a larger-context endpoint's, every one below it the anchor's.
+   */
+  anchorContextTokens: z.number().int().positive().optional(),
   /** The per-image rate a hold reserves: the dearest variant the model can bill. */
   dearestPerImage: z.string().optional(),
   /** The per-second rates a hold reserves, by resolution. */

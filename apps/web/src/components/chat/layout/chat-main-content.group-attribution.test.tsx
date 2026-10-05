@@ -1,9 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { screen } from '@testing-library/react';
 import * as React from 'react';
 import { TEST_IDS } from '@hushbox/shared';
 import { SECOND_MS, TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
 import { ChatMainContent } from '@/components/chat/layout/chat-main-content';
+import { loadMarkdownRenderer } from '@/components/chat/segments/segment-renderers';
 import { useGroupChat } from '@/hooks/realtime/use-group-chat';
 import { getCurrentEpoch } from '@/lib/crypto/epoch-key-cache';
 import { renderWithProviders } from '@/test-utils/render';
@@ -33,6 +34,12 @@ vi.mock(import('@/hooks/realtime/use-conversation-links'), async (importOriginal
   useConversationLinks: () =>
     // Cast: a partial UseQueryResult; the hook reads only `data`.
     ({ data: { links: [] } }) as unknown as ReturnType<typeof useConversationLinks>,
+}));
+
+// The group's reads above are already in hand, so its senders can be named; the host's hold
+// on a group still reading them is pinned in its own file.
+vi.mock(import('@/hooks/chat/use-sender-identity-pending'), () => ({
+  useSenderIdentityPending: (): boolean => false,
 }));
 
 // A group of two opens the realtime socket; no socket server exists here.
@@ -131,6 +138,8 @@ function GroupConversation(): React.JSX.Element {
       conversationId="conv-1"
       activeForkId={null}
       messagesReady={true}
+      threadHeader={undefined}
+      threadFooter={undefined}
     />
   );
 }
@@ -144,6 +153,11 @@ function messageItemOf(content: string): HTMLElement {
 }
 
 describe('a group conversation with no verified current-epoch key', () => {
+  // The list mounts its rows only once the markdown renderer's module has settled.
+  beforeAll(async () => {
+    await loadMarkdownRenderer();
+  });
+
   it('starts from a key cache that knows nothing of the conversation', () => {
     expect(getCurrentEpoch('conv-1')).toBeUndefined();
   });

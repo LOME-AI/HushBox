@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { EXCLUDE_REASONS } from '@hushbox/shared';
-import { alertMassExclusion } from './refresh.js';
+import { DAY_MS, TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
+import { zdrEndpointFixture } from './gateway-fixtures.js';
+import { normalizeCatalog } from './normalize.js';
+import { alertMassExclusion, alertPriceBandOpen } from './refresh.js';
 import type { ExcludeReason } from '@hushbox/shared';
 import type { SafeLogFields, Telemetry } from '../../../../lib/telemetry/index.js';
 import type { RefreshSummary } from './refresh.js';
+import type { LanguageMetadata, ZdrEndpoint } from './gateway-metadata.js';
 
 interface RecordedLine {
   readonly msg: string;
@@ -45,6 +49,13 @@ function summaryOf(overrides: Partial<RefreshSummary> = {}): RefreshSummary {
     excluded: 0,
     excludedByReason: excludedByReason({}),
     excludedReasonById: new Map(),
+    endpointsByBucket: {
+      'service-tier': 0,
+      'unsupported-parameter': 0,
+      unreadable: 0,
+      unrepresentable: 0,
+      reachable: 0,
+    },
     previouslyIncluded: 0,
     newlyExcluded: 0,
     ...overrides,
@@ -128,5 +139,108 @@ describe('alertMassExclusion', () => {
 
   it('pages nobody when neither aggregate condition holds', () => {
     expect(capturesFor(summaryOf({ previouslyIncluded: 80, newlyExcluded: 39 }))).toEqual([]);
+  });
+});
+
+/** The refresh clock; every fixture below is exempt from the age cutoff by its context. */
+const NOW_MS = TEST_DAY_START;
+
+function textModel(id: string): LanguageMetadata {
+  return {
+    source: 'language',
+    id,
+    provider: 'vendor',
+    inputModalities: ['text'],
+    outputModalities: ['text'],
+    supportedParameters: ['max_tokens', 'tools', 'reasoning'],
+    contextLength: 1_000_000,
+    releasedAt: secondsAt(NOW_MS - DAY_MS),
+    deprecated: false,
+  };
+}
+
+/** Claude Sonnet 4.5's four live ZDR endpoints: two regional at 1.1× the two global ones. */
+function sonnetEndpoints(): readonly ZdrEndpoint[] {
+  const at = (tag: string, scale: 'global' | 'regional'): ZdrEndpoint =>
+    zdrEndpointFixture({
+      tag,
+      maxCompletionTokens: 64_000,
+      contextLength: 1_000_000,
+      pricing:
+        scale === 'global'
+          ? { prompt: '0.000003', completion: '0.000015' }
+          : { prompt: '0.0000033', completion: '0.0000165' },
+      overrides: [
+        scale === 'global'
+          ? { min_prompt_tokens: 200_000, prompt: '0.000006', completion: '0.0000225' }
+          : { min_prompt_tokens: 200_000, prompt: '0.0000066', completion: '0.00002475' },
+      ],
+    });
+  return [
+    at('amazon-bedrock/eu-west-1', 'regional'),
+    at('google-vertex/us-east5', 'regional'),
+    at('amazon-bedrock', 'global'),
+    at('google-vertex/global', 'global'),
+  ];
+}
+
+/** An anchor at 1 / 10 USD a million tiered at 2 / 20, beside an endpoint above its base ceiling and inside its tier's. */
+function bandOpenEndpoints(): readonly ZdrEndpoint[] {
+  return [
+    zdrEndpointFixture({
+      tag: 'anchor',
+      pricing: { prompt: '0.000001', completion: '0.00001' },
+      overrides: [{ min_prompt_tokens: 100_000, prompt: '0.000002', completion: '0.00002' }],
+    }),
+    zdrEndpointFixture({ tag: 'mid', pricing: { prompt: '0.0000015', completion: '0.000012' } }),
+  ];
+}
+
+function bandCaptures(listing: ReadonlyMap<string, readonly ZdrEndpoint[]>): {
+  readonly warns: RecordedLine[];
+  readonly captures: RecordedCapture[];
+} {
+  const warns: RecordedLine[] = [];
+  const captures: RecordedCapture[] = [];
+  const entries = normalizeCatalog(
+    [...listing.keys()].map((id) => textModel(id)),
+    listing,
+    NOW_MS
+  );
+  alertPriceBandOpen(recordingTelemetry(warns, captures), entries);
+  return { warns, captures };
+}
+
+describe('alertPriceBandOpen', () => {
+  it('captures once when a model has a standard-tier endpoint above its base ceiling that max_price admits', () => {
+    const listing = new Map([
+      ['vendor/one', bandOpenEndpoints()],
+      ['vendor/two', bandOpenEndpoints()],
+    ]);
+    expect(bandCaptures(listing).captures).toEqual([
+      {
+        message:
+          'catalog refresh found standard-tier endpoints above the base ceiling within max_price',
+        code: 'max_price_band_open',
+      },
+    ]);
+  });
+
+  it('names each such model in its own warning', () => {
+    const listing = new Map([
+      ['vendor/one', bandOpenEndpoints()],
+      ['vendor/two', bandOpenEndpoints()],
+    ]);
+    expect(bandCaptures(listing).warns.map((line) => line.fields)).toEqual([
+      { modelName: 'vendor/one', errorCode: 'max_price_band_open' },
+      { modelName: 'vendor/two', errorCode: 'max_price_band_open' },
+    ]);
+  });
+
+  it('captures nothing over the live listing shape, where regional endpoints sit inside the base ceiling', () => {
+    expect(bandCaptures(new Map([['anthropic/claude-sonnet-4.5', sonnetEndpoints()]]))).toEqual({
+      warns: [],
+      captures: [],
+    });
   });
 });

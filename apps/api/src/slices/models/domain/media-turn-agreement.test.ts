@@ -11,10 +11,10 @@
  * This is not the two-implementations-agree cross-check CODE-RULES §One
  * Implementation, Shared bans. The arithmetic itself has one home: both sides
  * reduce through the shared media core and take their stored bytes from the one
- * byte rule. What is pinned here is the COMPOSITION each side builds out of those
- * shared parts — provider generation, output storage per generating model, and
- * the prompt's own storage once per turn — which is per-side by construction and
- * is where the two last drifted.
+ * run storage bound. What is pinned here is the COMPOSITION each side builds out
+ * of those shared parts — provider generation per generating model, and the
+ * run's media storage and the prompt's own storage once per turn — which is
+ * per-side by construction and is where the two last drifted.
  *
  * Both sides are fed from ONE `ModelDescriptor`, so a fixture cannot make them
  * agree by being written twice.
@@ -84,6 +84,15 @@ const IMAGE_DESCRIPTOR = descriptorOf({
   },
 });
 
+const SECOND_IMAGE_DESCRIPTOR = descriptorOf({
+  id: 'vendor/flux',
+  outputs: ['image'],
+  pricing: perImagePricingFixture({ anchor: 30_000_000n, dearest: 30_000_000n }),
+  parameters: {
+    aspectRatio: { type: 'enum', values: ['1:1'], wire: 'providerOptions' },
+  },
+});
+
 const VIDEO_DESCRIPTOR = descriptorOf({
   id: 'vendor/veo',
   outputs: ['video'],
@@ -132,6 +141,12 @@ function mediaModelOf(descriptor: ModelDescriptor): MediaModel {
 const IMAGE_SELECTION: MediaSelection = {
   modality: 'image',
   selectedIds: [modelId(IMAGE_DESCRIPTOR.id)],
+  pinned: { aspectRatio: '1:1' },
+};
+
+const TWO_IMAGE_SELECTION: MediaSelection = {
+  modality: 'image',
+  selectedIds: [modelId(IMAGE_DESCRIPTOR.id), modelId(SECOND_IMAGE_DESCRIPTOR.id)],
   pinned: { aspectRatio: '1:1' },
 };
 
@@ -186,6 +201,23 @@ describe('media verdict ⇄ admission ceiling', () => {
     ).toEqual({ atFigure: true, oneNanoShort: false });
   });
 
+  it('sends a two-model image turn exactly at the figure admission holds for it', () => {
+    const admission = mediaTurnMinCostNanoUsd(
+      [IMAGE_DESCRIPTOR, SECOND_IMAGE_DESCRIPTOR],
+      {},
+      { inputChars: PROMPT_CHARS }
+    )._unsafeUnwrap();
+
+    expect(
+      sendGateFlipsAt(
+        TWO_IMAGE_SELECTION,
+        [mediaModelOf(IMAGE_DESCRIPTOR), mediaModelOf(SECOND_IMAGE_DESCRIPTOR)],
+        admission,
+        PROMPT_CHARS
+      )
+    ).toEqual({ atFigure: true, oneNanoShort: false });
+  });
+
   it('sends a video turn exactly at the figure admission holds for it', () => {
     const admission = mediaTurnMinCostNanoUsd(
       [VIDEO_DESCRIPTOR],
@@ -219,20 +251,19 @@ describe('media verdict ⇄ admission ceiling', () => {
   });
 
   it('holds the composed amounts the two sides agree on, so a drift names its own leg', () => {
-    // provider 46,000,000 + storage 8,000,000 bytes × 18 = 144,000,000
+    // provider 46,000,000 + run storage 20,971,520 bytes × 18 = 377,487,360
     // + prompt 1,000 chars × 300 = 300,000.
     expect(
       mediaTurnMinCostNanoUsd([IMAGE_DESCRIPTOR], {}, { inputChars: PROMPT_CHARS })._unsafeUnwrap()
-    ).toBe(190_300_000n);
+    ).toBe(423_787_360n);
 
-    // provider 4 × 100,000,000 + storage 4 × 5,000,000 bytes × 18 = 360,000,000
-    // + the same prompt storage.
+    // provider 4 × 100,000,000 + the same run storage + the same prompt storage.
     expect(
       mediaTurnMinCostNanoUsd(
         [VIDEO_DESCRIPTOR],
         { resolution: '720p', durationSeconds: 4 },
         { inputChars: PROMPT_CHARS }
       )._unsafeUnwrap()
-    ).toBe(760_300_000n);
+    ).toBe(777_787_360n);
   });
 });

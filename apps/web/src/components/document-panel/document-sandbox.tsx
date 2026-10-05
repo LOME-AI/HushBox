@@ -1,5 +1,9 @@
 import * as React from 'react';
-import { Button, Img, cn } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
+import { Img, cn } from '@hushbox/ui';
+import { Button } from '@hushbox/ui/button';
+import { ToggleGroup, ToggleGroupItem } from '@hushbox/ui/field';
+import { CircleCheck, Icon, Play, Square } from '@hushbox/ui/icons';
 import {
   DOCUMENT_IFRAME_SANDBOX_ATTR,
   parseFrameToParentMessage,
@@ -15,7 +19,11 @@ import { sandboxPageUrl } from '../../lib/platform/sandbox-origin';
 import { useFrameAppearance } from './frame-appearance';
 import { HighlightedSource } from './highlighted-source';
 import { DocumentRenderStatus, PENDING_PREVIEW_TEXT } from './document-render-status';
+import { SandboxBadge } from './sandbox-badge';
 import type { DocumentRenderStatusValue } from './document-render-status';
+
+/** Which face of a document the panel shows: what it produces, or its source. */
+export type DocumentView = 'output' | 'code';
 
 interface DocumentSandboxProps {
   kind: RunnableDocumentKind;
@@ -25,6 +33,10 @@ interface DocumentSandboxProps {
   isStreaming: boolean;
   /** Stands in for the frame while a streaming document has yet to render once. */
   pendingView: React.ReactNode;
+  view: DocumentView;
+  onViewChange: (view: DocumentView) => void;
+  /** The source, shown in place of the output while the code view is chosen. */
+  codeView: React.ReactNode;
 }
 
 /**
@@ -72,6 +84,8 @@ interface SandboxState {
    * port over at all.
    */
   ready: boolean;
+  /** Whether the reader has run this frame's python, which turns Run into Run again. */
+  hasRun: boolean;
   frameKey: number;
 }
 
@@ -94,6 +108,7 @@ const INITIAL_STATE: SandboxState = {
   currentAttemptRendered: false,
   initializedCode: null,
   ready: false,
+  hasRun: false,
   frameKey: 0,
 };
 
@@ -211,6 +226,7 @@ function sandboxReducer(state: SandboxState, action: SandboxAction): SandboxStat
         errorCode: null,
         currentAttemptRendered: false,
         initializedCode: action.code,
+        hasRun: true,
       };
     }
     case 'stop': {
@@ -275,21 +291,150 @@ function statusText(
   return STATIC_STATUS_TEXT[status];
 }
 
-function StatusMirror({
+/** Verdicts the bar marks done with its check. */
+const DONE_STATUSES: ReadonlySet<DocumentRenderStatusValue> = new Set(['rendered', 'complete']);
+
+/**
+ * What the bar shows for a status, or null where the body already says it: a streaming
+ * document's pending view, a failure's alert card, and a render document's loading overlay
+ * each carry their own words, and a second copy beside them would only repeat it.
+ */
+function barText(
+  status: DocumentRenderStatusValue,
+  phase: LoadingPhase | null,
+  isPython: boolean
+): string | null {
+  if (DONE_STATUSES.has(status)) return statusText(status, phase, null);
+  if (!isPython) return null;
+  if (status === 'idle') return statusText(status, phase, null);
+  if (status === 'loading' || status === 'running') return `${statusText(status, phase, null)}…`;
+  return null;
+}
+
+/**
+ * The status in the bar. The visible words are hidden from assistive technology because the
+ * mirror beside them announces the same state from the same string.
+ */
+function BarStatus({
   status,
   phase,
   errorText,
+  isPython,
 }: Readonly<{
   status: DocumentRenderStatusValue;
   phase: LoadingPhase | null;
   errorText: string | null;
+  isPython: boolean;
 }>): React.JSX.Element {
-  return <DocumentRenderStatus status={status} text={statusText(status, phase, errorText)} />;
+  const text = barText(status, phase, isPython);
+  return (
+    <>
+      {text === null ? null : (
+        <span
+          aria-hidden="true"
+          className="text-caption text-muted-foreground inline-flex min-w-0 items-center gap-1.5"
+        >
+          {DONE_STATUSES.has(status) ? (
+            <Icon icon={CircleCheck} size="sm" className="text-success" />
+          ) : null}
+          <span>{text}</span>
+        </span>
+      )}
+      <DocumentRenderStatus status={status} text={statusText(status, phase, errorText)} />
+    </>
+  );
 }
 
-// The visible line and the announced one say the same thing, from one string:
-// they describe the same state, and a reader using both at once would otherwise
-// hear one wording and read another.
+/**
+ * The bar under the panel's header: the Output and Code views, the status, and the document's
+ * own action. The action keeps the line's end while the panel holds them all, and takes a row of
+ * its own where the panel is too narrow, decided by the panel's width rather than the window's.
+ */
+export function DocumentBar({
+  view,
+  onViewChange,
+  status,
+  action,
+}: Readonly<{
+  view: DocumentView;
+  onViewChange: (view: DocumentView) => void;
+  status?: React.ReactNode;
+  action?: React.ReactNode;
+}>): React.JSX.Element {
+  return (
+    <div className="border-border flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-2.5">
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        value={view}
+        aria-label="View"
+        onValueChange={(next) => {
+          // An empty value is the pressed item pressed again, which keeps the view as it is.
+          if (next === 'output' || next === 'code') onViewChange(next);
+        }}
+      >
+        <ToggleGroupItem value="output" className="px-3.5">
+          Output
+        </ToggleGroupItem>
+        <ToggleGroupItem value="code" className="px-3.5">
+          Code
+        </ToggleGroupItem>
+      </ToggleGroup>
+      {status}
+      {action}
+    </div>
+  );
+}
+
+/** The panel's scrolling body, under its header and bar. */
+export function DocumentScroll({
+  children,
+}: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
+  return (
+    <div
+      data-testid={TEST_IDS.documentPanelScroll}
+      className="relative min-h-0 flex-1 overflow-auto"
+    >
+      {children}
+    </div>
+  );
+}
+
+const RUN_ACTION_CLASS =
+  'ms-auto @max-docpane-run-row/docpane:ms-0 @max-docpane-run-row/docpane:basis-full';
+
+/**
+ * Python's one action: Run, Run again once the reader has run it, and Stop while a run is in
+ * flight or while the frame has yet to hand over its port. A run needs that port; Stop needs
+ * none, since it replaces the frame, so it is also the way back from a frame that never answers.
+ */
+function RunAction({
+  state,
+  onRun,
+  onStop,
+}: Readonly<{ state: SandboxState; onRun: () => void; onStop: () => void }>): React.JSX.Element {
+  if (!state.ready || state.status === 'loading' || state.status === 'running') {
+    return (
+      <Button variant="outline" size="sm" className={RUN_ACTION_CLASS} onClick={onStop}>
+        <Icon icon={Square} />
+        Stop
+      </Button>
+    );
+  }
+  return (
+    <Button variant="outline" size="sm" className={RUN_ACTION_CLASS} onClick={onRun}>
+      <Icon icon={Play} />
+      {state.hasRun ? 'Run again' : 'Run'}
+    </Button>
+  );
+}
+
+// The output stays mounted under the code view, laid out at the body's size but unseen, so the
+// frame keeps its document and its run, and a script measuring its page while hidden reads the
+// size it will be shown at.
+const CONCEALED_CLASS = 'invisible pointer-events-none absolute inset-0 overflow-hidden';
+
 function LoadingLine({ text }: Readonly<{ text: string }>): React.JSX.Element {
   return <div className="text-muted-foreground flex items-center gap-2 text-sm">{text}…</div>;
 }
@@ -309,23 +454,28 @@ function ErrorCard({ text }: Readonly<{ text: string | null }>): React.JSX.Eleme
 function ConsoleStrip({ lines }: Readonly<{ lines: ConsoleLine[] }>): React.JSX.Element | null {
   if (lines.length === 0) return null;
   return (
-    <div
-      role="log"
-      aria-live="polite"
-      aria-label="Program output"
-      // Grows with the output and then scrolls: 5 lines at text-xs (1rem each)
-      // plus p-3 top and bottom.
-      className="max-h-[6.5rem] overflow-auto rounded-md p-3 font-mono text-xs"
-    >
-      {lines.map((line) => (
-        <div
-          key={line.id}
-          data-stream={line.stream}
-          className={cn('whitespace-pre-wrap', line.stream === 'stderr' && 'text-destructive')}
-        >
-          {line.text}
-        </div>
-      ))}
+    <div className="flex flex-col gap-2">
+      <p className="text-caption text-muted-foreground font-semibold" aria-hidden="true">
+        Console
+      </p>
+      <div
+        role="log"
+        aria-live="polite"
+        aria-label="Program output"
+        // Grows with the output and then scrolls: 5 lines at text-xs (1rem each)
+        // plus p-3 top and bottom.
+        className="bg-background-subtle max-h-[6.5rem] overflow-auto rounded-lg p-3 font-mono text-xs tabular-nums"
+      >
+        {lines.map((line) => (
+          <div
+            key={line.id}
+            data-stream={line.stream}
+            className={cn('whitespace-pre-wrap', line.stream === 'stderr' && 'text-destructive')}
+          >
+            {line.text}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -336,13 +486,18 @@ function OutputList({ outputs }: Readonly<{ outputs: ResultOutput[] }>): React.J
     <div className="flex flex-col gap-3">
       {outputs.map((output, index) =>
         output.type === 'image/png' ? (
-          <Img
+          <figure
             // Result outputs have no stable identity beyond position within a run.
             key={index}
-            src={`data:image/png;base64,${output.data}`}
-            alt="Generated figure"
-            className="max-w-full rounded-md"
-          />
+            className="border-border bg-background rounded-lg border p-3"
+          >
+            {/* Never wider than the panel, and never stretched past its own pixels. */}
+            <Img
+              src={`data:image/png;base64,${output.data}`}
+              alt="Generated figure"
+              className="mx-auto block h-auto max-w-full"
+            />
+          </figure>
         ) : (
           <pre
             key={index}
@@ -356,53 +511,34 @@ function OutputList({ outputs }: Readonly<{ outputs: ResultOutput[] }>): React.J
   );
 }
 
-function PythonSandboxView({
+function PythonOutputView({
   frame,
   code,
   state,
   errorText,
-  onRun,
-  onStop,
+  concealed,
 }: Readonly<{
   frame: React.JSX.Element;
   code: string;
   state: SandboxState;
   errorText: string | null;
-  onRun: () => void;
-  onStop: () => void;
+  concealed: boolean;
 }>): React.JSX.Element {
-  const { status, phase, consoleLines, outputs, ready } = state;
-  const isBusy = status === 'loading' || status === 'running';
+  const { consoleLines, outputs, hasRun } = state;
   return (
     // Deliberately not `h-full`, unlike the render view: this frame is `h-0` and
     // everything visible here is ordinary content. Pinning the column to the
     // panel's height would make every child a shrinkable flex item, collapsing
     // the console and the source to a line apiece. Auto height lets the panel's
     // own scroll container take over.
-    <div className="flex flex-col gap-3 p-4">
+    <div className={cn('flex flex-col gap-4 p-4', concealed && CONCEALED_CLASS)}>
       {frame}
-      {/* Controls and results sit above the source: what a reader acts on and
-          what the run produced are the reason the panel is open, and the source
-          is reference behind them. A long program would otherwise push its own
-          output below the fold. */}
-      <div className="flex gap-2">
-        {/* Offered only while the panel holds a port to ask on. A frame that
-            never announced itself leaves the panel in `error` with nothing to
-            send through, and Stop — which needs no port, it replaces the frame
-            — is the way back from that. */}
-        <Button size="sm" onClick={onRun} disabled={!ready || isBusy}>
-          Run
-        </Button>
-        <Button size="sm" variant="outline" onClick={onStop} disabled={status === 'booting'}>
-          Stop
-        </Button>
-      </div>
-      {isBusy ? <LoadingLine text={statusText(status, phase, null)} /> : null}
       <ErrorCard text={errorText} />
       <ConsoleStrip lines={consoleLines} />
       <OutputList outputs={outputs} />
-      <HighlightedSource content={code} language="python" />
-      <StatusMirror status={status} phase={phase} errorText={errorText} />
+      {/* Until the reader runs it, the program is all there is to show. */}
+      {hasRun ? null : <HighlightedSource content={code} language="python" />}
+      <SandboxBadge />
     </div>
   );
 }
@@ -422,30 +558,47 @@ function renderOverlay(
   return null;
 }
 
-function RenderSandboxView({
+function RenderOutputView({
   frame,
   status,
   phase,
   errorText,
   pendingView,
+  concealed,
 }: Readonly<{
   frame: React.JSX.Element;
   status: DocumentRenderStatusValue;
   phase: LoadingPhase | null;
   errorText: string | null;
   pendingView: React.ReactNode;
+  concealed: boolean;
 }>): React.JSX.Element {
   const overlay = renderOverlay(status, phase, errorText);
   return (
-    <div className="relative flex h-full flex-col">
-      {frame}
-      {status === 'streaming' ? pendingView : null}
-      {overlay ? (
-        <div className="absolute inset-0 flex items-center justify-center p-4">{overlay}</div>
-      ) : null}
-      <StatusMirror status={status} phase={phase} errorText={errorText} />
+    // `h-full` is load-bearing: the iframe is a replaced element, and once any link in the
+    // height chain above it resolves to auto it falls back to its 300x150 intrinsic size.
+    <div className={cn('flex h-full flex-col', concealed && CONCEALED_CLASS)}>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {frame}
+        {status === 'streaming' ? pendingView : null}
+        {overlay ? (
+          <div className="absolute inset-0 flex items-center justify-center p-4">{overlay}</div>
+        ) : null}
+      </div>
+      <div className="shrink-0 px-4 py-3">
+        <SandboxBadge />
+      </div>
     </div>
   );
+}
+
+/**
+ * Python's frame is never seen, so it leaves the output column's flow; a render frame fills the
+ * body once there is something to show, and collapses while the pending source stands in.
+ */
+function frameSizeClass(isPython: boolean, status: DocumentRenderStatusValue): string {
+  if (isPython) return 'absolute h-0';
+  return status === 'streaming' ? 'h-0' : 'min-h-0 flex-1';
 }
 
 /**
@@ -522,6 +675,9 @@ export function DocumentSandbox({
   title,
   isStreaming,
   pendingView,
+  view,
+  onViewChange,
+  codeView,
 }: Readonly<DocumentSandboxProps>): React.JSX.Element {
   const isPython = kind === 'python';
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
@@ -722,33 +878,47 @@ export function DocumentSandbox({
       src={sandboxPageUrl(kind)}
       title={title}
       sandbox={DOCUMENT_IFRAME_SANDBOX_ATTR}
-      className={cn(
-        'w-full border-0',
-        isPython || status === 'streaming' ? 'h-0' : 'min-h-0 flex-1'
-      )}
+      className={cn('w-full border-0', frameSizeClass(isPython, status))}
     />
   );
 
-  if (isPython) {
-    return (
-      <PythonSandboxView
-        frame={frame}
-        code={code}
-        state={state}
-        errorText={errorText}
-        onRun={runPython}
-        onStop={stop}
-      />
-    );
-  }
-
+  const concealed = view === 'code';
   return (
-    <RenderSandboxView
-      frame={frame}
-      status={status}
-      phase={state.phase}
-      errorText={errorText}
-      pendingView={pendingView}
-    />
+    <>
+      <DocumentBar
+        view={view}
+        onViewChange={onViewChange}
+        status={
+          <BarStatus
+            status={status}
+            phase={state.phase}
+            errorText={errorText}
+            isPython={isPython}
+          />
+        }
+        action={isPython ? <RunAction state={state} onRun={runPython} onStop={stop} /> : null}
+      />
+      <DocumentScroll>
+        {isPython ? (
+          <PythonOutputView
+            frame={frame}
+            code={code}
+            state={state}
+            errorText={errorText}
+            concealed={concealed}
+          />
+        ) : (
+          <RenderOutputView
+            frame={frame}
+            status={status}
+            phase={state.phase}
+            errorText={errorText}
+            pendingView={pendingView}
+            concealed={concealed}
+          />
+        )}
+        {concealed ? codeView : null}
+      </DocumentScroll>
+    </>
   );
 }

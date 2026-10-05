@@ -123,6 +123,7 @@ function inputAt(
       modality: 'text',
       pinned: pin === undefined ? {} : { effort: pin },
       webSearch: false,
+      effortAuto: pin === undefined,
     },
     catalog: loopCase.catalog,
     tier: 'paid',

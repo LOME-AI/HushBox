@@ -87,6 +87,7 @@ function selectionOf(effort?: string): Selection {
     modality: 'text',
     pinned: effort === undefined ? {} : { effort },
     webSearch: false,
+    effortAuto: effort === undefined,
   };
 }
 

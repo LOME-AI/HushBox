@@ -75,9 +75,11 @@ export type ModelReasoning = z.infer<typeof ModelReasoning>;
 
 /**
  * A model self-describes. Descriptors are data; modalities are the
- * closed enum. `zdrReachable` reflects membership in OpenRouter's
- * authoritative `/endpoints/zdr` list — models absent from it are treated
- * as unreachable and hidden (fail-closed).
+ * closed enum. Membership in OpenRouter's authoritative `/endpoints/zdr`
+ * list is necessary for `zdrReachable` — models absent from it are treated
+ * as unreachable and hidden (fail-closed) — and not sufficient for a language
+ * model, which is reachable only with an eligible standard-tier endpoint
+ * in that list.
  */
 export const ModelDescriptor = z.object({
   id: z.string().min(1),
@@ -92,6 +94,13 @@ export const ModelDescriptor = z.object({
   // billing truth (the gateway's per-generation cost is).
   pricing: ModelPricingSchema,
   zdrReachable: z.boolean(),
+  // An image model's ZDR endpoint tags, the only endpoints its calls may reach
+  // (`provider.only`). Ingestion writes one only for an image model, and an
+  // image row without one is never exposed.
+  zdrPin: z
+    .tuple([z.string().min(1)], z.string().min(1))
+    .readonly()
+    .optional(),
   // OpenRouter's per-model reasoning metadata. Optional and additive to the
   // persisted jsonb: descriptor rows written before this field — and the
   // 131/342 models with no reasoning object — parse unchanged; absence never
@@ -139,9 +148,13 @@ export const PRICING_KIND_BY_FAMILY: Readonly<
 /**
  * The exposure decision — whether a catalog row may be sold to a client at all —
  * fail-closed on every leg:
- * - a ZDR-unreachable model stays hidden. `zdrReachable` is authoritative
- *   membership in OpenRouter's `/endpoints/zdr` set, so no separate dated
- *   verification is needed for image/video;
+ * - a ZDR-unreachable model stays hidden. `zdrReachable` is set at ingestion
+ *   from OpenRouter's authoritative `/endpoints/zdr` set: membership with an
+ *   eligible standard-tier endpoint for a language model, a non-empty pin for
+ *   an image model, and membership for a video model;
+ * - an image model without a `zdrPin` stays hidden: the Images API carries no
+ *   `zdr` field, so the pin is the only request-level mechanism that keeps its
+ *   calls on ZDR endpoints;
  * - a model priced at nothing never reaches this test: every price kind parses
  *   only with a positive rate for what it charges (both token legs, the image,
  *   at least one video resolution), so a descriptor that parsed is priced;
@@ -158,10 +171,11 @@ export const PRICING_KIND_BY_FAMILY: Readonly<
  * already drifted a leg.
  */
 export function isExposedModel(
-  descriptor: Pick<ModelDescriptor, 'inputs' | 'outputs' | 'zdrReachable'>
+  descriptor: Pick<ModelDescriptor, 'inputs' | 'outputs' | 'zdrReachable' | 'zdrPin'>
 ): boolean {
   if (!descriptor.zdrReachable) return false;
   const family = callShapeFamilyFor(descriptor.outputs);
   if (family === undefined || family === 'embedding') return false;
+  if (family === 'image' && descriptor.zdrPin === undefined) return false;
   return isRunnableModelShape(descriptor);
 }

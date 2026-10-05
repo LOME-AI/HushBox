@@ -1,4 +1,9 @@
 import { FINGERPRINT_CODES } from '../telemetry/index.js';
+import {
+  dependencyFailureOf,
+  dependencyUnavailableReport,
+  isReachabilityFailure,
+} from '../context/dependency-failure.js';
 import type { ResultAsync } from '../result/index.js';
 import type { DomainError } from '../errors/index.js';
 import type { Telemetry } from '../telemetry/index.js';
@@ -19,23 +24,46 @@ function toError(reason: unknown): Error {
   return reason instanceof Error ? reason : new Error(String(reason));
 }
 
+/**
+ * Runs a pass's entries one at a time, in list order, each settled before the
+ * next starts: the pass holds one connection, and an entry waiting on it while
+ * another's statement runs would fail at the acquire deadline instead. A failed
+ * entry is captured and the next one runs; a hung entry delays the rest of its
+ * pass. An entry that settles with a statement still in flight leaves the
+ * connection checked out, so the next entry to reach the database is refused.
+ *
+ * A failure whose cause chain names Postgres or Redis and says it was not
+ * reached is captured as the request path captures one, under the dependency
+ * code with the classification and nothing of the error. Any other failure (a
+ * store's error answer, an overlap refusal, a deadline no dependency claims)
+ * names no unreachable dependency and is captured whole under the entry code:
+ * the code decides how Sentry titles and groups the event, so only an outage
+ * the event can name is filed as one.
+ */
 export async function runCronEntries(
   entries: readonly CronEntry[],
   telemetry: Telemetry
-): Promise<void> {
-  await Promise.all(
-    entries.map(async (entry) => {
-      try {
-        await entry.run();
-      } catch (error) {
-        telemetry.error('cron entry failed', {
-          jobType: entry.name,
-          errorCode: 'cron_entry_failed',
-        });
-        telemetry.captureError(toError(error), FINGERPRINT_CODES.cronEntryFailed);
-      }
-    })
-  );
+): Promise<{ readonly anyFailed: boolean }> {
+  let anyFailed = false;
+  for (const entry of entries) {
+    try {
+      await entry.run();
+    } catch (error) {
+      anyFailed = true;
+      const classified = dependencyFailureOf(error);
+      const named =
+        classified.dependency !== 'unknown' && isReachabilityFailure(classified.failure);
+      const errorCode = named
+        ? FINGERPRINT_CODES.dependencyUnavailable
+        : FINGERPRINT_CODES.cronEntryFailed;
+      telemetry.error('cron entry failed', { jobType: entry.name, errorCode });
+      telemetry.captureError(
+        named ? dependencyUnavailableReport(classified) : toError(error),
+        errorCode
+      );
+    }
+  }
+  return { anyFailed };
 }
 
 /**

@@ -7,27 +7,27 @@ import { AuthFormHeader } from '@/components/auth/auth-form-header';
 import { OtpInput } from '@/components/auth/otp-input';
 import { focusHeading } from '@/lib/focus-heading';
 import type { ErrorCode } from '@hushbox/shared';
+import type { TotpVerifyResult } from '@/lib/auth/auth';
 
 // The verifier built by `createTOTPVerifier` in `apps/web/src/lib/auth/auth.ts`
-// returns a rendered sentence and no code, so this state falls back to matching
-// that sentence. Rewording it is safe, because both sides read the one shared
-// map entry; the coupling is on the code the verifier picks, and returning a
-// different one, wrapping the string, or handing back the code instead would
-// turn this comparison false with no compile error. `errorCode` is the
-// drift-proof path for whenever the verifier can supply it, and until then this
-// seam is pinned only by the end-to-end case in `e2e/auth/auth-2fa.spec.ts`.
+// supplies a code for a refusal the server answered, but reports a sign-in it
+// could not finish as a rendered sentence and no code, so this state falls back
+// to matching that sentence. Rewording it is safe, because both sides read the
+// one shared map entry; the coupling is on the code the verifier picks, and
+// returning a different one, wrapping the string, or handing back the code
+// instead would turn this comparison false with no compile error. `errorCode` is
+// the drift-proof path for whenever the verifier can supply it, and until then
+// this seam is pinned only by the end-to-end case in `e2e/auth/auth-2fa.spec.ts`.
 const SIGN_IN_COMPLETION_MESSAGE = friendlyErrorMessage('SIGN_IN_COMPLETION_FAILED');
 
-interface TwoFactorVerifyResult {
-  success: boolean;
-  error?: string;
-  errorCode?: ErrorCode;
-}
+const FROZEN_MESSAGE = friendlyErrorMessage('TWO_FACTOR_FROZEN');
 
 interface TwoFactorLoginStepProps {
-  onVerify: (code: string) => Promise<TwoFactorVerifyResult>;
+  onVerify: (code: string) => Promise<TotpVerifyResult>;
   onSuccess: () => void;
   onBack: () => void;
+  /** Leaves the step for the recovery phrase reset, which unlocks a frozen second factor. */
+  onUseRecoveryPhrase: () => void;
 }
 
 /** The login's second factor, drawn in the auth page in place of the login form. */
@@ -35,6 +35,7 @@ export function TwoFactorLoginStep({
   onVerify,
   onSuccess,
   onBack,
+  onUseRecoveryPhrase,
 }: Readonly<TwoFactorLoginStepProps>): React.JSX.Element {
   const [errorCode, setErrorCode] = React.useState<ErrorCode | undefined>();
   // An accepted code retires the prompt: the page stays until the way to chat has loaded,
@@ -52,7 +53,7 @@ export function TwoFactorLoginStep({
   }, [focusOnArrival]);
 
   const verifyAndKeepCode = React.useCallback(
-    async (code: string): Promise<TwoFactorVerifyResult> => {
+    async (code: string): Promise<TotpVerifyResult> => {
       const result = await onVerify(code);
       setErrorCode(result.errorCode);
       return result;
@@ -86,10 +87,13 @@ export function TwoFactorLoginStep({
       ? error === SIGN_IN_COMPLETION_MESSAGE
       : errorCode === 'SIGN_IN_COMPLETION_FAILED';
 
+  // No code can pass a frozen second factor, so the code prompt is retired for the way out.
+  const isFrozen = errorCode === 'TWO_FACTOR_FROZEN';
+
   // The code field that held focus is gone, so the new heading takes it and is announced.
   React.useEffect(() => {
-    if (isFinishingSignIn) focusHeading(stepRef.current);
-  }, [isFinishingSignIn]);
+    if (isFinishingSignIn || isFrozen) focusHeading(stepRef.current);
+  }, [isFinishingSignIn, isFrozen]);
 
   if (isFinishingSignIn) {
     return (
@@ -110,6 +114,29 @@ export function TwoFactorLoginStep({
         >
           Reload
         </Button>
+      </div>
+    );
+  }
+
+  if (isFrozen) {
+    return (
+      <div ref={stepRef} data-testid={TEST_IDS.twoFactorLoginStep}>
+        <AuthFormHeader
+          title="Two-factor is locked"
+          subtitle={<span className="block text-balance">{FROZEN_MESSAGE}</span>}
+          titleTone="signal"
+          subtitleTone="muted"
+        />
+        <div className="flex flex-col gap-2">
+          <Button type="button" size="xl" block onClick={onUseRecoveryPhrase}>
+            Use recovery phrase
+          </Button>
+          <p className="mt-2 text-center text-sm">
+            <Button type="button" variant="link" onClick={onBack}>
+              Back to login
+            </Button>
+          </p>
+        </div>
       </div>
     );
   }

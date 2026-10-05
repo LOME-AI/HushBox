@@ -393,6 +393,13 @@ export const StorageStamp = z.object({
 
 export type StorageStamp = z.infer<typeof StorageStamp>;
 
+/**
+ * How many hex characters of the catalog read's digest name its generation: the
+ * producer truncates to this length and the definition schema accepts only it,
+ * so the two cannot disagree on its length.
+ */
+export const CATALOG_GENERATION_HEX_LENGTH = 16;
+
 export const WorkflowDefinition = z.object({
   version: z.number().int().min(1),
   deadlineClass: z.enum(DEADLINE_CLASSES),
@@ -402,6 +409,14 @@ export const WorkflowDefinition = z.object({
   // Present only on persisting chat turns (stamped from the TurnBudget); a
   // general or no-persist definition omits it, so the estimator adds zero storage.
   storage: StorageStamp.optional(),
+  // The generation of the exposed-catalog read the route priced the turn
+  // against; the conversation room rebuilds its pricing snapshot when a turn
+  // names a generation other than the one it holds.
+  catalogGeneration: z
+    .string()
+    .length(CATALOG_GENERATION_HEX_LENGTH)
+    .regex(/^[\da-f]+$/)
+    .optional(),
 });
 
 export type WorkflowDefinition = z.infer<typeof WorkflowDefinition>;

@@ -5,13 +5,61 @@ import { WebSearchRow } from '@/components/chat/segments/web-search-row';
 import type { SegmentRenderContext } from '@/components/chat/segments/render-context';
 import type { ContainerKind, Segment, SegmentByKind, SegmentKind } from '@hushbox/shared';
 
-// Lazy-loaded so the markdown stack (streamdown, shiki, mermaid, katex) stays
-// out of the boot graph. The Suspense fallback shows the text plain, so a
-// streaming message paints at once while the chunk loads.
-const MarkdownRenderer = React.lazy(async () => {
-  const m = await import('@/components/chat/message/markdown-renderer');
-  return { default: m.MarkdownRenderer };
-});
+type MarkdownRendererComponent =
+  typeof import('@/components/chat/message/markdown-renderer').MarkdownRenderer;
+
+let markdownRendererLoad: Promise<MarkdownRendererComponent> | undefined;
+let loadedMarkdownRenderer: MarkdownRendererComponent | undefined;
+let markdownRendererSettled = false;
+const settledListeners = new Set<() => void>();
+
+async function importMarkdownRenderer(): Promise<MarkdownRendererComponent> {
+  try {
+    const m = await import('@/components/chat/message/markdown-renderer');
+    loadedMarkdownRenderer = m.MarkdownRenderer;
+    return m.MarkdownRenderer;
+  } finally {
+    // A failed load counts as settled: the lazy renderer rethrows it to the row's error
+    // boundary, and a reader waiting on readiness must not wait forever.
+    markdownRendererSettled = true;
+    for (const listener of settledListeners) listener();
+  }
+}
+
+/**
+ * Loads the markdown stack (streamdown, shiki, mermaid, katex), kept out of the boot graph, once
+ * per page: the lazy renderer and every readiness reader share this one import.
+ */
+export function loadMarkdownRenderer(): Promise<MarkdownRendererComponent> {
+  markdownRendererLoad ??= importMarkdownRenderer();
+  return markdownRendererLoad;
+}
+
+// Started as this module loads, so the renderer is usually ready by the time a thread has been
+// decrypted. It is never imported statically or at route entry: either would compete with the
+// page's own first bytes.
+void loadMarkdownRenderer();
+
+function subscribeToMarkdownRenderer(listener: () => void): () => void {
+  settledListeners.add(listener);
+  void loadMarkdownRenderer();
+  return () => {
+    settledListeners.delete(listener);
+  };
+}
+
+function markdownRendererReady(): boolean {
+  return markdownRendererSettled;
+}
+
+/** Whether the markdown renderer's module has settled; asking starts its load. */
+export function useMarkdownRendererReady(): boolean {
+  return React.useSyncExternalStore(subscribeToMarkdownRenderer, markdownRendererReady);
+}
+
+// The Suspense fallback shows the text plain, so a reply that streams before the
+// chunk lands paints at once.
+const MarkdownRenderer = React.lazy(async () => ({ default: await loadMarkdownRenderer() }));
 
 export interface SegmentRendererProps<K extends SegmentKind> {
   readonly node: SegmentByKind[K];
@@ -32,6 +80,12 @@ function TextSegmentView({
   streaming,
   inReasoning,
 }: Readonly<{ text: string; streaming: boolean; inReasoning: boolean }>): React.JSX.Element {
+  // A lazy component suspends on its first render even when its module has loaded, and React
+  // can hold the swap from fallback to content back by a few hundred milliseconds, so a segment
+  // mounted after the load renders the loaded component directly. Read once at mount: a segment
+  // keeps its path, so its renderer never remounts mid-stream.
+  const [Loaded] = React.useState(() => loadedMarkdownRenderer);
+  const Renderer = Loaded ?? MarkdownRenderer;
   return (
     <React.Suspense
       fallback={
@@ -45,7 +99,7 @@ function TextSegmentView({
         </p>
       }
     >
-      <MarkdownRenderer
+      <Renderer
         content={text}
         isStreaming={streaming}
         // A long fence inside reasoning is the model thinking aloud; minting a

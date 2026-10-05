@@ -35,7 +35,7 @@ import {
   WEB_SEARCH_TOOL_NAME,
   createEstimateRun,
   createModelPricingResolver,
-  listDescriptors,
+  readExposedCatalog,
   snapshotResolver,
 } from '../../../models/index.js';
 import { validationError } from '../../../../lib/errors/index.js';
@@ -967,14 +967,38 @@ function starvedAnswerRefusal(
   return undefined;
 }
 
+/**
+ * Compiles a single-model turn against a fresh catalog read and stamps the read's
+ * generation, so the conversation room holds the turn against this catalog or a
+ * newer one, never against an older snapshot it loaded before the read.
+ */
 export function buildTurnDefinition(
   deps: { readonly db: Database; readonly telemetry: Telemetry },
   model: string,
   options: TurnDefinitionOptions = {}
 ): ResultAsync<WorkflowDefinition, DomainError> {
   return createModelPricingResolver({ db: deps.db, telemetry: deps.telemetry }).andThen(
-    (pricingResolver) => compileSingleTurn(pricingResolver, model, options)
+    (pricingResolver) =>
+      compileSingleTurn(pricingResolver, model, options).map((definition) =>
+        withCatalogGeneration(definition, pricingResolver.generation)
+      )
   );
+}
+
+/** `definition`, stamped with the generation of the catalog read it was priced against. */
+export function withCatalogGeneration(
+  definition: WorkflowDefinition,
+  generation: string
+): WorkflowDefinition {
+  return { ...definition, catalogGeneration: generation };
+}
+
+/** A built turn whose definition is stamped as {@link withCatalogGeneration} stamps it. */
+export function withBuildCatalogGeneration<Build extends MultiModelTurnBuild>(
+  build: Build,
+  generation: string
+): Build {
+  return { ...build, definition: withCatalogGeneration(build.definition, generation) };
 }
 
 /**
@@ -1097,12 +1121,14 @@ export function buildMultiModelTurnDefinition(
   // priceable model in the exposed catalog, which is a question about the whole
   // snapshot. Both the engine pick and the per-model sizing then read that one
   // snapshot, so compile and runtime cannot diverge.
-  return listDescriptors({ db: deps.db, telemetry: deps.telemetry }).andThen((catalog) =>
-    compileMultiModelTurnOutcome(snapshotResolver(catalog), models, {
+  return readExposedCatalog({ db: deps.db, telemetry: deps.telemetry }).andThen((read) =>
+    compileMultiModelTurnOutcome(snapshotResolver(read.descriptors), models, {
       ...compile,
-      catalog,
+      catalog: read.descriptors,
       nowMs: now.getTime(),
-    })
+    }).map((outcome) =>
+      outcome.kind === 'built' ? withBuildCatalogGeneration(outcome, read.generation) : outcome
+    )
   );
 }
 

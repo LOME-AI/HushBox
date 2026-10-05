@@ -138,6 +138,7 @@ function conversationDetail(titleEpoch: BuiltEpoch, currentEpoch: number): GetCo
       linkId: null,
     },
     forks: [],
+    memberCount: 1,
   };
 }
 

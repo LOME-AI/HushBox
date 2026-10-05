@@ -2,9 +2,10 @@
  * Every workflow step that runs the bundle gate runs under a mode in which the
  * gate has a shipping bundle to read.
  *
- * The gate reports "does not apply" and exits 0 under every other mode, so a
- * step that stops naming the mode disables it silently — the same green a step
- * that ran every check produces. Nothing else in the tree asks the question: the
+ * The gate refuses a run that names no mode, but reports "does not apply" and
+ * exits 0 under every mode other than the shipping one, so a step whose mode
+ * names another disables it silently — the same green a step that ran every
+ * check produces. Nothing else in the tree asks the question: the
  * mode is named on the job rather than on the step, so reading the step alone
  * says nothing, and the gate itself cannot tell a caller that meant to skip from
  * one that forgot.
@@ -23,7 +24,7 @@ import {
   rootScripts,
   tokensOf,
 } from './lib/root-manifest.js';
-import { ENV_MODES, ENV_MODE_VARIABLE, envModeOrDefault } from './lib/stack/stack-mode.js';
+import { ENV_MODES, ENV_MODE_VARIABLE } from './lib/stack/stack-mode.js';
 import { shipsBundlesIn } from './verify-bundle.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
@@ -130,12 +131,11 @@ function gateSteps(files: readonly WorkflowFile[]): GateStep[] {
 
 /**
  * Whether a step running under `named` has a shipping bundle to check. A step
- * naming nothing runs under the default mode, which is a mode like any other; a
- * value naming no mode at all is refused rather than resolved, because the gate
+ * naming nothing has none, because the gate refuses to run there; a value
+ * naming no mode at all is refused rather than resolved, because the gate
  * would fail on it rather than skip.
  */
 function shipsBundles(named: string | undefined): boolean {
-  if (named === undefined) return shipsBundlesIn(envModeOrDefault({}));
   const mode = ENV_MODES.find((candidate) => candidate === named);
   return mode !== undefined && shipsBundlesIn(mode);
 }

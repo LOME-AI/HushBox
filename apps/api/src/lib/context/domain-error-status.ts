@@ -1,6 +1,7 @@
 import { createErrorResponse, domainWireCode, isAvailabilityCode } from '../errors/index.js';
 import { FINGERPRINT_CODES } from '../telemetry/fingerprint-codes.js';
-import { dependencyFailureOf } from './dependency-failure.js';
+import { admitReport } from '../telemetry/report-latch.js';
+import { dependencyFailureOf, dependencyUnavailableReport } from './dependency-failure.js';
 import { matchedRouteKeys } from './route-keys.js';
 import type { AppEnv } from './app-env.js';
 import type { DependencyFailure } from './dependency-failure.js';
@@ -39,24 +40,6 @@ export const STATUS_BY_DOMAIN_CODE = {
 } as const satisfies Record<DomainErrorCode, ContentfulStatusCode>;
 
 /**
- * How long one isolate stays quiet about a (dependency, failure arm) pair it
- * has already reported. A window rather than a flag: an unbounded report floods
- * the one channel a human reads with a single repeated fact during an outage,
- * and a flag would report the first outage an isolate meets and none after it,
- * while an isolate can live for hours. A minute refreshes at the pace someone
- * reading an incident looks. It bounds telemetry volume and nothing else.
- */
-export const DEPENDENCY_REPORT_WINDOW_MS = 60_000;
-
-/**
- * When this isolate last reported each (dependency, failure arm) pair. Module
- * scope is where an isolate's own reporting state lives: it gates REPORTING and
- * never the answer, and losing it with the isolate costs nothing. Keyed by the
- * pair so an outage of one store cannot silence another's.
- */
-const lastDependencyReportAt = new Map<string, number>();
-
-/**
  * The logger the bindings stage bound, or `undefined` on a context it never
  * ran on: Hono types a declared variable as always present, and this is where
  * that promise is not taken.
@@ -74,7 +57,7 @@ function boundLogger(c: Context<AppEnv>): Telemetry | undefined {
  * refused because the named dependency failed on the named arm, on the route
  * the `dependencyRoute` tag names. It is not a count of refusals and not a
  * count of outages: many isolates serve at once, and each reports each pair at
- * most once per {@link DEPENDENCY_REPORT_WINDOW_MS}.
+ * most once per {@link admitReport} window.
  *
  * WHAT MAY NOT RIDE. It is handed the classification, a closed-set lookup, and
  * nothing else of the error. The error's message and cause chain
@@ -90,23 +73,13 @@ function boundLogger(c: Context<AppEnv>): Telemetry | undefined {
 function reportDependencyFailure(c: Context<AppEnv>, classified: DependencyFailure): void {
   const logger = boundLogger(c);
   if (logger === undefined) return;
-  const pair = `${classified.dependency}:${classified.failure}`;
-  const now = Date.now();
-  const lastReportAt = lastDependencyReportAt.get(pair);
-  if (lastReportAt !== undefined && now - lastReportAt < DEPENDENCY_REPORT_WINDOW_MS) return;
-  lastDependencyReportAt.set(pair, now);
+  if (!admitReport(`${classified.dependency}:${classified.failure}`, Date.now())) return;
   // The terminal registration is the last one matched; a request nothing
   // routed has none, and its report names no route.
-  const route = matchedRouteKeys(c).at(-1);
-  const report = new Error('an availability refusal named the dependency behind it');
-  report.name = 'DependencyUnavailable';
-  Object.assign(report, {
-    ...(route === undefined ? {} : { dependencyRoute: route }),
-    dependency: classified.dependency,
-    dependencyFailure: classified.failure,
-    dependencyLate: classified.late,
-  });
-  logger.captureError(report, FINGERPRINT_CODES.dependencyUnavailable);
+  logger.captureError(
+    dependencyUnavailableReport(classified, matchedRouteKeys(c).at(-1)),
+    FINGERPRINT_CODES.dependencyUnavailable
+  );
 }
 
 /**

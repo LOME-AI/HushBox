@@ -312,6 +312,23 @@ describe('DisableTwoFactorModal', () => {
       });
     });
 
+    it('tells the user two-factor is locked when the second factor is frozen', async () => {
+      mockDisable2FAFinish.mockResolvedValue({
+        success: false,
+        error: friendlyErrorMessage('TWO_FACTOR_FROZEN'),
+      });
+      const user = await goToCodeStep();
+
+      await user.click(screen.getByTestId(TEST_IDS.otpInput));
+      await user.keyboard('123456');
+
+      expect(
+        await screen.findByText(
+          /two-factor authentication is locked.*reset your password with your recovery phrase/i
+        )
+      ).toBeInTheDocument();
+    });
+
     it('auto-submits when all 6 digits are entered', async () => {
       const onSuccess = vi.fn();
       const user = userEvent.setup();

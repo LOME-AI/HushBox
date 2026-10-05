@@ -13,7 +13,11 @@ import {
 } from '../../../workflows/index.js';
 import { createTurnCompileRegistries, turnInputs } from '../turn/definition.js';
 import { compileSmartModelBuild } from './turn.js';
-import { buildSmartModelCandidates, snapshotResolver } from '../../../models/index.js';
+import {
+  buildSmartModelCandidates,
+  callMaxPrice,
+  snapshotResolver,
+} from '../../../models/index.js';
 import type {
   InferenceEvent,
   InferenceRequest,
@@ -100,10 +104,13 @@ function makeTelemetry(): Telemetry {
 }
 
 function bindingFor(id: string): ModelBinding {
+  const descriptor = CATALOG.find((one) => one.id === id) ?? CATALOG[0]!;
   return {
-    descriptor: CATALOG.find((one) => one.id === id) ?? CATALOG[0]!,
+    descriptor,
     ports: { in: [textTag()], out: textTag() },
     price: () => ok(5n),
+    reserveMedia: () => ok(5n),
+    maxPrice: (bound) => callMaxPrice(descriptor.pricing, bound),
   };
 }
 
@@ -179,7 +186,7 @@ async function runSmartTurn(answer: string): Promise<RunResult> {
         }),
       settlement: (request: SettlementRequest) => {
         settlements.push(request);
-        return Promise.resolve();
+        return Promise.resolve({ billed: [] });
       },
     },
     runKey: 'smart-run-key',

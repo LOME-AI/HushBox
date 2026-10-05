@@ -119,9 +119,9 @@ export type GetSpendableQuery = z.infer<typeof getSpendableQuerySchema>;
  * serves the owner's hold-aware group remaining at the owner's tier, not the
  * sender's — with the owner dimension priced as that wallet's spendable funds,
  * cushion included, exactly as every other dimension of every other tier is
- * (BILLING §Affordability 8). The owner wallet's own holds are not applied, so
- * an owner-funded figure may still exceed what admission admits and admission
- * then refuses outright (BILLING §Group Funding 7(b)). Money
+ * (BILLING §Affordability 8), and net of every active hold on that wallet in
+ * any conversation, as admission reads it; a hold placed after the read can
+ * still make admission refuse outright (BILLING §Group Funding 7(b)). Money
  * crosses the wire as canonical NanoUSD strings, never floats. The per-wallet
  * concurrent-run cap is deliberately NOT served — it is enforced solely at
  * admission with its typed refusal. `ownerFundingLimit` names the dimension

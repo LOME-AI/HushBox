@@ -14,10 +14,7 @@ interface MediaItemShellProps {
   width: number | null | undefined;
   /** Height hint for placeholder aspect ratio (null when unknown). */
   height: number | null | undefined;
-  /**
-   * Accessibility prefix for `MediaPreview` — short noun like "Generated" for
-   * member-side or "Shared" for share-recipient side.
-   */
+  /** Accessibility prefix for `MediaPreview`: a short noun such as "Generated". */
   ariaPrefix: string;
   /** Optional extra classes forwarded to the resolved preview. */
   className?: string;
@@ -27,9 +24,8 @@ interface MediaItemShellProps {
  * Shared error / loading / preview tail for a decrypted media item: surface an
  * error placeholder when the decrypt hook reports failure, a loading
  * placeholder while bytes resolve, and otherwise hand off to `MediaPreview`.
- * Used by `MediaContentItem`, which renders media identically across the chat,
- * the share dialog preview, and the public share view — only the content-key
- * and download-URL sources differ per caller.
+ * Used by `MediaContentItem`, through which every page that draws a message
+ * draws its media; only the content-key and download-URL sources differ per page.
  */
 export function MediaItemShell({
   blobUrl,

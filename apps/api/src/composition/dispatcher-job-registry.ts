@@ -23,6 +23,11 @@ import {
   createNewsletterDispatchStores,
 } from '../slices/newsletter/index.js';
 import { createGrowthRollupJobRegistration } from '../slices/growth/index.js';
+import {
+  OPENROUTER_BASE_URL,
+  createCatalogRefreshJobRegistration,
+  createCatalogSightingRecorder,
+} from '../slices/models/index.js';
 import { createEmailSenderFromEnv } from '../slices/notifications/index.js';
 import {
   parseAdminNotificationRecipients,
@@ -177,6 +182,16 @@ export function createDispatcherJobRegistry(env: Bindings, db: Database): JobReg
         sender: createEmailSenderFromEnv(env),
         adminEmails: parseAdminNotificationRecipients(env.ADMIN_ROLE_MAP),
         adminUrl: requireAdminUrl(env),
+      }),
+    }),
+    createCatalogRefreshJobRegistration({
+      resolveRefresh: () => ({
+        db,
+        fetch: globalThis.fetch.bind(globalThis),
+        gatewayBaseUrl: OPENROUTER_BASE_URL,
+        telemetry: createDurableObjectTelemetry(env),
+        now: () => new Date(),
+        recordSighting: createCatalogSightingRecorder(db),
       }),
     }),
     createGrowthRollupJobRegistration({

@@ -1,8 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
 import { renderWithProviders as render } from '@/test-utils/render';
 import { ChatLayoutModals } from '@/components/chat/layout/chat-layout-modals';
 import type * as React from 'react';
 import type { GroupChatProps } from '@/components/chat/layout/chat-layout';
+import type { ShareMessageReply } from '@/components/chat/message/share-message-modal';
+
+const SHARED_REPLY: ShareMessageReply = {
+  id: 'm1',
+  content: 'hi',
+  modelName: 'anthropic/claude-sonnet-4.5',
+  isSmartModel: true,
+  reasoningDurationMs: 9000,
+  createdAt: isoAt(TEST_DAY_START),
+  epochNumber: 3,
+  wrappedContentKey: 'wrapped',
+  senderId: 'sender-42',
+};
 
 let lastShareModalProps: Record<string, unknown> | null = null;
 const captured: Record<string, Record<string, unknown>> = {};
@@ -90,15 +104,8 @@ describe('ChatLayoutModals', () => {
         refusalReason="insufficient_funds"
         shareMessageModalOpen
         closeShareMessageModal={() => {}}
-        shareMessageId="m1"
         shareMessageConversationId="conv-1"
-        sharedMessageContent="hi"
-        sharedMessageEpochNumber={3}
-        sharedMessageWrappedContentKey="wrapped"
-        sharedMessageMediaItems={null}
-        sharedMessageSenderId="sender-42"
-        sharedMessageReasoningTokens={null}
-        sharedMessageReasoningEffort={null}
+        sharedMessage={SHARED_REPLY}
         groupChat={undefined}
         title={undefined}
         addMemberModalOpen={false}
@@ -125,17 +132,16 @@ describe('ChatLayoutModals', () => {
     expect(captured['signup']?.['reason']).toBe('insufficient_funds');
   });
 
-  it('forwards the shared message senderId to ShareMessageModal so its media preview can build the envelope', () => {
+  it('hands ShareMessageModal the shared reply whole, so its preview draws every field the link publishes', () => {
     renderModals();
 
-    expect(lastShareModalProps?.['senderId']).toBe('sender-42');
+    expect(lastShareModalProps?.['message']).toBe(SHARED_REPLY);
   });
 
-  it('forwards the reasoning the link publishes to ShareMessageModal so the preview can disclose it', () => {
-    renderModals({ sharedMessageReasoningTokens: 1204, sharedMessageReasoningEffort: 'high' });
+  it('hands ShareMessageModal the conversation whose epoch key opens the reply', () => {
+    renderModals();
 
-    expect(lastShareModalProps?.['reasoningTokens']).toBe(1204);
-    expect(lastShareModalProps?.['reasoningEffort']).toBe('high');
+    expect(lastShareModalProps?.['conversationId']).toBe('conv-1');
   });
 
   it('routes each modal close through its close handler and invalidates balance on payment success', () => {
@@ -155,15 +161,8 @@ describe('ChatLayoutModals', () => {
         refusalReason="insufficient_funds"
         shareMessageModalOpen
         closeShareMessageModal={closeShareMessageModal}
-        shareMessageId="m1"
         shareMessageConversationId="conv-1"
-        sharedMessageContent="hi"
-        sharedMessageEpochNumber={3}
-        sharedMessageWrappedContentKey="wrapped"
-        sharedMessageMediaItems={null}
-        sharedMessageSenderId="sender-42"
-        sharedMessageReasoningTokens={null}
-        sharedMessageReasoningEffort={null}
+        sharedMessage={SHARED_REPLY}
         groupChat={makeGroupChat({ onAddMember })}
         title="My Chat"
         addMemberModalOpen
@@ -229,15 +228,8 @@ describe('ChatLayoutModals', () => {
         refusalReason={undefined}
         shareMessageModalOpen={false}
         closeShareMessageModal={() => {}}
-        shareMessageId={null}
         shareMessageConversationId={null}
-        sharedMessageContent={null}
-        sharedMessageEpochNumber={null}
-        sharedMessageWrappedContentKey={null}
-        sharedMessageMediaItems={null}
-        sharedMessageSenderId=""
-        sharedMessageReasoningTokens={null}
-        sharedMessageReasoningEffort={null}
+        sharedMessage={null}
         groupChat={makeGroupChat({ onAddMember: undefined })}
         title={undefined}
         addMemberModalOpen={false}

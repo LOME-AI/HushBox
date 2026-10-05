@@ -418,12 +418,12 @@ test.describe('Runnable documents', SPEC_MATRIX, () => {
       expectPixelNear(await documentPanel.canvasCentrePixel(HTML_CANVAS), CANVAS_FILL);
     });
 
-    await test.step('the raw/rendered toggle switches source and back', async () => {
-      await documentPanel.showRawButton().click();
+    await test.step('the output/code toggle switches source and back', async () => {
+      await documentPanel.codeView().click();
       await expect(documentPanel.highlightedCode).toBeVisible();
-      await expect(documentPanel.showRenderedButton()).toBeVisible();
+      await expect(documentPanel.codeView()).toBeChecked();
 
-      await documentPanel.showRenderedButton().click();
+      await documentPanel.outputView().click();
       await documentPanel.expectRenderStatus('rendered', TIMEOUTS.LONG);
       await expect(
         documentPanel.sandboxFrame().getByText('Hello from a HushBox document')
@@ -535,16 +535,18 @@ test.describe('Runnable documents', SPEC_MATRIX, () => {
       expect(strip.scrollHeight).toBeGreaterThan(strip.clientHeight);
     });
 
-    await test.step('output sits above the source, not below the fold', async () => {
-      const runBox = await documentPanel.runButton().boundingBox();
-      const consoleBox = await documentPanel.consoleOutput().boundingBox();
-      const sourceBox = await documentPanel.highlightedCode.boundingBox();
-      expect(runBox).not.toBeNull();
-      expect(consoleBox).not.toBeNull();
-      expect(sourceBox).not.toBeNull();
+    await test.step('the output view holds the run, and the code view holds the source', async () => {
+      // A long program would push its own output below the fold, so once it has run the output
+      // view shows what it produced and the source waits behind Code.
+      await expect(documentPanel.runButton()).toHaveText('Run again');
+      await expect(documentPanel.highlightedCode).toBeHidden();
 
-      expect(consoleBox!.y).toBeGreaterThan(runBox!.y);
-      expect(sourceBox!.y).toBeGreaterThan(consoleBox!.y);
+      await documentPanel.codeView().click();
+      await expect(documentPanel.highlightedCode).toBeVisible();
+      await expect(documentPanel.consoleOutput()).toBeHidden();
+
+      await documentPanel.outputView().click();
+      await expect(documentPanel.consoleOutput()).toContainText('peak 5');
     });
 
     // Last, because parking the figure in view moves the panel's scroll
@@ -666,6 +668,10 @@ test.describe('Runnable documents', SPEC_MATRIX, () => {
       // an unthemed frame paints the browser's default canvas instead.
       const before = await documentPanel.appBackgroundColour();
       await expect.poll(() => documentPanel.frameBackgroundColour()).toBe(before);
+
+      // A panel over the thread, or filling a phone, covers the theme toggle, so only a docked
+      // one leaves it to click.
+      if (!(await documentPanel.isDocked())) return;
 
       await authenticatedPage.getByTestId(TEST_IDS.themeToggle).click();
       await expect.poll(() => documentPanel.appBackgroundColour()).not.toBe(before);

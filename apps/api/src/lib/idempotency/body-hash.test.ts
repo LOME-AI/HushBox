@@ -52,52 +52,15 @@ describe('the idempotency body hash', () => {
     );
   });
 
-  it('refuses to hash before anything has configured the secret', async () => {
-    const keyed = await freshModule();
-    expect(() => keyed.hashRequestBody(BODY)).toThrow(/not configured/);
-  });
-
-  it('accepts a repeat of the secret already in force', async () => {
-    const keyed = await freshModule();
-    keyed.configureIdempotencyBodyHashSecret({ IDEMPOTENCY_BODY_HASH_SECRET: KEY });
-    keyed.configureIdempotencyBodyHashSecret({ IDEMPOTENCY_BODY_HASH_SECRET: KEY });
-    expect(keyed.hashRequestBody(BODY)).toBe(hmacSha256Hex(KEY, canonicalJson(BODY)));
-  });
-
-  it('refuses a second secret that disagrees with the one in force', async () => {
-    const keyed = await freshModule();
-    keyed.configureIdempotencyBodyHashSecret({ IDEMPOTENCY_BODY_HASH_SECRET: KEY });
-    expect(() => {
-      keyed.configureIdempotencyBodyHashSecret({ IDEMPOTENCY_BODY_HASH_SECRET: `${KEY}-other` });
-    }).toThrow(/disagrees/);
-  });
-
-  it('names neither secret when two disagree', async () => {
-    const keyed = await freshModule();
-    keyed.configureIdempotencyBodyHashSecret({ IDEMPOTENCY_BODY_HASH_SECRET: KEY });
-    expect(() => {
-      keyed.configureIdempotencyBodyHashSecret({ IDEMPOTENCY_BODY_HASH_SECRET: `${KEY}-other` });
-    }).toThrow(expect.objectContaining({ message: expect.not.stringContaining(KEY) }));
-  });
-
-  it('takes no secret from an env that carries no entry', async () => {
-    const keyed = await freshModule();
-    keyed.configureIdempotencyBodyHashSecret({ IDEMPOTENCY_BODY_HASH_SECRET: KEY });
-    keyed.configureIdempotencyBodyHashSecret({});
-    expect(keyed.hashRequestBody(BODY)).toBe(hmacSha256Hex(KEY, canonicalJson(BODY)));
-  });
-
-  it('fails fast when the registry entry is absent', async () => {
+  it('reads its key from the IDEMPOTENCY_BODY_HASH_SECRET entry', async () => {
     const keyed = await freshModule();
     expect(() => {
       keyed.configureIdempotencyBodyHashSecret({});
-    }).toThrow(/IDEMPOTENCY_BODY_HASH_SECRET/);
+    }).toThrow(/IDEMPOTENCY_BODY_HASH_SECRET is missing/);
   });
 
-  it('fails fast when the registry entry is empty', async () => {
+  it('names its configurer when nothing has configured the key', async () => {
     const keyed = await freshModule();
-    expect(() => {
-      keyed.configureIdempotencyBodyHashSecret({ IDEMPOTENCY_BODY_HASH_SECRET: '' });
-    }).toThrow(/IDEMPOTENCY_BODY_HASH_SECRET/);
+    expect(() => keyed.hashRequestBody(BODY)).toThrow(/configureIdempotencyBodyHashSecret/);
   });
 });

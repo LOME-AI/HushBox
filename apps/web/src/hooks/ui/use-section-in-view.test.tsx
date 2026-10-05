@@ -83,12 +83,6 @@ class ResizeObserverFake implements ResizeObserver {
   }
 }
 
-function latestResizeObserver(): ResizeObserverFake {
-  const observer = ResizeObserverFake.instances.at(-1);
-  if (!observer) throw new Error('no ResizeObserver was created');
-  return observer;
-}
-
 /** Reports a size change of the pinned band to every live resize observer. */
 function resizeBand(): void {
   for (const observer of ResizeObserverFake.instances) {
@@ -115,10 +109,15 @@ function latestObserver(): IntersectionObserverFake {
   return observer;
 }
 
-function Probe(): React.JSX.Element {
+/** The section pill, in the page body's pinned band as the settings page draws its link row. */
+function CurrentSection(): React.JSX.Element {
   const current = useSectionInView(SETTINGS_SECTION_IDS);
+  return <output aria-label="Current section">{current}</output>;
+}
+
+function Probe(): React.JSX.Element {
   return (
-    <PageBody pinned={<output aria-label="Current section">{current}</output>}>
+    <PageBody pinned={<CurrentSection />}>
       {SETTINGS_SECTION_IDS.map((id) => (
         <section key={id} id={id}>
           {id}
@@ -150,11 +149,24 @@ function placeSection(id: SettingsSectionId, top: number): void {
   );
 }
 
-/** Makes the band read as pinned (sticky), `height` px tall. */
+/** The page body's scroller, `height` px tall. */
+function sizeScroller(height: number): void {
+  Object.defineProperty(scroller(), 'clientHeight', { configurable: true, value: height });
+}
+
+/** Makes the band read as pinned (sticky), `height` px tall in a 1000px scroller. */
 function pinBand(height: number): void {
   const band = pinnedBand();
   band.style.position = 'sticky';
   Object.defineProperty(band, 'offsetHeight', { configurable: true, value: height });
+  sizeScroller(1000);
+}
+
+/** Reports a size change of the scroller alone, as a window-height-only resize does. */
+function resizeScrollerOnly(): void {
+  for (const observer of ResizeObserverFake.instances) {
+    if (!observer.disconnected && observer.observed.includes(scroller())) observer.fire();
+  }
 }
 
 beforeEach(() => {
@@ -244,18 +256,39 @@ describe('useSectionInView', () => {
     expect(latestObserver().rootMargin).toBe('-95px 0px 0px 0px');
   });
 
-  it('drops the offset when the band stops sticking', () => {
+  it('drops the offset when the band grows too tall to stay pinned', () => {
     render(<Probe />);
     pinBand(57);
     resizeBand();
-    pinnedBand().style.position = '';
+    Object.defineProperty(pinnedBand(), 'offsetHeight', { configurable: true, value: 800 });
     resizeBand();
     expect(latestObserver().rootMargin).toBe('-0px 0px 0px 0px');
   });
 
-  it('watches the band of its own page scroller', () => {
+  it('drops the offset when a shorter window unpins a band that kept its size', () => {
     render(<Probe />);
-    expect(latestResizeObserver().observed).toEqual([pinnedBand()]);
+    pinBand(300);
+    resizeBand();
+    sizeScroller(400);
+    resizeScrollerOnly();
+    expect(latestObserver().rootMargin).toBe('-0px 0px 0px 0px');
+  });
+
+  it('takes the offset up when a taller window pins a band that kept its size', () => {
+    render(<Probe />);
+    Object.defineProperty(pinnedBand(), 'offsetHeight', { configurable: true, value: 300 });
+    sizeScroller(400);
+    resizeBand();
+    pinBand(300);
+    resizeScrollerOnly();
+    expect(latestObserver().rootMargin).toBe('-300px 0px 0px 0px');
+  });
+
+  it("measures no band itself: the page body's observer is the only one on the page", () => {
+    render(<Probe />);
+    expect(ResizeObserverFake.instances.map((observer) => observer.observed)).toEqual([
+      [pinnedBand(), scroller()],
+    ]);
   });
 
   it('watches no band on a page body without one', () => {
@@ -270,13 +303,6 @@ describe('useSectionInView', () => {
     render(<Unpinned />);
     expect(ResizeObserverFake.instances).toEqual([]);
     expect(latestObserver().rootMargin).toBe('-0px 0px 0px 0px');
-  });
-
-  it('stops watching the band on unmount', () => {
-    const { unmount } = render(<Probe />);
-    const resizeObserver = latestResizeObserver();
-    unmount();
-    expect(resizeObserver.disconnected).toBe(true);
   });
 
   it('picks the topmost section in view below the band', () => {

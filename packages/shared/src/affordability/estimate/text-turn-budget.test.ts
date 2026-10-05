@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD } from '../constants.ts';
 import { getTurnOptions } from '../turn/turn-options.ts';
 import { modelId } from '../model/model-id.ts';
 import { poolModelFromWire } from '../model/wire-pool-row.ts';
@@ -12,7 +13,13 @@ import { textTurnBudget } from './text-turn-budget.ts';
 import { tokenPricingFixture } from '../../testing/pricing-fixture.ts';
 import type { TextTurnBudget, TextTurnBudgetInput } from './text-turn-budget.ts';
 import type { PriceableModel } from '../model/priceable-model.ts';
-import type { PromptBasis, TurnOptions } from '../turn/turn-types.ts';
+import type {
+  ModelEntry,
+  NonEmpty,
+  OptionSet,
+  PromptBasis,
+  TurnOptions,
+} from '../turn/turn-types.ts';
 import type { Model } from '../../schemas/api/models.ts';
 
 /** The framing allowance every persisting answer reserves, at 300 nano per character. */
@@ -26,7 +33,7 @@ function textRow(overrides: Partial<Model> = {}): Model {
     provider: 'vendor',
     modality: 'text',
     contextLength: 128_000,
-    pricing: { inputPerToken: '10000', outputPerToken: '30000' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000', outputPerToken: '30000' },
     description: 'a text model',
     supportedParameters: [],
     // Released at the epoch: the producer projects only a dated row.
@@ -96,7 +103,9 @@ function slotOptions(args: {
   readonly inputChars: number;
   readonly spendable: bigint;
   readonly webSearch?: boolean;
-  readonly effort?: 'high';
+  readonly effort?: 'high' | 'low';
+  /** Whether the send leaves its effort to the classifier; absent is a send that does not. */
+  readonly effortAuto?: boolean;
 }): TurnOptions {
   const models = args.catalog.flatMap((row) => poolModelFromWire(row) ?? []);
   const pinnedIds = args.pinned.map((row) => modelId(row.id));
@@ -119,6 +128,7 @@ function slotOptions(args: {
       modality: 'text',
       pinned: args.effort === undefined ? {} : { effort: args.effort },
       webSearch: args.webSearch === true,
+      effortAuto: args.effortAuto === true,
     },
     { models, nowMs: PREMIUM_RECENCY_MS }
   );
@@ -186,7 +196,11 @@ describe('textTurnBudget', () => {
     const trial = {
       payerTier: 'trial',
       promptChars: 200,
-      models: [textRow({ pricing: { inputPerToken: '100', outputPerToken: '300' } })],
+      models: [
+        textRow({
+          pricing: { anchorContextTokens: 1_000_000, inputPerToken: '100', outputPerToken: '300' },
+        }),
+      ],
     } as const;
     const withZero = budgetOf(input({ ...trial, payerSpendableNanoUsd: 0n }));
     const withPlenty = budgetOf(input({ ...trial, payerSpendableNanoUsd: 10_000_000_000n }));
@@ -433,6 +447,7 @@ describe('the composer preview against the send gate', () => {
         modality: 'text',
         pinned: {},
         webSearch: false,
+        effortAuto: true,
       },
       // A pool too small to carry a price percentile, released at the epoch, so
       // no premium leg confounds the money verdict being compared.
@@ -458,6 +473,7 @@ describe('textTurnBudget on a model with a long-context rate', () => {
     contextLength: 1_000_000,
     maxOutputTokens: 64_000,
     pricing: {
+      anchorContextTokens: 1_000_000,
       inputPerToken: '3450',
       outputPerToken: '17250',
       longContextRates: [
@@ -492,6 +508,7 @@ describe('textTurnBudget on the Smart slot', () => {
     contextLength: 1_000_000,
     maxOutputTokens: 64_000,
     pricing: {
+      anchorContextTokens: 1_000_000,
       inputPerToken: '3450',
       outputPerToken: '17250',
       longContextRates: [
@@ -504,7 +521,7 @@ describe('textTurnBudget on the Smart slot', () => {
     id: 'smart-model',
     isSmartModel: true,
     contextLength: 1_000_000,
-    pricing: { inputPerToken: '3450', outputPerToken: '17250' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '3450', outputPerToken: '17250' },
   });
 
   it('funds the answer its candidate funds at the long-context rate an 880,000-character history reaches', () => {
@@ -534,26 +551,26 @@ describe('textTurnBudget on the Smart slot', () => {
       id: 'vendor/cheap',
       contextLength: 200_000,
       maxOutputTokens: 200_000,
-      pricing: { inputPerToken: '100', outputPerToken: '400' },
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '100', outputPerToken: '400' },
     });
     const dearer = textRow({
       id: 'vendor/dearer',
       contextLength: 200_000,
       maxOutputTokens: 200_000,
-      pricing: { inputPerToken: '3000', outputPerToken: '15000' },
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '3000', outputPerToken: '15000' },
     });
     /** Cheaper still, but its context cannot hold the 1,334-token prompt. */
     const shortContext = textRow({
       id: 'vendor/short',
       contextLength: 1000,
       maxOutputTokens: 1000,
-      pricing: { inputPerToken: '10', outputPerToken: '40' },
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10', outputPerToken: '40' },
     });
     const smartSlot = textRow({
       id: 'smart-model',
       isSmartModel: true,
       contextLength: 200_000,
-      pricing: { inputPerToken: '10', outputPerToken: '40' },
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10', outputPerToken: '40' },
     });
 
     function slotFigure(catalog: readonly Model[]): number {
@@ -634,14 +651,18 @@ describe('textTurnBudget on the Smart slot', () => {
         id: `vendor/capped-${String(index)}`,
         contextLength: 400_000,
         maxOutputTokens: 4000,
-        pricing: { inputPerToken: '1000', outputPerToken: '3000' },
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1000', outputPerToken: '3000' },
       })
     );
     const outlier = textRow({
       id: 'vendor/outlier',
       contextLength: 400_000,
       maxOutputTokens: 300_000,
-      pricing: { inputPerToken: '300000', outputPerToken: '900000' },
+      pricing: {
+        anchorContextTokens: 1_000_000,
+        inputPerToken: '300000',
+        outputPerToken: '900000',
+      },
     });
     const spendable = 1_000_000_000_000n;
     const budget = budgetOf(
@@ -678,9 +699,436 @@ describe('textTurnBudget on the Smart slot', () => {
   });
 });
 
+describe('which limit holds the Smart slot’s answer', () => {
+  /** A candidate at the default rates whose provider cap is `maxOutputTokens`. */
+  function candidate(id: string, maxOutputTokens: number): Model {
+    return textRow({ id, maxOutputTokens });
+  }
+
+  /** The Smart-slot budget over `catalog` at `spendable`, the slot alone selected. */
+  function slotBudget(catalog: readonly Model[], spendable: bigint): AnsweredBudget {
+    return budgetOf(
+      input({
+        models: [smartRow],
+        payerSpendableNanoUsd: spendable,
+        turnOptions: slotOptions({
+          catalog,
+          pinned: [],
+          promptChars: 4000,
+          inputChars: 4000,
+          spendable,
+        }),
+      })
+    );
+  }
+
+  /** A balance that buys far more than a 4,000-token answer at the default rates. */
+  const AMPLE = 10_500_000_000n;
+  /** A balance that buys an answer of a few thousand tokens at the default rates. */
+  const SHORT = 250_000_000n;
+
+  it('marks an answer its candidates’ provider cap holds below the warning threshold, at a balance that funds more', () => {
+    const budget = slotBudget([candidate('vendor/a', 4000), candidate('vendor/b', 4000)], AMPLE);
+
+    expect(budget.maxAnswerTokens).toBe(4000);
+    expect(budget.maxAnswerTokens).toBeLessThan(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD);
+    expect(budget.answerHeldByRoom).toBe(true);
+  });
+
+  it('leaves unmarked an answer the balance holds below the warning threshold', () => {
+    const budget = slotBudget([candidate('vendor/a', 200_000)], SHORT);
+
+    expect(budget.maxAnswerTokens).toBeLessThan(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD);
+    expect(budget.answerHeldByRoom).toBeUndefined();
+  });
+
+  it('leaves unmarked a tie in which the balance holds one of the leaders', () => {
+    const bound = candidate('vendor/bound', 200_000);
+    // What the balance funds the bound row beside a second same-priced row, so
+    // the pool the classifier prices over is the one the tie is drawn in.
+    const funded = slotBudget([bound, candidate('vendor/twin', 200_000)], SHORT).maxOutputTokens;
+    const options = slotOptions({
+      catalog: [bound, candidate('vendor/capped', funded)],
+      pinned: [],
+      promptChars: 4000,
+      inputChars: 4000,
+      spendable: SHORT,
+    });
+    const budget = budgetOf(
+      input({ models: [smartRow], payerSpendableNanoUsd: SHORT, turnOptions: options })
+    );
+
+    // Both runnable candidates share the figure, and only the capped one reaches its room.
+    const runnable = options.admissible.sendable ? options.admissible.runnable : [];
+    expect(
+      runnable.map((entry) => [entry.modelId, entry.ceilingTokens, entry.answerRoomTokens > funded])
+    ).toEqual([
+      ['vendor/capped', funded, false],
+      ['vendor/bound', funded, true],
+    ]);
+    expect(budget.answerHeldByRoom).toBeUndefined();
+  });
+
+  /** A runnable candidate row with the given ceiling and answer room. */
+  function runnableRow(id: string, ceilingTokens: number, answerRoomTokens: number): ModelEntry {
+    return {
+      kind: 'candidate',
+      modelId: modelId(id),
+      availability: { available: true },
+      activation: { replace: { available: true }, add: { available: true } },
+      ceilingTokens,
+      answerRoomTokens,
+      dimensions: [],
+      rungCeilings: [],
+    };
+  }
+
+  /** A sendable pair whose admissible set runs exactly `rows`, in that order. */
+  function pairRunning(rows: NonEmpty<ModelEntry>): TurnOptions {
+    const set: OptionSet = {
+      sendable: true,
+      runnable: rows,
+      all: rows,
+      turnDimensions: [],
+      toolLoopEffort: undefined,
+      holdEffort: undefined,
+    };
+    return {
+      affordable: set,
+      admissible: set,
+      holdNanoUsd: nanoUSD(0n),
+      smartSlot: { available: true },
+    };
+  }
+
+  it('leaves unmarked a turn whose money-cut candidate is listed ahead of a leader at its room', () => {
+    const budget = budgetOf(
+      input({
+        models: [smartRow],
+        turnOptions: pairRunning([
+          runnableRow('vendor/short', 2000, 126_666),
+          runnableRow('vendor/capped', 3441, 3441),
+        ]),
+      })
+    );
+
+    expect(budget.maxAnswerTokens).toBe(3441);
+    expect(budget.answerHeldByRoom).toBeUndefined();
+  });
+
+  it('leaves unmarked a turn whose leader sits at its room while the balance cuts a lower candidate', () => {
+    const options = slotOptions({
+      catalog: [
+        candidate('vendor/capped', 2000),
+        textRow({
+          id: 'vendor/dear',
+          maxOutputTokens: 200_000,
+          pricing: {
+            anchorContextTokens: 1_000_000,
+            inputPerToken: '10000',
+            outputPerToken: '60000',
+          },
+        }),
+      ],
+      pinned: [],
+      promptChars: 4000,
+      inputChars: 4000,
+      spendable: SHORT,
+    });
+    const budget = budgetOf(
+      input({ models: [smartRow], payerSpendableNanoUsd: SHORT, turnOptions: options })
+    );
+
+    const runnable = options.admissible.sendable ? options.admissible.runnable : [];
+    expect(
+      runnable.map((entry) => [entry.modelId, entry.ceilingTokens, entry.answerRoomTokens])
+    ).toEqual([
+      ['vendor/capped', 2000, 2000],
+      ['vendor/dear', 1754, 126_666],
+    ]);
+    expect(budget.maxAnswerTokens).toBe(2000);
+    expect(budget.answerHeldByRoom).toBeUndefined();
+  });
+
+  it('marks a turn whose named sibling sits at its room beside candidates at theirs', () => {
+    const pinned = candidate('vendor/pinned', 2000);
+    const options = slotOptions({
+      catalog: [pinned, candidate('vendor/cand', 4000)],
+      pinned: [pinned],
+      promptChars: 4000,
+      inputChars: 4000,
+      spendable: AMPLE,
+    });
+    const budget = budgetOf(
+      input({ models: [smartRow, pinned], payerSpendableNanoUsd: AMPLE, turnOptions: options })
+    );
+
+    const runnable = options.admissible.sendable ? options.admissible.runnable : [];
+    expect(
+      runnable.map((entry) => [
+        entry.kind,
+        entry.modelId,
+        entry.ceilingTokens,
+        entry.answerRoomTokens,
+      ])
+    ).toEqual([
+      ['pinned', 'vendor/pinned', 2000, 2000],
+      ['candidate', 'vendor/cand', 4000, 4000],
+    ]);
+    expect(budget.answerHeldByRoom).toBe(true);
+  });
+
+  it('leaves unmarked a turn whose leader the balance holds, though a lower candidate sits at its room', () => {
+    const options = slotOptions({
+      catalog: [candidate('vendor/capped', 2000), candidate('vendor/wide', 200_000)],
+      pinned: [],
+      promptChars: 4000,
+      inputChars: 4000,
+      spendable: SHORT,
+    });
+    const budget = budgetOf(
+      input({ models: [smartRow], payerSpendableNanoUsd: SHORT, turnOptions: options })
+    );
+
+    const runnable = options.admissible.sendable ? options.admissible.runnable : [];
+    expect(
+      runnable.map((entry) => [entry.modelId, entry.ceilingTokens, entry.answerRoomTokens])
+    ).toEqual([
+      ['vendor/capped', 2000, 2000],
+      ['vendor/wide', 3441, 126_666],
+    ]);
+    expect(budget.answerHeldByRoom).toBeUndefined();
+  });
+
+  it('leaves unmarked a turn whose named sibling the balance holds, though the Smart leader sits at its room', () => {
+    const pinned = candidate('vendor/pinned', 64_000);
+    const spendable = 400_000_000n;
+    const options = slotOptions({
+      catalog: [pinned, candidate('vendor/cand', 4000)],
+      pinned: [pinned],
+      promptChars: 4000,
+      inputChars: 4000,
+      spendable,
+    });
+    const budget = budgetOf(
+      input({ models: [smartRow, pinned], payerSpendableNanoUsd: spendable, turnOptions: options })
+    );
+
+    const runnable = options.admissible.sendable ? options.admissible.runnable : [];
+    expect(
+      runnable.map((entry) => [
+        entry.kind,
+        entry.modelId,
+        entry.ceilingTokens,
+        entry.answerRoomTokens,
+      ])
+    ).toEqual([
+      ['pinned', 'vendor/pinned', 9793, 64_000],
+      ['candidate', 'vendor/cand', 4000, 4000],
+    ]);
+    expect(budget.answerHeldByRoom).toBeUndefined();
+  });
+
+  it('leaves unmarked a tie the balance holds on every candidate', () => {
+    const budget = slotBudget(
+      [candidate('vendor/a', 200_000), candidate('vendor/b', 200_000)],
+      SHORT
+    );
+
+    expect(budget.maxAnswerTokens).toBeLessThan(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD);
+    expect(budget.answerHeldByRoom).toBeUndefined();
+  });
+
+  it('leaves a named sibling’s answer unmarked, since its pool is what the balance funds', () => {
+    // The producer grades the pinned row at its 4,000-token cap, its whole room,
+    // while the balance funds a pool below the warning threshold.
+    const capped = candidate('vendor/a', 4000);
+    const options = getTurnOptions(
+      {
+        spendableNanoUsd: nanoUSD(SHORT),
+        heldNanoUsd: nanoUSD(0n),
+        payerTier: 'paid',
+        payer: 'self',
+      },
+      {
+        systemChars: 0,
+        instructionChars: 0,
+        historyChars: 0,
+        inputChars: 4000,
+        attachmentBytes: 0,
+      },
+      {
+        answerSources: { models: [modelId(capped.id)], smartSlot: false },
+        modality: 'text',
+        pinned: {},
+        webSearch: false,
+        effortAuto: true,
+      },
+      { models: [capped].flatMap((row) => poolModelFromWire(row) ?? []), nowMs: PREMIUM_RECENCY_MS }
+    );
+    const budget = budgetOf(
+      input({ models: [capped], payerSpendableNanoUsd: SHORT, turnOptions: options })
+    );
+
+    const pinned = options.admissible.sendable ? options.admissible.runnable : [];
+    expect(pinned.map((entry) => [entry.ceilingTokens, entry.answerRoomTokens])).toEqual([
+      [4000, 4000],
+    ]);
+    expect(budget.maxAnswerTokens).toBeLessThan(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD);
+    expect(budget.answerHeldByRoom).toBeUndefined();
+  });
+
+  describe('on an auto-effort searching turn, at every rung it can run', () => {
+    /** A three-rung reasoning row at the default rates whose provider cap is `maxOutputTokens`. */
+    function reasoningRow(id: string, maxOutputTokens: number): Model {
+      return textRow({
+        id,
+        maxOutputTokens,
+        reasoning: { supportedEfforts: ['high', 'medium', 'low'] },
+      });
+    }
+
+    /**
+     * The budget for the Smart slot beside the pinned `v/m1`, search on and no
+     * effort pin, over a sibling capped at `siblingCap` and three candidates
+     * capped at 7,583; with the producer's runnable rows as
+     * `[kind, id, ceiling, room, rung ceilings]`.
+     */
+    function searchingTurn(
+      siblingCap: number,
+      spendable: bigint
+    ): { budget: AnsweredBudget; rows: readonly unknown[] } {
+      const sibling = reasoningRow('v/m1', siblingCap);
+      const options = slotOptions({
+        catalog: [
+          sibling,
+          reasoningRow('v/m2', 7583),
+          reasoningRow('v/m3', 7583),
+          reasoningRow('v/m4', 7583),
+        ],
+        pinned: [sibling],
+        promptChars: 4000,
+        inputChars: 4000,
+        spendable,
+        webSearch: true,
+        effortAuto: true,
+      });
+      const budget = budgetOf(
+        input({
+          models: [smartRow, sibling],
+          payerSpendableNanoUsd: spendable,
+          webSearch: true,
+          turnOptions: options,
+        })
+      );
+      const runnable = options.admissible.sendable ? options.admissible.runnable : [];
+      const rows = runnable.map((entry) => [
+        entry.kind,
+        entry.modelId,
+        entry.ceilingTokens,
+        entry.answerRoomTokens,
+        entry.rungCeilings.map((rung) => `${rung.effort}:${String(rung.ceilingTokens)}`),
+      ]);
+      return { budget, rows };
+    }
+
+    it('leaves unmarked a turn whose candidates the balance cuts at the low rung, though every graded ceiling sits at its room', () => {
+      const { budget, rows } = searchingTurn(8000, 4_400_000_000n);
+
+      expect(rows).toEqual([
+        ['pinned', 'v/m1', 8000, 8000, ['off:8000', 'low:8000']],
+        ['candidate', 'v/m2', 7583, 7583, ['off:7583', 'low:7570']],
+        ['candidate', 'v/m3', 7583, 7583, ['off:7583', 'low:7570']],
+        ['candidate', 'v/m4', 7583, 7583, ['off:7583', 'low:7570']],
+      ]);
+      expect(budget.maxAnswerTokens).toBe(7583);
+      expect(budget.answerHeldByRoom).toBeUndefined();
+    });
+
+    it('leaves unmarked a turn whose named sibling the balance cuts at the low rung, though every candidate sits at its room', () => {
+      const { budget, rows } = searchingTurn(9000, 4_500_000_000n);
+
+      expect(rows).toEqual([
+        ['pinned', 'v/m1', 9000, 9000, ['off:9000', 'low:8548']],
+        ['candidate', 'v/m2', 7583, 7583, ['off:7583', 'low:7583']],
+        ['candidate', 'v/m3', 7583, 7583, ['off:7583', 'low:7583']],
+        ['candidate', 'v/m4', 7583, 7583, ['off:7583', 'low:7583']],
+      ]);
+      expect(budget.answerHeldByRoom).toBeUndefined();
+    });
+
+    it('marks a turn whose every runnable entry sits at its room at every rung', () => {
+      const { budget, rows } = searchingTurn(8000, 5_000_000_000n);
+
+      expect(rows).toEqual([
+        ['pinned', 'v/m1', 8000, 8000, ['off:8000', 'low:8000']],
+        ['candidate', 'v/m2', 7583, 7583, ['off:7583', 'low:7583']],
+        ['candidate', 'v/m3', 7583, 7583, ['off:7583', 'low:7583']],
+        ['candidate', 'v/m4', 7583, 7583, ['off:7583', 'low:7583']],
+      ]);
+      expect(budget.maxAnswerTokens).toBe(7583);
+      expect(budget.answerHeldByRoom).toBe(true);
+    });
+  });
+
+  it('marks an effort-pinned searching turn whose replies sit at their room, whatever a rung above the pin would cut', () => {
+    // A rung above the pinned one is never applied to a pinned send, so a cut
+    // there blames the balance for a reply the turn cannot produce.
+    const sibling = textRow({
+      id: 'v/m1',
+      maxOutputTokens: 16_000,
+      reasoning: { supportedEfforts: ['high', 'medium', 'low'] },
+    });
+    const twoWord = (id: string, maxOutputTokens: number): Model =>
+      textRow({ id, maxOutputTokens, reasoning: { supportedEfforts: ['medium', 'low'] } });
+    const spendable = 11_000_000_000n;
+    const options = slotOptions({
+      catalog: [sibling, twoWord('v/m2', 4000), twoWord('v/m3', 6000)],
+      pinned: [sibling],
+      promptChars: 4000,
+      inputChars: 4000,
+      spendable,
+      webSearch: true,
+      effort: 'low',
+    });
+    const budget = budgetOf(
+      input({
+        models: [smartRow, sibling],
+        payerSpendableNanoUsd: spendable,
+        webSearch: true,
+        turnOptions: options,
+      })
+    );
+
+    const runnable = options.admissible.sendable ? options.admissible.runnable : [];
+    expect(
+      runnable.map((entry) => [
+        entry.kind,
+        entry.modelId,
+        entry.ceilingTokens,
+        entry.answerRoomTokens,
+      ])
+    ).toEqual([
+      ['pinned', 'v/m1', 16_000, 16_000],
+      ['candidate', 'v/m3', 6000, 6000],
+    ]);
+    expect(budget.maxAnswerTokens).toBe(6000);
+    expect(budget.maxAnswerTokens).toBeLessThan(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD);
+    expect(budget.answerHeldByRoom).toBe(true);
+  });
+
+  it('leaves a refused Smart-slot turn unmarked', () => {
+    const budget = slotBudget([candidate('vendor/a', 4000)], 0n);
+
+    expect([budget.maxOutputTokens, budget.answerHeldByRoom]).toEqual([0, undefined]);
+  });
+});
+
 describe('textTurnBudget on a selection with no price', () => {
   it('answers no budget for a selected row that serves only one rate', () => {
-    const halfPriced = textRow({ pricing: { inputPerToken: '10000' } });
+    const halfPriced = textRow({
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000' },
+    });
 
     expect(textTurnBudget(input({ models: [model, halfPriced] }))).toBeUndefined();
   });

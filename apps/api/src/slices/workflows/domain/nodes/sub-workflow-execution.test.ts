@@ -22,6 +22,8 @@ function makeCtx(): NodeRunContext {
     clock: { now: () => 0 },
     rng: { random: () => 0.5 },
     signal: new AbortController().signal,
+    spend: { isOpen: () => true, report: () => undefined },
+    runId: undefined,
   };
 }
 

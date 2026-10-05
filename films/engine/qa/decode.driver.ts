@@ -23,9 +23,9 @@ import type { StreamProbe } from './evidence.js';
 import type { Raster } from './raster.js';
 
 /** Bytes of one decoded yuv420p frame: a full-size luma plane and two quarter-size chroma planes. */
-export const YUV_FRAME_BYTES = (WIDTH * HEIGHT * 3) / 2;
+const YUV_FRAME_BYTES = (WIDTH * HEIGHT * 3) / 2;
 /** Bytes of one decoded RGB frame. */
-export const RGB_FRAME_BYTES = WIDTH * HEIGHT * 3;
+const RGB_FRAME_BYTES = WIDTH * HEIGHT * 3;
 /** Bytes of a frame's luma plane, the first plane of a yuv420p frame. */
 export const LUMA_BYTES = WIDTH * HEIGHT;
 

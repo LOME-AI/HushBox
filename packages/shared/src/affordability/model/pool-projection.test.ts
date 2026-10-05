@@ -77,7 +77,7 @@ describe('poolModelFromDescriptor', () => {
     return {
       id: 'vendor/model',
       provider: 'vendor',
-      version: '3',
+      version: '4',
       inputs: ['text'],
       outputs: ['text'],
       parameters: {},

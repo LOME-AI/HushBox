@@ -28,7 +28,8 @@ import feeSeams from './rules/fee-seams.mjs';
  *   raw provider per-call price, baked billable once (ceil) by its only reader.
  * - `apps/api/src/slices/models/domain/catalog/normalize.ts` — catalog ingestion:
  *   every stored rate baked billable (ceil), the first of the two money-path
- *   seams.
+ *   seams, and the un-bake of the ceiling into `max_price` that the refresh's
+ *   band count compares endpoint rates against.
  * - `apps/api/src/slices/billing/domain/money.ts` — the ModelProvider port's
  *   charge conversion (half-even), the second money-path seam, and the routing
  *   cap's un-bake of a billable rate into `max_price`.

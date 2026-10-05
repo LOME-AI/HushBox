@@ -1,14 +1,43 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
 import { ChatRequestError, ChatRunFailedError } from '@/hooks/chat/use-chat-stream';
 import { handleTurnError, turnErrorContent, turnNoticeOf } from '@/hooks/chat/turn-error';
 import { turnNoticeForCode, turnNoticeText } from '@/lib/chat/turn-notice';
-import { useChatErrorStore } from '@/stores/chat/error';
+import { useChatErrorStore, type FailedTurn } from '@/stores/chat/error';
 import type * as React from 'react';
+import type { Message } from '@/lib/api/api';
 import type { PromptInputRef } from '@/components/chat/message/types';
 
 function inputRef(focus: () => void = vi.fn()): React.RefObject<PromptInputRef | null> {
   const input: PromptInputRef = { focus };
   return { current: input };
+}
+
+const TEST_INSTANT = isoAt(TEST_DAY_START);
+
+function failedSend(content: string): FailedTurn {
+  const question: Message = {
+    id: 'q1',
+    conversationId: 'conv-1',
+    role: 'user',
+    content,
+    createdAt: TEST_INSTANT,
+  };
+  return {
+    retry: {
+      kind: 'send',
+      request: {
+        conversationId: 'conv-1',
+        models: ['model-a'],
+        userMessage: { content },
+        messagesForInference: [{ role: 'user', content }],
+        fundingSource: 'personal_balance',
+      },
+      turn: {},
+      question,
+    },
+    storedIds: ['q1'],
+  };
 }
 
 describe('handleTurnError', () => {
@@ -19,7 +48,7 @@ describe('handleTurnError', () => {
   it('stores a rate-limit refusal as a notice worded with its wait', () => {
     handleTurnError(
       new ChatRequestError('RATE_LIMITED', { retryAfterSeconds: 3 }),
-      'Hello',
+      failedSend('Hello'),
       'fork-1',
       inputRef()
     );
@@ -30,11 +59,24 @@ describe('handleTurnError', () => {
   });
 
   it('stores the failed content beside the notice', () => {
-    handleTurnError(new ChatRunFailedError('UNAVAILABLE'), 'My message', 'main', inputRef());
+    handleTurnError(
+      new ChatRunFailedError('UNAVAILABLE'),
+      failedSend('My message'),
+      'main',
+      inputRef()
+    );
 
     expect(useChatErrorStore.getState().getError('main')?.failedUserMessage.content).toBe(
       'My message'
     );
+  });
+
+  it('stores the failed turn beside the notice', () => {
+    const failedTurn = failedSend('My message');
+
+    handleTurnError(new ChatRunFailedError('UNAVAILABLE'), failedTurn, 'main', inputRef());
+
+    expect(useChatErrorStore.getState().getError('main')?.failedTurn).toBe(failedTurn);
   });
 
   it('reports an unexpected failure and refocuses the composer', () => {
@@ -42,7 +84,7 @@ describe('handleTurnError', () => {
     const focus = vi.fn();
     const failure = new Error('boom');
 
-    handleTurnError(failure, 'Hello', 'main', inputRef(focus));
+    handleTurnError(failure, failedSend('Hello'), 'main', inputRef(focus));
 
     expect(consoleError).toHaveBeenCalledWith('Turn failed:', failure);
     expect(focus).toHaveBeenCalled();
@@ -52,7 +94,12 @@ describe('handleTurnError', () => {
   it('leaves the composer focus alone for a wire refusal', () => {
     const focus = vi.fn();
 
-    handleTurnError(new ChatRequestError('CONCURRENT_RUN'), 'Hello', 'main', inputRef(focus));
+    handleTurnError(
+      new ChatRequestError('CONCURRENT_RUN'),
+      failedSend('Hello'),
+      'main',
+      inputRef(focus)
+    );
 
     expect(focus).not.toHaveBeenCalled();
   });

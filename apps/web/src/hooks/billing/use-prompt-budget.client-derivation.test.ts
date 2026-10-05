@@ -135,7 +135,11 @@ const TEXT_MODEL: Model = {
   contextLength: 128_000,
   created: OLD_RELEASE_SECONDS,
   maxOutputTokens: 4096,
-  pricing: { inputPerToken: INPUT_RATE_NANO.toString(), outputPerToken: '30000' },
+  pricing: {
+    anchorContextTokens: 1_000_000,
+    inputPerToken: INPUT_RATE_NANO.toString(),
+    outputPerToken: '30000',
+  },
 };
 
 vi.mock('@/hooks/models/models', () => ({

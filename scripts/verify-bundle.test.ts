@@ -4,6 +4,8 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 
+import { spawnSync } from 'node:child_process';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { Destination, Mode, ref, secret } from '../packages/shared/src/env/env.config.js';
@@ -13,6 +15,7 @@ import { GROWTH_SCROLL_EVENTS } from '../packages/shared/src/growth/enums.js';
 import { BUILD_TARGET, resolveOrtAssets, type OrtAsset } from './lib/bundling/seam.js';
 import { PRE_PAINT_SCRIPTS } from './lib/bundling/pre-paint-scripts-plugin.js';
 import { readCommandLine, type FlagRecord } from './lib/cli/command-line.js';
+import { ENV_MODE_VARIABLE } from './lib/stack/stack-mode.js';
 import {
   IOS_PROJECT_PATH,
   collectBuildTargetViolations,
@@ -25,6 +28,7 @@ import {
   PAGES_MAX_FILE_BYTES,
   appBundleOptions,
   bakesE2eBuildFlag,
+  commandLineBundleOptions,
   PAGES_MAX_FILE_COUNT,
   checkPagesLimits,
   collectBundleViolations,
@@ -38,6 +42,8 @@ import {
   noShippingBundlesNotice,
   REACT_DEVELOPMENT_BUILD_MARKER,
   requestedDistributionDirectories,
+  shippingBundleOptions,
+  requestedMode,
   shipsBundlesIn,
   requiredE2eBuildFlagValue,
   verifyBundle,
@@ -1112,6 +1118,22 @@ describe('appBundleOptions', () => {
 
   it('names no env file for a caller that can name no stack', () => {
     expect(appBundleOptions('/repo', 'apps/web').stackEnvFile).toBeUndefined();
+  });
+
+  it('declares an empty frontend supply for the sandbox origin, which reads no env file', () => {
+    expect(appBundleOptions('/repo', 'apps/sandbox', undefined, Mode.Production).stackEnvFile).toBe(
+      null
+    );
+  });
+
+  it('holds a shipping build to the production environment file', () => {
+    expect(shippingBundleOptions('/repo', 'apps/admin', Mode.Production).stackEnvFile).toBe(
+      path.join('/repo', '.env.production')
+    );
+  });
+
+  it('compares nothing for a build that ships nothing', () => {
+    expect(shippingBundleOptions('/repo', 'apps/admin', Mode.E2E).stackEnvFile).toBeUndefined();
   });
 
   it('throws for an app that never declared a TTS expectation', () => {
@@ -2382,9 +2404,50 @@ describe('collectBundleViolations against the stack a build was invoked for', ()
     ).toEqual([]);
   });
 
-  // The command-line verifier runs over whatever a directory holds, including
-  // the OTA dists a native build writes outside the generated file altogether,
-  // so it names no stack and this comparison does not run.
+  it('admits another value for a key the build declares it bakes in place of the file', async () => {
+    await writeStackEnvFile(['VITE_API_URL="http://localhost:10500"', 'VITE_PLATFORM="web"']);
+    await writeStackFile(
+      'assets/index-abc.js',
+      bakedEnvChunk({ VITE_API_URL: 'http://localhost:10500', VITE_PLATFORM: 'ios' })
+    );
+
+    expect(
+      await collectBundleViolations({
+        distributionDir: stackDistribution,
+        shipsTts: false,
+        stackEnvFile,
+        overriddenKeys: ['VITE_PLATFORM'],
+      })
+    ).toEqual([]);
+  });
+
+  it('reports any baked value in a bundle whose build declares an empty supply', async () => {
+    await writeStackFile('assets/index-abc.js', bakedEnvChunk({ VITE_API_URL: 'planted' }));
+
+    const violations = await collectBundleViolations({
+      distributionDir: stackDistribution,
+      shipsTts: false,
+      stackEnvFile: null,
+    });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('VITE_API_URL');
+  });
+
+  it('accepts a bundle baking nothing where its build declares an empty supply', async () => {
+    await writeStackFile('assets/index-abc.js', 'const e = 1;\n');
+
+    expect(
+      await collectBundleViolations({
+        distributionDir: stackDistribution,
+        shipsTts: false,
+        stackEnvFile: null,
+      })
+    ).toEqual([]);
+  });
+
+  // A caller building under a local stack with values of its own names no stack,
+  // so this comparison does not run for it.
   it('compares nothing when the caller names no stack', async () => {
     await writeStackEnvFile(['VITE_API_URL="http://localhost:10500"']);
     await writeStackFile(
@@ -2395,6 +2458,95 @@ describe('collectBundleViolations against the stack a build was invoked for', ()
     expect(
       await collectBundleViolations({ distributionDir: stackDistribution, shipsTts: false })
     ).toEqual([]);
+  });
+});
+
+describe('the mode the command line verifies under', () => {
+  const REPO_ROOT = path.resolve(import.meta.dirname, '..');
+
+  it('answers the mode a run names', () => {
+    expect(requestedMode({ [ENV_MODE_VARIABLE]: Mode.Production })).toBe(Mode.Production);
+  });
+
+  it('refuses a run that names no mode', () => {
+    expect(() => requestedMode({})).toThrow(`${ENV_MODE_VARIABLE} names no mode`);
+  });
+
+  it('exits non-zero from the command line when the run names no mode', () => {
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => key !== ENV_MODE_VARIABLE)
+    );
+
+    const run = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', path.join(REPO_ROOT, 'scripts', 'verify-bundle.ts')],
+      { cwd: REPO_ROOT, encoding: 'utf8', env }
+    );
+
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain(`${ENV_MODE_VARIABLE} names no mode`);
+  });
+});
+
+describe('the options the command line verifies a web dist with', () => {
+  let repoRoot: string;
+
+  /** The inlined `import.meta.env` object as a minified build bakes it. */
+  const bakedEnv = (entries: Readonly<Record<string, string>>): string =>
+    `const e={${Object.entries(entries)
+      .map(([key, value]) => `${key}:\`${value}\``)
+      .join(',')}};\n`;
+
+  async function writeOtaBundle(entries: Readonly<Record<string, string>>): Promise<void> {
+    const assets = path.join(repoRoot, 'apps', 'web', 'dist-ios', 'assets');
+    await fs.mkdir(assets, { recursive: true });
+    await fs.writeFile(path.join(assets, 'index-abc.js'), bakedEnv(entries));
+  }
+
+  async function violationsNaming(key: string): Promise<string[]> {
+    const options = commandLineBundleOptions(repoRoot, 'dist-ios', {});
+    const violations = await collectBundleViolations(options);
+    return violations.filter((violation) => violation.includes(key));
+  }
+
+  beforeEach(async () => {
+    repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'verify-bundle-cli-'));
+    await fs.writeFile(
+      path.join(repoRoot, '.env.production'),
+      'VITE_API_URL="https://api.example.test"\nVITE_PLATFORM="web"\n'
+    );
+  });
+
+  afterEach(async () => {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  });
+
+  it('holds the bundle to the production environment file', () => {
+    expect(commandLineBundleOptions(repoRoot, 'dist-ios', {}).stackEnvFile).toBe(
+      path.join(repoRoot, '.env.production')
+    );
+  });
+
+  it('fails an OTA bundle baking a variable the production file does not declare', async () => {
+    await writeOtaBundle({
+      VITE_API_URL: 'https://api.example.test',
+      VITE_PLATFORM: 'ios',
+      VITE_UNREGISTERED: 'planted',
+    });
+
+    expect(await violationsNaming('VITE_UNREGISTERED')).toHaveLength(1);
+  });
+
+  it('passes the iOS bundle baking its own platform', async () => {
+    await writeOtaBundle({ VITE_API_URL: 'https://api.example.test', VITE_PLATFORM: 'ios' });
+
+    expect(await violationsNaming('VITE_PLATFORM')).toEqual([]);
+  });
+
+  it('carries what the command line states about delivery', () => {
+    expect(
+      commandLineBundleOptions(repoRoot, 'dist', { '--not-served-over-http': true }).servedOverHttp
+    ).toBe(false);
   });
 });
 

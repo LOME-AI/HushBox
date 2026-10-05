@@ -212,8 +212,13 @@ function NeedsAttentionGroup({
   );
 }
 
-function SettingsPage(): React.JSX.Element {
+/** The link row, inside the page body's pinned band, so its section tracking reads the band. */
+function SettingsNav(): React.JSX.Element {
   const currentSection = useSectionInView(SETTINGS_SECTION_IDS);
+  return <AccountNav current={currentSection} />;
+}
+
+function SettingsPage(): React.JSX.Element {
   const user = useAuthStore((s) => s.user);
   const customInstructions = useAuthStore((s) => s.customInstructions);
   const isInstructionsReadUnresolved = useAuthStore(selectInstructionsReadUnresolved);
@@ -293,7 +298,7 @@ function SettingsPage(): React.JSX.Element {
 
       <PageBody
         testId={TEST_IDS.settingsContent}
-        pinned={<AccountNav current={currentSection} />}
+        pinned={<SettingsNav />}
         className="flex flex-col gap-9 pt-6 pb-16"
       >
         <NeedsAttentionGroup

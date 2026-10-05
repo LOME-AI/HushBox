@@ -19,10 +19,12 @@ import type { InferResponseType } from 'hono/client';
  * viewer.
  * `effectiveRemainingNanoUsd` is the backend's own hold-aware `min(member cap
  * remaining − member holds, conversation cap remaining − conversation holds,
- * owner balance)` — the exact value admission gates on — so the frontend never
- * re-derives it. The owner-balance dimension stays RAW (never hold-aware) by
- * ruling: members must not infer owner activity. A non-owner viewer receives
- * only their own member row; the owner receives every non-owner member's.
+ * owner spendable funds − owner wallet holds)` — the exact value admission
+ * gates on — so the frontend never re-derives it. The owner dimension is the
+ * owner's spendable funds (the balance plus the cushion it carries) less every
+ * active hold on the owner's wallet, from any run that wallet pays for in any
+ * conversation. A non-owner viewer receives only their own member row; the
+ * owner receives every non-owner member's.
  */
 export interface ConversationBudgetsResponse {
   conversationCapNanoUsd: string;

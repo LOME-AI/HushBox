@@ -39,7 +39,6 @@ export class DocumentPanelPage {
   readonly page: Page;
   readonly panel: Locator;
   readonly scrollArea: Locator;
-  readonly resizeHandle: Locator;
   readonly highlightedCode: Locator;
   readonly closeButton: Locator;
   readonly downloadButton: Locator;
@@ -49,7 +48,6 @@ export class DocumentPanelPage {
     this.page = page;
     this.panel = page.getByTestId(TEST_IDS.documentPanel);
     this.scrollArea = page.getByTestId(TEST_IDS.documentPanelScroll);
-    this.resizeHandle = page.getByTestId(TEST_IDS.resizeHandle);
     this.highlightedCode = page.getByTestId(TEST_IDS.highlightedCode);
     this.closeButton = page.getByRole('button', { name: 'Close panel' });
     this.downloadButton = this.panel.getByRole('button', { name: 'Download file' });
@@ -83,13 +81,14 @@ export class DocumentPanelPage {
     return this.panel.getByRole('button', { name: 'Exit fullscreen' });
   }
 
-  /** Raw/rendered toggle (mermaid only) */
-  showRawButton(): Locator {
-    return this.panel.getByRole('button', { name: 'Show raw' });
+  /** The bar's Output view, offered for every kind with a preview: mermaid and the runnable kinds. */
+  outputView(): Locator {
+    return this.panel.getByRole('radio', { name: 'Output' });
   }
 
-  showRenderedButton(): Locator {
-    return this.panel.getByRole('button', { name: 'Show rendered' });
+  /** The bar's Code view, which shows the document's source. */
+  codeView(): Locator {
+    return this.panel.getByRole('radio', { name: 'Code' });
   }
 
   /** Panel title heading */
@@ -153,6 +152,17 @@ export class DocumentPanelPage {
     return box?.width ?? 0;
   }
 
+  /**
+   * Whether the panel docks beside the thread rather than lying over it. The main column
+   * decides, so a viewport alone cannot say: a docked panel takes its place in the row, where
+   * one over the thread or filling a phone is positioned over it.
+   */
+  async isDocked(): Promise<boolean> {
+    return this.panel.evaluate(
+      (element) => !['absolute', 'fixed'].includes(globalThis.getComputedStyle(element).position)
+    );
+  }
+
   // --- Runnable documents (html/js/react/python) ---
   //
   // A runnable document executes inside the cross-origin sandbox iframe the app
@@ -180,9 +190,12 @@ export class DocumentPanelPage {
     return this.panel.locator('iframe').contentFrame();
   }
 
-  /** Python-only: the explicit Run trigger (html/js/react auto-render, python waits for Run). */
+  /**
+   * Python-only: the explicit Run trigger (html/js/react auto-render, python waits for Run). It
+   * reads Run again once the document has run.
+   */
   runButton(): Locator {
-    return this.panel.getByRole('button', { name: 'Run', exact: true });
+    return this.panel.getByRole('button', { name: /^Run( again)?$/ });
   }
 
   /** Python-only: Stop tears the frame down, killing even a main-thread run. */

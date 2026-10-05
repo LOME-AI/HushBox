@@ -7,9 +7,10 @@ import {
   serializeNanoUSD,
 } from '@hushbox/shared';
 import { holdAwareGroupHeadroom } from '@hushbox/shared/affordability';
-import { ResultAsync, okAsync } from '../../../../lib/result/index.js';
-import { holdReadoutAt, readBudgetScopeHolds } from '../../../billing/public/budget-scope-holds.js';
+import { okAsync } from '../../../../lib/result/index.js';
+import { holdReadoutAt, readGroupHolds } from '../../../billing/public/budget-scope-holds.js';
 import { refusalSchema } from '../outcomes.js';
+import type { ResultAsync } from '../../../../lib/result/index.js';
 import type { MemberPrivilege } from '@hushbox/shared';
 import type { Database } from '@hushbox/db';
 import type { DomainError } from '../../../../lib/errors/index.js';
@@ -242,23 +243,32 @@ function readMemberBudgetRows(
 /**
  * Assembles the display view once every read has resolved (a pure builder).
  * `holds` pairs positionally with the requested scopes: index 0 is the
- * conversation scope, index i+1 is `memberRows[i]`'s member scope. Each
- * dimension subtracts its active scope holds before the min, so the shown
- * remaining reflects in-flight runs exactly as the admission script's
- * per-scope `remaining − scopeSum ≥ estimate` check would.
+ * conversation scope, index i+1 is `memberRows[i]`'s member scope. Each scope
+ * dimension subtracts its active scope holds, and the owner dimension every
+ * active hold on the owner's wallet (`ownerHeld`), before the min, so the shown
+ * remaining reflects in-flight runs exactly as the admission script's per-scope
+ * and wallet checks would.
  */
 interface BudgetsViewInputs {
   readonly conversationCap: bigint;
   readonly conversationSpent: bigint;
   readonly ownerBalance: bigint;
+  readonly ownerHeld: bigint;
   readonly ownerViewer: boolean;
   readonly memberRows: readonly MemberBudgetRow[];
   readonly holds: readonly ActiveHoldsReadout[];
 }
 
 function buildBudgetsView(inputs: BudgetsViewInputs): ConversationBudgetsView {
-  const { conversationCap, conversationSpent, ownerBalance, ownerViewer, memberRows, holds } =
-    inputs;
+  const {
+    conversationCap,
+    conversationSpent,
+    ownerBalance,
+    ownerHeld,
+    ownerViewer,
+    memberRows,
+    holds,
+  } = inputs;
   const conversationHeld = holdReadoutAt(holds, 0).heldNanoUsd;
   // Validated where it is built: the schema is this view's runtime invariant,
   // and a shape it does not declare is a server defect (a throw), never a
@@ -280,7 +290,8 @@ function buildBudgetsView(inputs: BudgetsViewInputs): ConversationBudgetsView {
         spentNanoUsd: serialize(memberSpent),
         // The SAME hold-aware composition the served funding snapshot runs, so
         // this figure is the gate rather than a second opinion on it. The owner
-        // dimension therefore carries that wallet's cushion, and
+        // dimension therefore carries that wallet's cushion less every hold on
+        // it, from every run the owner's wallet pays for in any conversation, and
         // `ownerBalanceNanoUsd` above is the raw balance the owner's surface
         // shows.
         effectiveRemainingNanoUsd: serialize(
@@ -290,6 +301,7 @@ function buildBudgetsView(inputs: BudgetsViewInputs): ConversationBudgetsView {
             conversationRemainingNanoUsd: conversationCap - conversationSpent,
             conversationHeldNanoUsd: conversationHeld,
             ownerPurchasedBalanceNanoUsd: ownerBalance,
+            ownerHeldNanoUsd: ownerHeld,
           })
         ),
       };
@@ -325,10 +337,12 @@ interface BudgetsReadDeps {
   readonly redis: RedisClient;
 }
 
-/** The display's database figures: the conversation's spend, the owner's balance, the member rows. */
+/** The display's database figures: the conversation's spend, the owner's purchased wallet, the member rows. */
 interface DurableFigures {
   readonly conversationSpent: bigint;
   readonly ownerBalance: bigint;
+  /** `null` when the owner holds no purchased wallet. */
+  readonly ownerWalletId: string | null;
   readonly memberRows: readonly MemberBudgetRow[];
 }
 
@@ -344,10 +358,14 @@ function readDurableFigures(
 ): ResultAsync<DurableFigures, DomainError> {
   return billing.readConversationSpent(db, conversation.id).andThen((conversationSpent) =>
     billing.readWallets(db, conversation.ownerUserId).andThen((wallets) => {
-      const ownerBalance =
-        wallets.find((wallet) => wallet.type === 'purchased')?.balanceNanoUsd ?? 0n;
+      const ownerPurchased = wallets.find((wallet) => wallet.type === 'purchased');
       return readMemberBudgetRows(billing, db, visible).map(
-        (memberRows): DurableFigures => ({ conversationSpent, ownerBalance, memberRows })
+        (memberRows): DurableFigures => ({
+          conversationSpent,
+          ownerBalance: ownerPurchased?.balanceNanoUsd ?? 0n,
+          ownerWalletId: ownerPurchased?.id ?? null,
+          memberRows,
+        })
       );
     })
   );
@@ -371,28 +389,33 @@ function loadBudgetsView(
       visibleMemberId === null
         ? nonOwner
         : nonOwner.filter((member) => member.id === visibleMemberId);
-    // One round trip over the conversation scope + every visible member scope
-    // (M+1 hashes, one script exec) — the same hashes admission gates against.
-    // Redis down fails the read closed (typed unavailable → 503), matching
-    // admission: a display that silently dropped the hold component would show
-    // a remaining the gate does not honor.
+    // One round trip over the conversation scope, every visible member scope
+    // and the owner's wallet (one script exec) — the same hashes admission
+    // gates against. It follows the durable reads, which name the owner's
+    // wallet. Redis down fails the read closed (typed unavailable → 503),
+    // matching admission: a display that silently dropped the hold component
+    // would show a remaining the gate does not honor.
     const scopeTargets: readonly BudgetScopeHoldRef[] = [
       { scope: 'conversation', conversationId: conversation.id },
       ...visible.map((member): BudgetScopeHoldRef => ({ scope: 'member', memberId: member.id })),
     ];
-    return ResultAsync.combine([
-      readDurableFigures(billing, db, conversation, visible),
-      readBudgetScopeHolds(redis, scopeTargets, now),
-    ]).map(
-      ([durable, holds]): Outcome<ConversationBudgetsView> =>
-        buildBudgetsView({
-          conversationCap: conversation.conversationBudgetNanoUsd,
-          conversationSpent: durable.conversationSpent,
-          ownerBalance: durable.ownerBalance,
-          ownerViewer: visibleMemberId === null,
-          memberRows: durable.memberRows,
-          holds,
-        })
+    return readDurableFigures(billing, db, conversation, visible).andThen((durable) =>
+      readGroupHolds(
+        redis,
+        { scopes: scopeTargets, ownerWalletId: durable.ownerWalletId },
+        now
+      ).map(
+        (holds): Outcome<ConversationBudgetsView> =>
+          buildBudgetsView({
+            conversationCap: conversation.conversationBudgetNanoUsd,
+            conversationSpent: durable.conversationSpent,
+            ownerBalance: durable.ownerBalance,
+            ownerHeld: holds.ownerHeldNanoUsd,
+            ownerViewer: visibleMemberId === null,
+            memberRows: durable.memberRows,
+            holds: holds.scopes,
+          })
+      )
     );
   });
 }
@@ -402,10 +425,12 @@ function loadBudgetsView(
  * ladder). Composes billing's per-member caps + cumulative spend, the
  * conversation's cumulative spend, and the owner's purchased-wallet balance, and
  * derives each member's effective remaining via the same helper admission uses —
- * hold-aware: each group dimension subtracts its active scope holds first.
- * A stranger (non-member of an existing conversation) is forbidden (403); a
- * missing conversation is not-found (404). The owner sees every non-owner
- * member and their own balance; a non-owner member sees only their own row.
+ * hold-aware: each scope dimension subtracts its active scope holds, and the
+ * owner dimension the active holds on the owner's wallet, first.
+ * A caller with no active membership gets the same not-found (404) as a missing
+ * conversation, so the read never confirms a conversation exists. The owner sees
+ * every non-owner member and their own balance; a non-owner member sees only
+ * their own row.
  */
 export function getConversationBudgets(
   deps: BudgetsReadDeps,
@@ -420,7 +445,7 @@ export function getConversationBudgets(
       .activeByUser(params.conversationId, params.callerUserId)
       .andThen((caller) => {
         if (caller === null) {
-          return okAsync<Outcome<ConversationBudgetsView>, DomainError>({ refusal: 'forbidden' });
+          return okAsync<Outcome<ConversationBudgetsView>, DomainError>({ refusal: 'not-found' });
         }
         const ownerViewer = conversation.ownerUserId === params.callerUserId;
         return loadBudgetsView(deps, {

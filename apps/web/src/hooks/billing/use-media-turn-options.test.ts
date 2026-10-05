@@ -42,8 +42,8 @@ vi.mock('@/stores/model', () => ({
 }));
 
 const PER_IMAGE_NANO = '40000000';
-/** One image turn: 40,000,000 to generate plus 8,000,000 bytes × 18 to keep. */
-const IMAGE_TURN_NANO = '184000000';
+/** One image turn: 40,000,000 to generate plus the run's 20,971,520 bytes × 18 to keep. */
+const IMAGE_TURN_NANO = '417487360';
 
 function imageRow(overrides: Partial<Model> & { id: string }): Model {
   return {
@@ -189,7 +189,7 @@ describe('useMediaTurnOptions', () => {
   });
 
   it('greys a model row the payer cannot afford', () => {
-    expect(optionsFor('183999999').options?.affordable.all).toEqual([
+    expect(optionsFor('417487359').options?.affordable.all).toEqual([
       {
         modelId: 'vendor/imagen',
         availability: { available: false, reason: 'insufficient_funds' },
@@ -251,19 +251,19 @@ describe('useMediaTurnOptions', () => {
   });
 
   it('projects a per-second video row so its priced axis carries a verdict', () => {
-    // 4s at 720p is the floor: 400,000,000n to generate and 360,000,000n to
+    // 4s at 720p is the floor: 400,000,000n to generate and 377,487,360n to
     // keep. 1080p generates at twice the rate and stores the same bytes.
-    expect(videoOptionIds(videoOptionsFor('760000000'), 'resolution')).toEqual(['720p']);
+    expect(videoOptionIds(videoOptionsFor('777487360'), 'resolution')).toEqual(['720p']);
   });
 
   it('leaves every offered resolution ungreyed for a payer who can afford them', () => {
-    expect(videoOptionIds(videoOptionsFor('1160000000'), 'resolution')).toEqual(['720p', '1080p']);
+    expect(videoOptionIds(videoOptionsFor('1177487360'), 'resolution')).toEqual(['720p', '1080p']);
   });
 
   it('prices the open duration axis at the resolution the store has pinned', () => {
-    // The store pins 720p, so 8 seconds costs 1,520,000,000n and this payer can
-    // reach it; priced at 1080p it would cost 2,320,000,000n and be greyed.
-    expect(videoOptionIds(videoOptionsFor('1520000000'), 'durationSeconds')).toEqual(['4', '8']);
+    // The store pins 720p, so 8 seconds costs 1,177,487,360n and this payer can
+    // reach it; priced at 1080p it would cost 1,977,487,360n and be greyed.
+    expect(videoOptionIds(videoOptionsFor('1177487360'), 'durationSeconds')).toEqual(['4', '8']);
   });
 
   it('prices a video row declaring no durations at the duration the store has pinned', () => {
@@ -283,7 +283,7 @@ describe('useMediaTurnOptions', () => {
       ).result.current.options?.affordable.all;
     };
 
-    expect([rowAt('760000000'), rowAt('759999999')]).toEqual([
+    expect([rowAt('777487360'), rowAt('777487359')]).toEqual([
       [{ modelId: 'vendor/anyduration', availability: { available: true } }],
       [
         {
@@ -400,26 +400,26 @@ describe('useMediaTurnOptions', () => {
     expect(videoOptionIds(result.current, 'resolution')).toEqual(['720p']);
   });
 
-  it('prices the pair 644,000,000 nano above the half a shrunken catalog still lists', () => {
-    // 46,000,000 and 500,000,000 to generate, 8,000,000 bytes × 18 each to keep,
-    // and 300,000 for the prompt's own storage: 190,300,000 for the cheap row
-    // alone, 834,300,000 for both. That gap is what a send priced from the
+  it('prices the pair 500,000,000 nano above the half a shrunken catalog still lists', () => {
+    // 46,000,000 and 500,000,000 to generate, the run's 377,487,360 to keep once,
+    // and 300,000 for the prompt's own storage: 423,787,360 for the cheap row
+    // alone, 923,787,360 for both. That gap is what a send priced from the
     // surviving half alone would leave unpriced.
     const both = ['vendor/cheap', 'vendor/dear'];
 
     expect([
-      mediaGate('190299999', ['vendor/cheap'], ['vendor/cheap'])?.sendable,
-      mediaGate('190300000', ['vendor/cheap'], ['vendor/cheap'])?.sendable,
-      mediaGate('834299999', both, both)?.sendable,
-      mediaGate('834300000', both, both)?.sendable,
+      mediaGate('423787359', ['vendor/cheap'], ['vendor/cheap'])?.sendable,
+      mediaGate('423787360', ['vendor/cheap'], ['vendor/cheap'])?.sendable,
+      mediaGate('923787359', both, both)?.sendable,
+      mediaGate('923787360', both, both)?.sendable,
     ]).toEqual([false, true, false, true]);
   });
 
   it('refuses a send whose stored selection names a model the catalog no longer lists', () => {
     // The request body carries every stored id, so an id the catalog dropped is
     // still generated and still charged. Pricing only the ids the catalog still
-    // lists would clear this send at the cheap row's own 190,300,000.
-    const admissible = mediaGate('190300000', ['vendor/cheap'], ['vendor/cheap', 'vendor/dear']);
+    // lists would clear this send at the cheap row's own 423,787,360.
+    const admissible = mediaGate('423787360', ['vendor/cheap'], ['vendor/cheap', 'vendor/dear']);
 
     expect(admissible).toMatchObject({
       sendable: false,

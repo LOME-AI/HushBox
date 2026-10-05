@@ -1,10 +1,16 @@
-import { adminPreviewPath, MARKETING_BASE_URL, ROUTES } from '@hushbox/shared';
+import {
+  ADMIN_PREVIEW_PREFIX,
+  adminPreviewPath,
+  MARKETING_BASE_URL,
+  ROUTES,
+} from '@hushbox/shared';
 
 import { expectConsoleErrors } from '../fixtures.js';
 import { test as base, expect } from './fixtures.js';
 import { matrix } from '../../scripts/lib/playwright/browser-matrix.js';
 import { startAdminDevServer } from './helpers/dev-server.js';
 import { openMarketingPreview } from './helpers/preview.js';
+import type { ConsoleErrorMatcher } from '../fixtures.js';
 
 const SPEC_MATRIX = matrix({ engine: 'engine-fixed', formFactor: 'desktop' });
 
@@ -17,25 +23,22 @@ const SPEC_MATRIX = matrix({ engine: 'engine-fixed', formFactor: 'desktop' });
 const ADMIN_SHELL_MARKER = 'noindex, nofollow';
 
 /**
- * The framed copy runs the marketing site's announcement banner
- * (`apps/marketing/src/components/AnnouncementBanner.astro`), whose script
- * fetches the API cross-origin — and the admin origin keeps `connect-src 'self'`
- * on the framed block, because `scripts/generate-headers.ts` relaxes framing
- * there and nothing else. The browser refusing that connection is the policy
- * working: a page this origin serves has no business reaching the API. The
- * banner catches the rejection and still sets its settled marker, so the page
- * these tests read is whole.
+ * The engine's refusal to run a script on a copied page.
  *
- * Two patterns because the engine reports the policy decision and the Fetch
- * API's failure on separate lines. Each is pinned to the banner endpoint AND to
- * the connection refusal, so a refusal naming another URL, a violation of
- * another directive, and a non-CSP failure of this same fetch all still fail
- * the test.
+ * The admin origin serves every copied page a CSP `sandbox` without
+ * `allow-scripts`, so the page runs none of its scripts whether it is loaded
+ * top-level or framed, and the engine logs one error per script it refuses.
+ * That refusal is the policy working. Admitted only from a copied page's own
+ * URL, so a script refused anywhere else on the admin origin still fails the
+ * test.
  */
-const BANNER_CONNECT_REFUSED: RegExp[] = [
-  /^Connecting to 'https?:\/\/[^'\s]+\/announcements\/banner' violates the following Content Security Policy directive: "connect-src 'self'"\./,
-  /^Fetch API cannot load https?:\/\/\S+\/announcements\/banner\. Refused to connect because it violates the document's Content Security Policy\.$/,
-];
+const SCRIPT_REFUSED_TEXT =
+  /^Blocked script execution in '[^']+' because the document's frame is sandboxed and the 'allow-scripts' permission is not set\.$/;
+
+const copiedPageScriptRefused: ConsoleErrorMatcher = (error) =>
+  SCRIPT_REFUSED_TEXT.test(error.text) &&
+  URL.canParse(error.url) &&
+  new URL(error.url).pathname.startsWith(`/${ADMIN_PREVIEW_PREFIX}/`);
 
 const test = base.extend<{ adminDevServerUrl: string }>({
   /**
@@ -65,7 +68,7 @@ const test = base.extend<{ adminDevServerUrl: string }>({
  */
 test.describe('The framed marketing preview', SPEC_MATRIX, () => {
   test('serves a copied marketing page from the admin origin', async ({ adminPage }) => {
-    expectConsoleErrors(adminPage, BANNER_CONNECT_REFUSED);
+    expectConsoleErrors(adminPage, [copiedPageScriptRefused]);
     await openMarketingPreview(adminPage, ROUTES.MARKETING);
     // The copy's own canonical link, which the admin shell has no counterpart
     // for: a landmark role would not tell the two documents apart, so an
@@ -79,7 +82,7 @@ test.describe('The framed marketing preview', SPEC_MATRIX, () => {
   });
 
   test('lets a page on the admin origin frame it', async ({ adminPage }) => {
-    expectConsoleErrors(adminPage, BANNER_CONNECT_REFUSED);
+    expectConsoleErrors(adminPage, [copiedPageScriptRefused]);
     await openMarketingPreview(adminPage, ROUTES.MARKETING);
     const framed = adminPage.url();
     await adminPage.goto('/');

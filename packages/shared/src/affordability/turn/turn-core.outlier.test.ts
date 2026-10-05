@@ -71,6 +71,7 @@ const SMART_SLOT: Selection = {
   modality: 'text',
   pinned: {},
   webSearch: false,
+  effortAuto: true,
 };
 
 function holdFor(
@@ -171,11 +172,17 @@ describe('a high-cost outlier is not in the hold`s MAX domain', () => {
 
 describe('a trial row over the per-message cap carries its own reason', () => {
   const trialFunding = fundingOf(100_000_000n, 'trial');
-  /** 500 input tokens × 1,000 + 2,000 output × 5,000 = 10.5m nano, past the 1¢ cap. */
+  /**
+   * Past the 1¢ cap on {@link LONG_BASIS} and inside it at the trial
+   * classification's 1,000-character exchange, so a trial payer meets it as a
+   * message too costly to send rather than as a premium model.
+   */
   const OVER_CAP: PriceableModel = {
     ...modelOf('over-cap', 5000n),
-    pricing: tokenPricingFixture({ input: 1000n, output: 5000n }),
+    pricing: tokenPricingFixture({ input: 2000n, output: 3500n }),
   };
+  /** 4,000 prompt characters. */
+  const LONG_BASIS: PromptBasis = { ...BASIS, historyChars: 3300 };
   /** The same shape at a fifth of the output rate: 4.5m nano, inside the cap. */
   const UNDER_CAP: PriceableModel = { ...OVER_CAP, modelId: modelId('vendor/under-cap') };
 
@@ -187,7 +194,7 @@ describe('a trial row over the per-message cap carries its own reason', () => {
       ...SMART_SLOT,
       answerSources: { models: [model.modelId], smartSlot: false },
     };
-    const options = getTurnOptions(trialFunding, BASIS, selection, {
+    const options = getTurnOptions(trialFunding, LONG_BASIS, selection, {
       models: catalog,
       nowMs: NOW_MS,
     });
@@ -214,7 +221,7 @@ describe('a trial row over the per-message cap carries its own reason', () => {
       ...SMART_SLOT,
       answerSources: { models: [OVER_CAP.modelId], smartSlot: false },
     };
-    const options = getTurnOptions(fundingOf(100_000_000n), BASIS, selection, {
+    const options = getTurnOptions(fundingOf(100_000_000n), LONG_BASIS, selection, {
       models: [OVER_CAP],
       nowMs: NOW_MS,
     });

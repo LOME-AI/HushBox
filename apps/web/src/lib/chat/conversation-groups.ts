@@ -8,7 +8,7 @@ const DATE_GROUP_ORDER: readonly DateGroup[] = [
 ];
 
 /** Built from calendar fields, so a daylight-saving day of 23 or 25 hours still counts once. */
-function localDayStart(now: Date, daysBefore: number): number {
+export function localDayStart(now: Date, daysBefore: number): number {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysBefore).getTime();
 }
 

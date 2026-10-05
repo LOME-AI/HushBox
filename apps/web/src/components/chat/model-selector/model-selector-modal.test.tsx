@@ -144,7 +144,7 @@ const mockModels: Model[] = [
     contextLength: 128_000,
     description: 'A powerful language model from OpenAI.',
     supportedParameters: [],
-    pricing: { inputPerToken: '10000', outputPerToken: '30000' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000', outputPerToken: '30000' },
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -154,7 +154,7 @@ const mockModels: Model[] = [
     contextLength: 200_000,
     description: 'Anthropic most intelligent model.',
     supportedParameters: [],
-    pricing: { inputPerToken: '3000', outputPerToken: '15000' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '3000', outputPerToken: '15000' },
   },
   {
     id: 'meta-llama/llama-3.1-70b-instruct',
@@ -164,7 +164,7 @@ const mockModels: Model[] = [
     contextLength: 131_072,
     description: 'Open-weight model offering excellent performance.',
     supportedParameters: [],
-    pricing: { inputPerToken: '590', outputPerToken: '790' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '590', outputPerToken: '790' },
   },
 ];
 
@@ -394,7 +394,11 @@ describe('ModelSelectorModal', () => {
         supportedParameters: [],
         // Most-popular so it lands in the top-50% half; priciest there ⇒ Strongest.
         popularityRank: 0,
-        pricing: { inputPerToken: '15000', outputPerToken: '75000' },
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: '15000',
+          outputPerToken: '75000',
+        },
       },
       {
         id: 'openai/gpt-5-nano',
@@ -406,7 +410,7 @@ describe('ModelSelectorModal', () => {
         supportedParameters: [],
         // In the top-50% half; cheapest there ⇒ Best value.
         popularityRank: 1,
-        pricing: { inputPerToken: '100', outputPerToken: '400' },
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '100', outputPerToken: '400' },
       },
       {
         id: 'openai/gpt-4o',
@@ -418,7 +422,7 @@ describe('ModelSelectorModal', () => {
         supportedParameters: [],
         // Least-popular ⇒ dropped from the top-50% half, so it is neither pin.
         popularityRank: 2,
-        pricing: { inputPerToken: '5000', outputPerToken: '15000' },
+        pricing: { anchorContextTokens: 1_000_000, inputPerToken: '5000', outputPerToken: '15000' },
       },
     ];
 
@@ -605,7 +609,11 @@ describe('ModelSelectorModal', () => {
         description: 'Fixture model.',
         supportedParameters: [],
         popularityRank,
-        pricing: { inputPerToken: perToken, outputPerToken: perToken },
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: perToken,
+          outputPerToken: perToken,
+        },
       };
     }
 
@@ -1111,7 +1119,11 @@ describe('ModelSelectorModal', () => {
         contextLength: 200_000,
         description: 'A reasoning model priced for hard problems.',
         supportedParameters: [],
-        pricing: { inputPerToken: '60000', outputPerToken: '240000' },
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: '60000',
+          outputPerToken: '240000',
+        },
       };
       const models = [...mockModels, expensiveModel];
       mockUsePickerOptions.mockReturnValue(pickerOptionsWith(() => ({ available: true }), models));
@@ -1768,7 +1780,11 @@ describe('ModelSelectorModal', () => {
           contextLength: 100_000,
           description: 'Basic model 1',
           supportedParameters: [],
-          pricing: { inputPerToken: '10000', outputPerToken: '20000' },
+          pricing: {
+            anchorContextTokens: 1_000_000,
+            inputPerToken: '10000',
+            outputPerToken: '20000',
+          },
         },
         {
           id: 'basic-2',
@@ -1778,7 +1794,11 @@ describe('ModelSelectorModal', () => {
           contextLength: 200_000,
           description: 'Basic model 2',
           supportedParameters: [],
-          pricing: { inputPerToken: '30000', outputPerToken: '40000' },
+          pricing: {
+            anchorContextTokens: 1_000_000,
+            inputPerToken: '30000',
+            outputPerToken: '40000',
+          },
         },
         {
           id: 'premium-1',
@@ -1788,7 +1808,11 @@ describe('ModelSelectorModal', () => {
           contextLength: 150_000,
           description: 'Premium model 1',
           supportedParameters: [],
-          pricing: { inputPerToken: '50000', outputPerToken: '60000' },
+          pricing: {
+            anchorContextTokens: 1_000_000,
+            inputPerToken: '50000',
+            outputPerToken: '60000',
+          },
         },
         {
           id: 'premium-2',
@@ -1798,7 +1822,11 @@ describe('ModelSelectorModal', () => {
           contextLength: 250_000,
           description: 'Premium model 2',
           supportedParameters: [],
-          pricing: { inputPerToken: '70000', outputPerToken: '80000' },
+          pricing: {
+            anchorContextTokens: 1_000_000,
+            inputPerToken: '70000',
+            outputPerToken: '80000',
+          },
         },
       ];
       const interlacePremiumIds = new Set(['premium-1', 'premium-2']);
@@ -1937,7 +1965,11 @@ describe('ModelSelectorModal', () => {
           supportedParameters: [],
           // Top-50% half; cheapest there ⇒ Best value.
           popularityRank: 0,
-          pricing: { inputPerToken: '10000', outputPerToken: '20000' },
+          pricing: {
+            anchorContextTokens: 1_000_000,
+            inputPerToken: '10000',
+            outputPerToken: '20000',
+          },
         },
         {
           id: 'basic-expensive',
@@ -1949,7 +1981,11 @@ describe('ModelSelectorModal', () => {
           supportedParameters: [],
           // Top-50% half; priciest there ⇒ Strongest.
           popularityRank: 1,
-          pricing: { inputPerToken: '50000', outputPerToken: '60000' },
+          pricing: {
+            anchorContextTokens: 1_000_000,
+            inputPerToken: '50000',
+            outputPerToken: '60000',
+          },
         },
         {
           // Least-popular non-premium filler: keeps the two targets above inside
@@ -1963,7 +1999,11 @@ describe('ModelSelectorModal', () => {
           description: 'Filler basic model',
           supportedParameters: [],
           popularityRank: 2,
-          pricing: { inputPerToken: '30000', outputPerToken: '40000' },
+          pricing: {
+            anchorContextTokens: 1_000_000,
+            inputPerToken: '30000',
+            outputPerToken: '40000',
+          },
         },
         {
           id: 'premium-model',
@@ -1973,7 +2013,11 @@ describe('ModelSelectorModal', () => {
           contextLength: 150_000,
           description: 'Premium model',
           supportedParameters: [],
-          pricing: { inputPerToken: '100000', outputPerToken: '120000' },
+          pricing: {
+            anchorContextTokens: 1_000_000,
+            inputPerToken: '100000',
+            outputPerToken: '120000',
+          },
         },
       ];
       const quickSelectPremiumIds = new Set(['premium-model']);
@@ -2082,9 +2126,12 @@ describe('ModelSelectorModal', () => {
       description: 'Uses the best model for your task',
       supportedParameters: [],
       isSmartModel: true,
-      pricing: { inputPerToken: '39', outputPerToken: '190' },
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '39', outputPerToken: '190' },
       minPricing: { inputPerToken: '39', outputPerToken: '190' },
-      maxPricing: { inputPerToken: '60000', outputPerToken: '180000' },
+      maxPricing: {
+        inputPerToken: '60000',
+        outputPerToken: '180000',
+      },
     };
 
     const modelsWithSmart: Model[] = [smartModelEntry, ...mockModels];
@@ -2507,7 +2554,11 @@ describe('ModelSelectorModal', () => {
         // $0.01/1k input + $0.03/1k output = $0.046/1k with fees (below $0.10 threshold)
         description: 'A cheap model',
         supportedParameters: [],
-        pricing: { inputPerToken: '10000', outputPerToken: '30000' },
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: '10000',
+          outputPerToken: '30000',
+        },
       },
       {
         id: 'expensive-model',
@@ -2518,7 +2569,11 @@ describe('ModelSelectorModal', () => {
         // $0.05/1k input + $0.05/1k output = $0.115/1k with fees (above $0.10 threshold)
         description: 'An expensive model',
         supportedParameters: [],
-        pricing: { inputPerToken: '50000', outputPerToken: '50000' },
+        pricing: {
+          anchorContextTokens: 1_000_000,
+          inputPerToken: '50000',
+          outputPerToken: '50000',
+        },
       },
     ];
 
@@ -2694,7 +2749,7 @@ describe('ModelSelectorModal', () => {
       contextLength: 128_000,
       description: 'Text row model.',
       supportedParameters: [],
-      pricing: { inputPerToken: '10000', outputPerToken: '30000' },
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000', outputPerToken: '30000' },
     };
     const imageRowModel: Model = {
       id: 'google/imagen-row',
@@ -2989,7 +3044,7 @@ describe('ModelSelectorModal', () => {
       contextLength: 128_000,
       description: 'Text model.',
       supportedParameters: [],
-      pricing: { inputPerToken: '10000', outputPerToken: '30000' },
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10000', outputPerToken: '30000' },
     };
     const imageModel: Model = {
       id: 'image-only',

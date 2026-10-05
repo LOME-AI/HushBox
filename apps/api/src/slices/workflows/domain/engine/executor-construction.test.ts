@@ -240,7 +240,7 @@ function runTurn(
       admission: () => Promise.resolve(grant(1_000_000n)),
       settlement: (request) => {
         settlements.push(request);
-        return Promise.resolve();
+        return Promise.resolve({ billed: [] });
       },
     },
     runKey: RUN_KEY,

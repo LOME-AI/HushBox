@@ -39,7 +39,7 @@ describe('extractMediaCostUsd', () => {
     expect(extractMediaCostUsd({ openrouter: { generationId: 'g', cost: 0.42 } })).toBe(0.42);
   });
 
-  it('returns undefined when metadata is undefined (image emits no cost)', () => {
+  it('returns undefined when metadata is undefined', () => {
     expect(extractMediaCostUsd()).toBeUndefined();
   });
 

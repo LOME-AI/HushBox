@@ -24,9 +24,41 @@ function wireRow(overrides: Partial<Model>): Model {
 
 describe('pricingFromWire', () => {
   it('reads a text row’s two served rates as an untiered token schedule', () => {
+    const row = wireRow({
+      pricing: { inputPerToken: '300', outputPerToken: '1500', anchorContextTokens: 200_000 },
+    });
+
+    expect(pricingFromWire(row)).toEqual(
+      tokenPricingFixture({ input: 300n, output: 1500n, anchorContextTokens: 200_000 })
+    );
+  });
+
+  it('reads a text row’s anchor context as the context its tiers are measured against', () => {
+    const row = wireRow({
+      pricing: {
+        inputPerToken: '230',
+        outputPerToken: '1438',
+        anchorContextTokens: 400_000,
+        longContextRates: [
+          { abovePromptTokens: 400_000, inputPerToken: '5750', outputPerToken: '25875' },
+        ],
+      },
+    });
+
+    expect(pricingFromWire(row)).toEqual(
+      tokenPricingFixture({
+        input: 230n,
+        output: 1438n,
+        anchorContextTokens: 400_000,
+        tiers: [{ abovePromptTokens: 400_000, input: 5750n, output: 25_875n }],
+      })
+    );
+  });
+
+  it('leaves a text row that serves no anchor context unpriced', () => {
     const row = wireRow({ pricing: { inputPerToken: '300', outputPerToken: '1500' } });
 
-    expect(pricingFromWire(row)).toEqual(tokenPricingFixture({ input: 300n, output: 1500n }));
+    expect(pricingFromWire(row)).toBeUndefined();
   });
 
   it('reads a text row’s long-context rates as the schedule’s tiers', () => {
@@ -34,6 +66,7 @@ describe('pricingFromWire', () => {
       pricing: {
         inputPerToken: '3450',
         outputPerToken: '17250',
+        anchorContextTokens: 1_000_000,
         longContextRates: [
           { abovePromptTokens: 200_000, inputPerToken: '6900', outputPerToken: '25875' },
         ],
@@ -44,6 +77,7 @@ describe('pricingFromWire', () => {
       tokenPricingFixture({
         input: 3450n,
         output: 17_250n,
+        anchorContextTokens: 1_000_000,
         tiers: [{ abovePromptTokens: 200_000, input: 6900n, output: 25_875n }],
       })
     );
@@ -96,11 +130,15 @@ describe('pricingFromWire', () => {
   });
 
   it('leaves a text row with one rate leg unpriced rather than pricing the other free', () => {
-    expect(pricingFromWire(wireRow({ pricing: { inputPerToken: '300' } }))).toBeUndefined();
+    const row = wireRow({ pricing: { inputPerToken: '300', anchorContextTokens: 200_000 } });
+
+    expect(pricingFromWire(row)).toBeUndefined();
   });
 
   it('leaves a text row that serves a zero rate unpriced', () => {
-    const row = wireRow({ pricing: { inputPerToken: '0', outputPerToken: '1500' } });
+    const row = wireRow({
+      pricing: { inputPerToken: '0', outputPerToken: '1500', anchorContextTokens: 200_000 },
+    });
 
     expect(pricingFromWire(row)).toBeUndefined();
   });
@@ -111,22 +149,32 @@ describe('pricingFromWire', () => {
 });
 
 describe('pricingToWire', () => {
-  it('serves an untiered token schedule as the two token keys alone', () => {
-    const pricing = tokenPricingFixture({ input: 3450n, output: 17_250n });
+  it('serves an untiered token schedule as the two token keys and its anchor context alone', () => {
+    const pricing = tokenPricingFixture({
+      input: 3450n,
+      output: 17_250n,
+      anchorContextTokens: 200_000,
+    });
 
-    expect(pricingToWire(pricing)).toEqual({ inputPerToken: '3450', outputPerToken: '17250' });
+    expect(pricingToWire(pricing)).toEqual({
+      inputPerToken: '3450',
+      outputPerToken: '17250',
+      anchorContextTokens: 200_000,
+    });
   });
 
   it('serves a token schedule’s tiers as long-context rates beside its base rates', () => {
     const pricing = tokenPricingFixture({
       input: 3450n,
       output: 17_250n,
+      anchorContextTokens: 1_000_000,
       tiers: [{ abovePromptTokens: 200_000, input: 6900n, output: 25_875n }],
     });
 
     expect(pricingToWire(pricing)).toEqual({
       inputPerToken: '3450',
       outputPerToken: '17250',
+      anchorContextTokens: 1_000_000,
       longContextRates: [
         { abovePromptTokens: 200_000, inputPerToken: '6900', outputPerToken: '25875' },
       ],
@@ -166,6 +214,17 @@ describe('pricingToWire', () => {
     const row = wireRow({ modality: 'video', contextLength: 0, pricing: pricingToWire(pricing) });
 
     expect(pricingFromWire(row)).toEqual(pricing);
+  });
+
+  it('round-trips a segmented token schedule through the served keys, keeping its anchor context', () => {
+    const pricing = tokenPricingFixture({
+      input: 230n,
+      output: 1438n,
+      anchorContextTokens: 400_000,
+      tiers: [{ abovePromptTokens: 400_000, input: 5750n, output: 25_875n }],
+    });
+
+    expect(pricingFromWire(wireRow({ pricing: pricingToWire(pricing) }))).toEqual(pricing);
   });
 
   it('round-trips an untiered token schedule through the served keys', () => {

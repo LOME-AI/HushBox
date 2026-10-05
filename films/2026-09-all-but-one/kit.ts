@@ -7,7 +7,6 @@ export const BEATS = 75;
 export const W = 1080;
 export const H = 1920;
 export const CX = W / 2;
-export const CY = H / 2;
 export const TAU = Math.PI * 2;
 
 export type G = CanvasRenderingContext2D;
@@ -55,18 +54,6 @@ export function smooth(u: number): number {
   const c = clamp(u);
   return c * c * (3 - 2 * c);
 }
-export function outCubic(u: number): number {
-  const c = 1 - clamp(u);
-  return 1 - c * c * c;
-}
-export function inCubic(u: number): number {
-  const c = clamp(u);
-  return c * c * c;
-}
-export function outExpo(u: number): number {
-  const c = clamp(u);
-  return c >= 1 ? 1 : 1 - 2 ** (-10 * c);
-}
 /** Progress of `time` across [a, b] frames, clamped. */
 export function prog(time: number, a: number, b: number): number {
   return clamp((time - a) / (b - a));
@@ -76,7 +63,7 @@ export function prog(time: number, a: number, b: number): number {
  * A closed-form spring step from 0 to 1 starting at `start` frames, with an
  * overshoot that settles: `hz` its frequency, `damp` its decay per second.
  */
-export function spring(time: number, start: number, hz = 3, damp = 7): number {
+function spring(time: number, start: number, hz = 3, damp = 7): number {
   const t = (time - start) / 60;
   if (t <= 0) {
     return 0;
@@ -107,7 +94,7 @@ export function env(time: number, hits: readonly number[], half = 6): number {
 }
 
 /** 0 on the beat, rising to 1 before the next: a beat-locked phase. */
-export function beatPhase(time: number, every = FPB): number {
+function beatPhase(time: number, every = FPB): number {
   const p = (time / every) % 1;
   return p < 0 ? p + 1 : p;
 }
@@ -210,13 +197,6 @@ export const HELL = {
   hot: '#ffe08a',
   key: '#ffd23a',
   dim: '#3b1006',
-};
-export const NIGHT = {
-  bg: '#02040c',
-  line: '#8fa2ff',
-  hot: '#ffd98a',
-  key: '#ff7a1a',
-  dim: '#1a2150',
 };
 
 export type Palette = typeof INK;

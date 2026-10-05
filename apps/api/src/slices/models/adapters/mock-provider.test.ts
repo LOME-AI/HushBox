@@ -8,6 +8,7 @@ import {
   WEB_SEARCH_TOOL_NAME,
   createAssistantStream,
   createEnvUtilities,
+  nanoUSD,
   reduceAssistantStream,
   settleAssistantStream,
   utcDayKey,
@@ -25,9 +26,12 @@ import {
   mockDirectivesFor,
   mockProviderEnabled,
   parseMockDirectives,
+  refusingBelowAnchor,
   resolveMockDelays,
 } from './mock-provider.js';
-import { AdapterDefect } from './language-adapter.js';
+import { AdapterDefect, MissingPriceReservation } from './language-adapter.js';
+import { billableRatesToMaxPrice } from '../../billing/public/routing-cap.js';
+import { callMaxPrice, maxPriceReachesAnchor } from '../domain/pricing/call-routing.js';
 import { MOCK_VIDEO_BYTES } from './mock-video-clip.js';
 import { createFakeSearchProvider } from './fake-search-provider.js';
 import { createToolRegistry } from '../domain/tool-registry.js';
@@ -36,6 +40,7 @@ import type {
   FilePartMapper,
   InferenceEvent,
   InferenceRequest,
+  MaxPrice,
   MockDirectives,
   ModelDescriptor,
   Segment,
@@ -43,7 +48,12 @@ import type {
 } from '@hushbox/shared';
 import type { z } from 'zod';
 import type { VariableConfig } from '@hushbox/shared/env.config';
-import type { InferOptions, SearchProvider, ToolLoopOptions } from '../ports/index.js';
+import type {
+  InferOptions,
+  ModelProvider,
+  SearchProvider,
+  ToolLoopOptions,
+} from '../ports/index.js';
 
 /** An inert fixture stamp: nothing in this file reads it against a clock. */
 const FIXTURE_STAMP_SECONDS = secondsAt(TEST_DAY_START);
@@ -67,6 +77,11 @@ function languageDescriptor(id: string): ModelDescriptor {
   };
 }
 
+/** The ceiling of a 1-nano anchor un-baked: the cap every minimal test descriptor is served under. */
+const TEST_ROUTING: NonNullable<InferenceRequest['routing']> = {
+  maxPrice: { prompt: '0.001739', completion: '0.001739' },
+};
+
 function textRequest(model: string, text: string): InferenceRequest {
   return {
     model,
@@ -74,6 +89,7 @@ function textRequest(model: string, text: string): InferenceRequest {
     parameters: {},
     outputs: ['text'],
     utcDay: FIXTURE_UTC_DAY,
+    routing: TEST_ROUTING,
   };
 }
 
@@ -88,6 +104,7 @@ function classifierRequest(model: string): InferenceRequest {
     parameters: { maxOutputTokens: 32 },
     outputs: ['text'],
     utcDay: FIXTURE_UTC_DAY,
+    routing: TEST_ROUTING,
   };
 }
 
@@ -120,8 +137,13 @@ function finishOf(events: readonly InferenceEvent[]): Extract<InferenceEvent, { 
   return finish;
 }
 
-/** An image-family descriptor for the given model id. */
+/** An image-family descriptor for the given model id, pinned as ingestion pins one. */
 function imageDescriptor(id: string): ModelDescriptor {
+  return { ...unpinnedImageDescriptor(id), zdrPin: ['test-provider'] };
+}
+
+/** An image-family descriptor with no pin, as a row written before pins existed. */
+function unpinnedImageDescriptor(id: string): ModelDescriptor {
   return { ...languageDescriptor(id), outputs: ['image'] };
 }
 
@@ -468,6 +490,129 @@ describe('createMockModelProvider — language echo', () => {
     // The inline provider cost makes settlement bill authoritative (not estimated).
     expect(finish.metadata.providerCostUsd).toBeGreaterThan(0);
     expect(finish.metadata.generationId).toBeDefined();
+  });
+
+  describe('its price reservation', () => {
+    /** Claude Sonnet 4.5's anchor, its own tier above 200,000. */
+    function productionDescriptor(): ModelDescriptor {
+      return {
+        ...languageDescriptor('anthropic/claude-sonnet-4.5'),
+        pricing: tokenPricingFixture({
+          input: 3450n,
+          output: 17_250n,
+          anchorContextTokens: 1_000_000,
+          tiers: [{ abovePromptTokens: 200_000, input: 6900n, output: 25_875n }],
+        }),
+      };
+    }
+
+    /** The mock as the composition hands it out: refusing by the gateway's price comparison. */
+    function pricedMock(): ModelProvider {
+      return refusingBelowAnchor(createMockModelProvider(), maxPriceReachesAnchor);
+    }
+
+    function routedAt(maxPrice: MaxPrice): InferenceRequest {
+      return { ...textRequest('anthropic/claude-sonnet-4.5', 'hello'), routing: { maxPrice } };
+    }
+
+    it('refuses a call capped below the anchor’s base rates, as no endpoint could serve it', async () => {
+      const provider = pricedMock();
+      const capped = routedAt(billableRatesToMaxPrice({ input: nanoUSD(1n), output: nanoUSD(1n) }));
+
+      expect(capped.routing?.maxPrice).toEqual({ prompt: '0.000869', completion: '0.000869' });
+      await expect(collect(provider.infer(capped, productionDescriptor()))).rejects.toMatchObject({
+        name: 'InferenceError',
+        code: 'no_providers_available',
+      });
+    });
+
+    it('refuses a call whose completion cap alone falls below the anchor', async () => {
+      const provider = pricedMock();
+      const capped = routedAt({ prompt: '7.500000', completion: '0.000869' });
+
+      await expect(collect(provider.infer(capped, productionDescriptor()))).rejects.toMatchObject({
+        code: 'no_providers_available',
+      });
+    });
+
+    it('refuses a call whose prompt cap alone falls below the anchor', async () => {
+      const provider = pricedMock();
+      const capped = routedAt({ prompt: '0.000869', completion: '28.125217' });
+
+      await expect(collect(provider.infer(capped, productionDescriptor()))).rejects.toMatchObject({
+        code: 'no_providers_available',
+      });
+    });
+
+    it('serves a production descriptor at the cap its call routing computes', async () => {
+      const provider = pricedMock();
+      const descriptor = productionDescriptor();
+      const routed = routedAt(callMaxPrice(descriptor.pricing, 5));
+
+      const events = await collect(provider.infer(routed, descriptor));
+      expect(finishOf(events).metadata.servedBy).toBe('mock');
+    });
+
+    it('serves a call capped at exactly the anchor’s un-baked base rates', async () => {
+      const provider = pricedMock();
+      const capped = routedAt({ prompt: '3.000000', completion: '15.000000' });
+
+      const events = await collect(provider.infer(capped, productionDescriptor()));
+      expect(finishOf(events).metadata.servedBy).toBe('mock');
+    });
+
+    it('leaves a media call to the wrapped mock, as only a language call carries a cap', async () => {
+      const provider = refusingBelowAnchor(createMockModelProvider(), () => false);
+      const { mapFilePart } = capturingMapper('image');
+
+      const events = await collect(
+        provider.infer(imageRequest('img/model'), imageDescriptor('img/model'), { mapFilePart })
+      );
+      expect(events.map((event) => event.kind)).toEqual(['media-start', 'media-done', 'finish']);
+    });
+
+    it('refuses an unreserved language call through the decorator, before any price comparison', () => {
+      const comparisons: unknown[] = [];
+      const provider = refusingBelowAnchor(createMockModelProvider(), (...args) => {
+        comparisons.push(args);
+        return true;
+      });
+      const unreserved: InferenceRequest = {
+        model: 'a/model',
+        inputs: [{ modality: 'text', text: 'hi' }],
+        parameters: {},
+        outputs: ['text'],
+        utcDay: FIXTURE_UTC_DAY,
+      };
+
+      expect(() => provider.infer(unreserved, languageDescriptor('a/model'))).toThrow(
+        MissingPriceReservation
+      );
+      expect(comparisons).toEqual([]);
+    });
+
+    it('refuses a language call with no price reservation, exactly as the real adapter does', () => {
+      const provider = createMockModelProvider();
+      const unreserved: InferenceRequest = {
+        model: 'a/model',
+        inputs: [{ modality: 'text', text: 'hi' }],
+        parameters: {},
+        outputs: ['text'],
+        utcDay: FIXTURE_UTC_DAY,
+      };
+
+      expect(() => provider.infer(unreserved, languageDescriptor('a/model'))).toThrow(
+        MissingPriceReservation
+      );
+    });
+
+    it('refuses an image descriptor without a pin, exactly as the real adapter does', () => {
+      const provider = createMockModelProvider();
+
+      expect(() =>
+        provider.infer(imageRequest('img/model'), unpinnedImageDescriptor('img/model'))
+      ).toThrow(expect.objectContaining({ name: 'InferenceError', code: 'invalid_request' }));
+    });
   });
 
   it('names itself as the endpoint that served the echo', async () => {
@@ -1293,6 +1438,7 @@ describe('createMockModelProvider — classifier knobs', () => {
       parameters: { maxOutputTokens: 32 },
       outputs: ['text'],
       utcDay: FIXTURE_UTC_DAY,
+      routing: TEST_ROUTING,
     };
     const events = await collect(provider.infer(effortOnly, languageDescriptor('cheap/model')));
     expect(textOf(events)).toBe('effort: Mid');
@@ -1311,6 +1457,7 @@ describe('createMockModelProvider — classifier knobs', () => {
       parameters: { maxOutputTokens: 32 },
       outputs: ['text'],
       utcDay: FIXTURE_UTC_DAY,
+      routing: TEST_ROUTING,
     };
     const events = await collect(provider.infer(both, languageDescriptor('cheap/model')));
     expect(textOf(events)).toBe('model: picked/model\neffort: Mid');
@@ -1329,6 +1476,7 @@ describe('createMockModelProvider — classifier knobs', () => {
       parameters: {},
       outputs: ['text'],
       utcDay: FIXTURE_UTC_DAY,
+      routing: TEST_ROUTING,
     };
     const events = await collect(provider.infer(effortOnly, languageDescriptor('cheap/model')));
     // The directive is an option id; the mock emits the user-facing LABEL,
@@ -1345,6 +1493,7 @@ describe('createMockModelProvider — classifier knobs', () => {
       parameters: {},
       outputs: ['text'],
       utcDay: FIXTURE_UTC_DAY,
+      routing: TEST_ROUTING,
     };
     const events = await collect(provider.infer(markerOnly, languageDescriptor('cheap/model')));
     expect(textOf(events)).toBe('model: picked/model');
@@ -1634,7 +1783,7 @@ describe('createMockModelProvider — image synthesis', () => {
     expect(readUint32BE(file.data, 20)).toBe(300);
   });
 
-  it('finishes an image with no inline cost so settlement falls back to the estimate', async () => {
+  it('finishes an image carrying the mock generation cost as its inline cost', async () => {
     const provider = createMockModelProvider();
     const { mapFilePart } = capturingMapper('image');
     const events = await collect(
@@ -1642,9 +1791,7 @@ describe('createMockModelProvider — image synthesis', () => {
     );
     const finish = finishOf(events);
     expect(finish.metadata.finishReason).toBe('stop');
-    // OpenRouter's images API returns no inline cost — the mock mirrors that so
-    // settlement bills the deterministic catalog estimate (isEstimated=true).
-    expect(finish.metadata.providerCostUsd).toBeUndefined();
+    expect(finish.metadata.providerCostUsd).toBe(MOCK_GENERATION_COST_USD);
   });
 
   it('raises an AdapterDefect when a media call arrives without a mapFilePart contract', async () => {
@@ -2171,4 +2318,93 @@ describe('createMockModelProvider: the dev-server web search switch', () => {
       await expect(searchesWithoutDirective(isDevServerIn(mode))).resolves.toBe(false);
     }
   );
+});
+
+describe("createMockModelProvider: the run's spend gate on a search turn", () => {
+  /** A continuation with fixed answers that records the step costs each step question carried. */
+  function fixedContinuation(answers: { readonly nextStep: boolean; readonly tool: boolean }): {
+    readonly continuation: NonNullable<InferOptions['continuation']>;
+    readonly stepCosts: (readonly (number | undefined)[])[];
+  } {
+    const stepCosts: (readonly (number | undefined)[])[] = [];
+    return {
+      stepCosts,
+      continuation: {
+        mayStartNextStep: (completedStepCostsUsd): boolean => {
+          stepCosts.push([...completedStepCostsUsd]);
+          return answers.nextStep;
+        },
+        mayExecuteTool: (): boolean => answers.tool,
+      },
+    };
+  }
+
+  /** One search turn under `continuation`, recording the searches that ran. */
+  async function gatedSearchTurn(
+    continuation: NonNullable<InferOptions['continuation']>
+  ): Promise<{ readonly events: InferenceEvent[]; readonly queries: string[] }> {
+    const recording = recordingFakeSearch();
+    const provider = createMockModelProvider({ webSearchCount: 1 });
+    const events = await collect(
+      provider.infer(textRequest('m', 'find it'), languageDescriptor('m'), {
+        tools: searchLoop(recording.search),
+        continuation,
+      })
+    );
+    return { events, queries: recording.queries };
+  }
+
+  it('ends the turn after its searching step when the gate refuses the next one', async () => {
+    const { events } = await gatedSearchTurn(
+      fixedContinuation({ nextStep: false, tool: true }).continuation
+    );
+
+    expect(eventsOfKind(events, 'step-start').map((event) => event.step)).toEqual([0]);
+    expect(events.at(-1)).toMatchObject({
+      kind: 'finish',
+      metadata: { finishReason: 'tool-calls', providerCostUsd: MOCK_GENERATION_COST_USD },
+    });
+  });
+
+  it("asks for the next step with the searching step's inline cost", async () => {
+    const gate = fixedContinuation({ nextStep: true, tool: true });
+
+    await gatedSearchTurn(gate.continuation);
+
+    expect(gate.stepCosts).toEqual([[MOCK_GENERATION_COST_USD]]);
+  });
+
+  it('answers after the search while the gate admits the next step', async () => {
+    const { events } = await gatedSearchTurn(
+      fixedContinuation({ nextStep: true, tool: true }).continuation
+    );
+
+    expect(eventsOfKind(events, 'step-start').map((event) => event.step)).toEqual([0, 1]);
+  });
+
+  it('runs no search the gate refuses', async () => {
+    const { queries } = await gatedSearchTurn(
+      fixedContinuation({ nextStep: false, tool: false }).continuation
+    );
+
+    expect(queries).toEqual([]);
+  });
+
+  it('leaves a search the gate refused unanswered, with no tool-error', async () => {
+    const { events } = await gatedSearchTurn(
+      fixedContinuation({ nextStep: false, tool: false }).continuation
+    );
+
+    expect(
+      events.filter((event) => event.kind === 'tool-error' || event.kind === 'tool-result')
+    ).toEqual([]);
+  });
+
+  it('runs a search the gate admits', async () => {
+    const { queries } = await gatedSearchTurn(
+      fixedContinuation({ nextStep: false, tool: true }).continuation
+    );
+
+    expect(queries).toHaveLength(1);
+  });
 });

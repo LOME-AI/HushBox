@@ -218,7 +218,7 @@ const bindings: RoomBindings = {
     }),
   bindHooks: () => ({
     admission: () => Promise.resolve({ admitted: true, holdRef: 'workers-validation-hold' }),
-    settlement: () => Promise.resolve(),
+    settlement: () => Promise.resolve({ billed: [] }),
     assistantMessageIds: [WORKERS_VALIDATION_ANSWER_ID],
   }),
   maxStreamBytes: 1_000_000,

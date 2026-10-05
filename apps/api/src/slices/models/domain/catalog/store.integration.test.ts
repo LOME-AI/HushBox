@@ -35,14 +35,18 @@ function freshModelId(slug: string): string {
 
 /** A stored token price at one rate for both legs; the store never reads it. */
 function tokenPrice(rate: string): StoredPricing {
-  return { kind: 'tokens', anchor: { base: { input: rate, output: rate }, tiers: [] } };
+  return {
+    kind: 'tokens',
+    anchorContextTokens: 1_000_000,
+    anchor: { base: { input: rate, output: rate }, tiers: [] },
+  };
 }
 
 function contentFor(modelId: string, pricing: StoredPricing = tokenPrice('1')): DescriptorContent {
   return {
     id: modelId,
     provider: 'test-provider',
-    version: '3',
+    version: '4',
     inputs: ['text'],
     outputs: ['text'],
     parameters: {},
@@ -89,7 +93,7 @@ describe('upsertCatalog', () => {
     const rows = await db.select().from(modelCatalog).where(eq(modelCatalog.modelId, modelId));
     expect(rows[0]?.descriptor).toMatchObject({
       id: modelId,
-      version: '3',
+      version: '4',
       fetchedAt: new Date(TEST_DAY_START).getTime(),
     });
   });

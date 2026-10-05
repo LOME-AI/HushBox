@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as React from 'react';
 import { TEST_IDS } from '@hushbox/shared';
+import { LAYOUT } from '@hushbox/shared/design-tokens';
 import { SECOND_MS, TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
 import { expectExposes } from '@hushbox/shared/test-assertions';
 import { setEpochKey, clearEpochKeyCache } from '@/lib/crypto/epoch-key-cache';
@@ -12,9 +13,13 @@ import {
 } from '@/components/chat/page/authenticated-chat-page';
 import { notificationChannel } from '@/lib/notification-channel';
 import { BadEpochsContext } from '@/components/chat/message/bad-epochs-context';
+import { ReplyFooter } from '@/components/chat/message/reply-footer';
+import { STORAGE_KEY } from '@/lib/auth/client';
 import { turnNoticeForCode, type TurnNotice } from '@/lib/chat/turn-notice';
+import type { MemberPrivilege } from '@hushbox/shared';
 import type { Message } from '@/lib/api/api';
 import type { PhantomMessage } from '@/hooks/realtime/use-remote-streaming';
+import type { GroupChatProps } from '@/components/chat/message/types';
 import type { EpochVerdict, getEpochVerdict } from '@/lib/crypto/epoch-key-cache';
 import type { useEpochMaintenance } from '@/hooks/crypto/use-epoch-maintenance';
 
@@ -22,6 +27,17 @@ const mockNavigate = vi.fn();
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
+  Link: ({
+    to,
+    children,
+    ...rest
+  }: Readonly<
+    { to: string; children: React.ReactNode } & React.ComponentProps<'a'>
+  >): React.JSX.Element => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  ),
   // Models TanStack's <Navigate>: it guards re-navigation by comparing its props
   // object by reference, so it fires once for a stable element but re-fires when
   // an inline element hands it fresh props each render. This lets a test detect
@@ -41,7 +57,18 @@ vi.mock('@tanstack/react-router', () => ({
 const mockSetQueryData = vi.fn();
 const mockInvalidateQueries = vi.fn().mockResolvedValue(null);
 
+/** The member count the conversation read serves while a case runs. */
+let mockMemberCount = 1;
+
 vi.mock('@tanstack/react-query', () => ({
+  // The page's one direct query is its read of the conversation's member count.
+  useQuery: (options: {
+    enabled?: boolean;
+    select?: (detail: { memberCount: number }) => unknown;
+  }): { data: unknown } => ({
+    data:
+      options.enabled === false ? undefined : options.select?.({ memberCount: mockMemberCount }),
+  }),
   useQueryClient: () => ({
     setQueryData: mockSetQueryData,
     invalidateQueries: mockInvalidateQueries,
@@ -93,6 +120,7 @@ vi.mock(import('@/lib/crypto/epoch-key-cache'), async (importOriginal) => ({
 
 interface MockChatLayoutProps {
   messages: Message[];
+  memberCount?: number;
   onSubmit: (fundingSource: string) => void;
   onSubmitUserOnly?: () => void;
   inputValue: string;
@@ -118,6 +146,8 @@ interface MockChatLayoutProps {
   queueFull?: boolean;
   queuedMessages?: { id: string; text: string }[];
   onCancelQueued?: (id: string) => void;
+  threadHeader?: React.ReactNode;
+  composerSlot?: React.ReactNode;
 }
 
 function resolveConversationId(
@@ -139,6 +169,17 @@ function boolAttribute(value: unknown): string {
 }
 
 let capturedChatLayoutProps: MockChatLayoutProps | undefined;
+
+/** Called once per render of the memoised list stand-in. */
+const mockListRender = vi.fn();
+
+/** Stands in for the memoised message list, which receives the thread header. */
+const ListProbe = React.memo(function ListProbe({
+  threadHeader,
+}: Readonly<{ threadHeader: React.ReactNode }>): React.JSX.Element {
+  mockListRender();
+  return <>{threadHeader}</>;
+});
 
 vi.mock('@/components/chat/layout/chat-layout', () => ({
   ChatLayout: (props: MockChatLayoutProps) => {
@@ -163,13 +204,23 @@ vi.mock('@/components/chat/layout/chat-layout', () => ({
         <div data-testid="is-processing">{String(props.isProcessing)}</div>
         <div data-testid="title">{props.title ?? ''}</div>
         <div data-testid="message-ids">{props.messages.map((m) => m.id).join(',')}</div>
-        <input
-          data-testid="input"
-          value={props.inputValue}
-          onChange={(event) => {
-            props.onInputChange(event.target.value);
-          }}
-        />
+        <ListProbe threadHeader={props.threadHeader} />
+        {/* As the real layout does, each reply draws its footer, the cost pill's home. */}
+        {props.messages
+          .filter((m) => m.role === 'assistant')
+          .map((m) => (
+            <ReplyFooter key={m.id} message={m} saved controls={null} />
+          ))}
+        {/* As the real layout does, a page's composer replacement takes the composer's place. */}
+        {props.composerSlot ?? (
+          <input
+            data-testid="input"
+            value={props.inputValue}
+            onChange={(event) => {
+              props.onInputChange(event.target.value);
+            }}
+          />
+        )}
         <button
           data-testid="submit"
           onClick={() => {
@@ -331,8 +382,17 @@ interface CreateConversationMock {
 const mockCreateConversationMutateAsync = vi.fn();
 const mockUseCreateConversation = vi.fn<() => CreateConversationMock>();
 
+/** The conversation read as the page consumes it. */
+interface ConversationFixture {
+  id: string;
+  title: string;
+  titleEpochNumber?: number;
+  currentEpoch?: number;
+  callerPrivilege?: MemberPrivilege;
+}
+
 interface ConversationQueryMock {
-  data: { id: string; title: string; titleEpochNumber?: number; currentEpoch?: number } | undefined;
+  data: ConversationFixture | undefined;
   isLoading: boolean;
 }
 
@@ -349,6 +409,7 @@ vi.mock('@/hooks/chat/chat', () => ({
   useCreateConversation: (): CreateConversationMock => mockUseCreateConversation(),
   useConversation: (id: string): ConversationQueryMock => mockUseConversation(id),
   useMessages: (id: string): MessagesQueryMock => mockUseMessages(id),
+  conversationQueryOptions: (id: string) => ({ queryKey: ['conversation', id], queryFn: vi.fn() }),
   chatKeys: {
     conversation: (id: string) => ['conversation', id],
     messages: (id: string) => ['messages', id],
@@ -606,9 +667,7 @@ interface SetupMocksOptions {
   pendingMessage?: string | null;
   isStreaming?: boolean;
   isPending?: boolean;
-  conversationData?:
-    | { id: string; title: string; titleEpochNumber?: number; currentEpoch?: number }
-    | undefined;
+  conversationData?: ConversationFixture | undefined;
   messagesData?: Message[] | undefined;
   isConversationLoading?: boolean;
   isMessagesLoading?: boolean;
@@ -1021,6 +1080,25 @@ describe('AuthenticatedChatPage', () => {
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
       expect(mockAdvanceReadCursor).toHaveBeenCalledWith('conv-456');
+    });
+
+    it('passes the conversation member count to the layout', () => {
+      mockMemberCount = 3;
+      setupMocks({ conversationData: { id: 'conv-456', title: 'Test Chat' } });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      expect(capturedChatLayoutProps?.memberCount).toBe(3);
+    });
+
+    it('passes the member count while the conversation decrypts', () => {
+      mockMemberCount = 3;
+      setupMocks({ isConversationLoading: true, isMessagesLoading: true });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-decrypting', 'true');
+      expect(capturedChatLayoutProps?.memberCount).toBe(3);
     });
 
     it('renders ChatLayout with isDecrypting while fetching', () => {
@@ -2218,6 +2296,39 @@ describe('AuthenticatedChatPage', () => {
         replace: true,
       });
     });
+
+    it('keeps a link guest on the shared route when the conversation has forks', () => {
+      mockActiveForkId = 'main-fork';
+      mockForksData = [
+        {
+          id: 'main-fork',
+          conversationId: 'conv-456',
+          name: 'Main',
+          tipMessageId: null,
+          createdAt: isoAt(TEST_DAY_START),
+        },
+        {
+          id: 'fork-1',
+          conversationId: 'conv-456',
+          name: 'Fork 1',
+          tipMessageId: null,
+          createdAt: isoAt(TEST_DAY_START + SECOND_MS),
+        },
+      ];
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Shared' },
+        messagesData: [],
+      });
+
+      render(
+        <AuthenticatedChatPage
+          routeConversationId="conv-456"
+          privateKeyOverride={new Uint8Array(32)}
+        />
+      );
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
   });
 
   describe('fork active-state seeding (race regression)', () => {
@@ -2432,6 +2543,326 @@ describe('AuthenticatedChatPage', () => {
       const layout = screen.getByTestId('chat-layout');
       expect(layout).toHaveAttribute('data-is-authenticated', 'true');
       expect(layout).toHaveAttribute('data-is-link-guest', 'false');
+    });
+  });
+
+  describe('the shared conversation a link guest reads', () => {
+    const SHARED_ID = 'conv-shared';
+
+    afterEach(() => {
+      sessionStorage.removeItem(STORAGE_KEY);
+    });
+
+    function renderShared(
+      callerPrivilege: MemberPrivilege,
+      { linkGuest = true }: { linkGuest?: boolean } = {}
+    ): ReturnType<typeof render> {
+      setEpochKey(SHARED_ID, 1, new Uint8Array(32).fill(11));
+      setupMocks({
+        conversationData: {
+          id: SHARED_ID,
+          title: 'encrypted-title',
+          titleEpochNumber: 1,
+          callerPrivilege,
+        },
+        messagesData: [
+          { id: 'm1', conversationId: SHARED_ID, role: 'user', content: 'Hi', createdAt: '' },
+        ],
+      });
+      return render(
+        <AuthenticatedChatPage
+          routeConversationId={SHARED_ID}
+          {...(linkGuest && { privateKeyOverride: new Uint8Array(32) })}
+        />
+      );
+    }
+
+    it('heads the thread with the conversation title for a read-only link guest', () => {
+      renderShared('read');
+
+      const head = screen.getByTestId(TEST_IDS.shareHead);
+      expect(head).toContainElement(
+        screen.getByRole('heading', { level: 1, name: 'Decrypted Title' })
+      );
+    });
+
+    it('sets the shared head in the chat column, as the thread is set', () => {
+      renderShared('read');
+
+      expect(screen.getByTestId(TEST_IDS.shareHead).parentElement?.style.maxWidth).toBe(
+        LAYOUT.measureChat
+      );
+    });
+
+    it('puts the guest bar in the composer’s place for a read-only link guest', () => {
+      renderShared('read');
+
+      expect(screen.getByTestId(TEST_IDS.guestBar)).toBeInTheDocument();
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    });
+
+    it('gives the header no title for a read-only link guest', () => {
+      renderShared('read');
+
+      expect(capturedChatLayoutProps?.title).toBeUndefined();
+    });
+
+    it('keeps the composer for a write link guest', () => {
+      renderShared('write');
+
+      expect(screen.getByRole('textbox')).toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.guestBar)).not.toBeInTheDocument();
+    });
+
+    it('draws no shared head for a write link guest', () => {
+      renderShared('write');
+
+      expect(screen.queryByTestId(TEST_IDS.shareHead)).not.toBeInTheDocument();
+    });
+
+    it('keeps the header title for a write link guest', () => {
+      renderShared('write');
+
+      expect(capturedChatLayoutProps?.title).toBe('Decrypted Title');
+    });
+
+    it('keeps the composer and no shared head for a member with read privilege', () => {
+      renderShared('read', { linkGuest: false });
+
+      expect(screen.getByRole('textbox')).toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.shareHead)).not.toBeInTheDocument();
+    });
+
+    it('names the owner and counts the members under the title', () => {
+      mockUseGroupChat.mockImplementation(
+        (conversationId: string | null): GroupChatProps | undefined => {
+          if (!conversationId) return;
+          return {
+            conversationId,
+            members: [
+              { id: 'm1', userId: 'u1', username: 'alice_smith', privilege: 'owner' },
+              { id: 'm2', userId: 'u2', username: 'bob', privilege: 'write' },
+              { id: 'm3', userId: null, username: null, privilege: 'read' },
+            ],
+            links: [],
+            onlineMemberIds: new Set<string>(),
+            currentUserId: '',
+            currentUserLinkId: null,
+            currentUserPrivilege: 'read',
+          };
+        }
+      );
+
+      renderShared('read');
+
+      expect(screen.getByTestId(TEST_IDS.shareHead)).toHaveTextContent(
+        'Shared by Alice Smith · 3 members'
+      );
+    });
+
+    it('holds the meta line’s height while the member list loads', () => {
+      mockUseGroupChat.mockImplementation((): GroupChatProps | undefined => undefined);
+
+      renderShared('read');
+
+      const [meta] = screen.getByTestId(TEST_IDS.shareHead).querySelectorAll('p');
+      expect(meta?.textContent).toBe(' ');
+    });
+
+    it('offers Sign Up to a read-only link guest with no sign-in on this device', () => {
+      renderShared('read');
+
+      expect(screen.getByTestId(TEST_IDS.guestBarSignUp)).toBeInTheDocument();
+    });
+
+    it('offers no Sign Up to a read-only link guest signed in on this device', () => {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ userId: 'user-1' }));
+
+      renderShared('read');
+
+      expect(screen.queryByTestId(TEST_IDS.guestBarSignUp)).not.toBeInTheDocument();
+    });
+
+    it('re-renders no memoised list when the page re-renders unchanged', () => {
+      const { rerender } = renderShared('read');
+      const rendersBefore = mockListRender.mock.calls.length;
+
+      rerender(
+        <AuthenticatedChatPage
+          routeConversationId={SHARED_ID}
+          privateKeyOverride={new Uint8Array(32)}
+        />
+      );
+
+      expect(mockListRender).toHaveBeenCalledTimes(rendersBefore);
+    });
+
+    describe('reply costs', () => {
+      /** A reply as the history read maps it: a served `cost: null` leaves the field absent. */
+      function replyRows(cost: string | undefined): Message[] {
+        return [
+          { id: 'u1', conversationId: SHARED_ID, role: 'user', content: 'Hi', createdAt: '' },
+          {
+            id: 'a1',
+            conversationId: SHARED_ID,
+            role: 'assistant',
+            content: 'Hello',
+            createdAt: '',
+            ...(cost !== undefined && { cost }),
+          },
+        ];
+      }
+
+      function renderWithReply(cost: string | undefined, linkGuest: boolean): void {
+        setupMocks({
+          conversationData: { id: SHARED_ID, title: 'Test', callerPrivilege: 'read' },
+          messagesData: replyRows(cost),
+        });
+        render(
+          <AuthenticatedChatPage
+            routeConversationId={SHARED_ID}
+            {...(linkGuest && { privateKeyOverride: new Uint8Array(32) })}
+          />
+        );
+      }
+
+      it('renders no cost pill for a link guest’s history row served with no cost', () => {
+        renderWithReply(undefined, true);
+
+        expect(screen.queryByTestId(TEST_IDS.messageCost)).not.toBeInTheDocument();
+      });
+
+      it('renders the cost pill for a member’s history row served with a cost', () => {
+        renderWithReply('4800000', false);
+
+        expect(screen.getByTestId(TEST_IDS.messageCost)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('one layout from loading to ready', () => {
+    const LOADING_ID = 'conv-loading';
+    const ROWS: Message[] = [
+      { id: 'm1', conversationId: LOADING_ID, role: 'user', content: 'Hi', createdAt: '' },
+    ];
+
+    afterEach(() => {
+      sessionStorage.removeItem(STORAGE_KEY);
+    });
+
+    function page(linkGuest: boolean): React.JSX.Element {
+      return (
+        <AuthenticatedChatPage
+          routeConversationId={LOADING_ID}
+          {...(linkGuest && { privateKeyOverride: new Uint8Array(32) })}
+        />
+      );
+    }
+
+    /** The conversation read has landed with the caller's seat; the messages read is pending. */
+    function setupLoading(callerPrivilege: MemberPrivilege): void {
+      setupMocks({
+        conversationData: { id: LOADING_ID, title: 'Loading', callerPrivilege },
+        isMessagesLoading: true,
+      });
+    }
+
+    function setupReady(callerPrivilege: MemberPrivilege): void {
+      setupMocks({
+        conversationData: { id: LOADING_ID, title: 'Loading', callerPrivilege },
+        messagesData: ROWS,
+      });
+    }
+
+    it('puts the guest bar in the composer’s place while a read-only link guest’s thread loads', () => {
+      setupLoading('read');
+
+      render(page(true));
+
+      expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-decrypting', 'true');
+      expect(screen.getByTestId(TEST_IDS.guestBar)).toBeInTheDocument();
+      expect(screen.queryByTestId('input')).not.toBeInTheDocument();
+    });
+
+    it('puts the guest bar in the composer’s place before a link guest’s seat arrives', () => {
+      setupMocks({ isConversationLoading: true, isMessagesLoading: true });
+
+      render(page(true));
+
+      expect(screen.getByTestId(TEST_IDS.guestBar)).toBeInTheDocument();
+      expect(screen.queryByTestId('input')).not.toBeInTheDocument();
+    });
+
+    it('keeps a read-only link guest’s layout mounted from loading to ready', () => {
+      setupLoading('read');
+      const { rerender } = render(page(true));
+      const layoutWhileLoading = screen.getByTestId('chat-layout');
+      const guestBarWhileLoading = screen.getByTestId(TEST_IDS.guestBar);
+
+      setupReady('read');
+      rerender(page(true));
+
+      expect(screen.getByTestId('chat-layout')).not.toHaveAttribute('data-decrypting');
+      expect(screen.getByTestId('chat-layout')).toBe(layoutWhileLoading);
+      expect(screen.getByTestId(TEST_IDS.guestBar)).toBe(guestBarWhileLoading);
+    });
+
+    it('keeps a member’s layout mounted from loading to ready', () => {
+      setupLoading('owner');
+      const { rerender } = render(page(false));
+      const layoutWhileLoading = screen.getByTestId('chat-layout');
+
+      setupReady('owner');
+      rerender(page(false));
+
+      expect(screen.getByTestId('message-count')).toHaveTextContent('1');
+      expect(screen.getByTestId('chat-layout')).toBe(layoutWhileLoading);
+    });
+
+    it('keeps the disabled composer while a member’s thread loads', () => {
+      setupLoading('owner');
+
+      render(page(false));
+
+      expect(screen.getByTestId('input')).toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.guestBar)).not.toBeInTheDocument();
+      expect(screen.getByTestId('input-disabled')).toHaveTextContent('true');
+      expect(screen.getByTestId('title')).toHaveTextContent('Decrypting...');
+    });
+
+    it('keeps the composer while a write link guest’s thread loads once its seat has arrived', () => {
+      setupLoading('write');
+
+      render(page(true));
+
+      expect(screen.getByTestId('input')).toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.guestBar)).not.toBeInTheDocument();
+    });
+
+    it('shows no key-state banner while a member’s thread loads', () => {
+      mockGetEpochVerdict.mockReturnValue({
+        currentEpoch: 2,
+        rotationPending: true,
+        rotation: 'ok',
+        lastGoodEpoch: 2,
+        badEpochs: new Set<number>(),
+      });
+      setupLoading('owner');
+
+      render(page(false));
+
+      expect(screen.queryByTestId(TEST_IDS.epochIntegrityBanner)).not.toBeInTheDocument();
+    });
+
+    it('gives a member no message actions while the thread loads', () => {
+      setupLoading('owner');
+
+      render(page(false));
+
+      const layout = screen.getByTestId('chat-layout');
+      expect(layout).toHaveAttribute('data-has-on-regenerate', 'false');
+      expect(layout).toHaveAttribute('data-has-on-edit', 'false');
+      expect(layout).toHaveAttribute('data-has-on-fork', 'false');
     });
   });
 
@@ -2760,7 +3191,10 @@ describe('AuthenticatedChatPage', () => {
         />
       );
 
-      expect(screen.getByRole('alert')).toHaveTextContent('Ask a member who joined before you');
+      // A read-only guest's guest bar is an alert of its own, so the banner is found by its id.
+      expect(screen.getByTestId(TEST_IDS.epochIntegrityBanner)).toHaveTextContent(
+        'Ask a member who joined before you'
+      );
     });
 
     it('hands the message list the epochs written under invalid keys', () => {

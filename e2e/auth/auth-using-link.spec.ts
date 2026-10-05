@@ -6,7 +6,7 @@ import { ChatPage } from '../pages/index.js';
 import {
   expectSharedConversationLoaded,
   expectNoDecryptionErrors,
-  expectSendInputDisabled,
+  expectGuestBar,
   sendMessageAsGuest,
 } from '../helpers/link-assertions.js';
 import { guestIp } from '../helpers/guest-identity.js';
@@ -62,7 +62,7 @@ test.describe('Auth User Using Link', SPEC_MATRIX, () => {
       await bobChatPage.assertMessageVisible('Hi from Bob');
 
       await expectNoDecryptionErrors(testBobPage);
-      await expectSendInputDisabled(testBobPage);
+      await expectGuestBar(testBobPage, { signedIn: true });
     });
 
     await test.step('create write+history link and setup budgets', async () => {
@@ -154,7 +154,7 @@ test.describe('Auth User Using Link', SPEC_MATRIX, () => {
       });
 
       await expectNoDecryptionErrors(testBobPage);
-      await expectSendInputDisabled(testBobPage);
+      await expectGuestBar(testBobPage, { signedIn: true });
     });
 
     await test.step('create write+no-history link and setup budgets', async () => {

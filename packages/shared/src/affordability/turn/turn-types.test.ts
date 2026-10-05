@@ -86,6 +86,7 @@ describe('ModelEntry', () => {
     availability: { available: true },
     activation: { replace: { available: true }, add: { available: true } },
     ceilingTokens: 8000,
+    answerRoomTokens: 8000,
     dimensions: [],
     rungCeilings: [],
   };
@@ -94,6 +95,7 @@ describe('ModelEntry', () => {
     modelId: modelId('vendor/pinned'),
     availability: { available: false, reason: 'model_output_cap_too_low' },
     ceilingTokens: 9000,
+    answerRoomTokens: 9000,
     rungCeilings: [],
   };
 

@@ -10,7 +10,7 @@ function makeModel(provider: string): Model {
     provider,
     modality: 'text' as const,
     contextLength: 128_000,
-    pricing: { inputPerToken: '1000', outputPerToken: '2000' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '1000', outputPerToken: '2000' },
     description: 'Test',
     supportedParameters: [],
   };

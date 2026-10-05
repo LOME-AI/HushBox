@@ -93,9 +93,6 @@ vi.mock('@/hooks/chat/use-web-search', () => ({
   useWebSearch: () => mockWebSearch.current,
 }));
 
-const toggleMemberSidebarMock = vi.fn();
-const setMobileMemberSidebarOpenMock = vi.fn();
-
 vi.mock('@/stores/ui/modals', () => ({
   // Invoke the passed `useShallow` selector against a stub so the component's
   // real selector bodies (useLayoutModals et al.) execute.
@@ -106,18 +103,11 @@ vi.mock('@/stores/ui/modals', () => ({
       premiumModelName: undefined,
       setSignupModalOpen: vi.fn(),
       setPaymentModalOpen: vi.fn(),
-      memberSidebarOpen: false,
-      mobileMemberSidebarOpen: false,
       addMemberModalOpen: false,
       budgetSettingsModalOpen: false,
       inviteLinkModalOpen: false,
       shareMessageModalOpen: false,
       shareMessageId: null,
-      setMemberSidebarOpen: vi.fn(),
-      setMobileMemberSidebarOpen: setMobileMemberSidebarOpenMock,
-      openMemberSidebar: vi.fn(),
-      toggleMemberSidebar: toggleMemberSidebarMock,
-      closeMemberSidebar: vi.fn(),
       closeAddMemberModal: vi.fn(),
       openAddMemberModal: vi.fn(),
       closeBudgetSettingsModal: vi.fn(),
@@ -138,18 +128,24 @@ vi.mock('@/components/chat/layout/chat-header', () => ({
     onFacepileClick,
     showNewChat,
     branchSwitcher,
+    memberCount,
+    isLinkGuest,
   }: {
     title?: string;
     members?: unknown[];
     onFacepileClick?: () => void;
     showNewChat?: boolean;
     branchSwitcher?: React.ReactNode;
+    memberCount?: number;
+    isLinkGuest?: boolean;
   }) => {
     capturedOnFacepileClick = onFacepileClick;
     return (
       <div
         data-testid="chat-header"
         data-member-count={members?.length ?? 0}
+        data-conversation-member-count={memberCount ?? 'none'}
+        data-link-guest={String(isLinkGuest)}
         data-show-new-chat={String(showNewChat)}
       >
         {title}
@@ -181,6 +177,28 @@ vi.mock('@/components/chat/model-selector/model-selector-button', () => ({
   },
 }));
 
+/** What the thread receives for its fork marks. */
+function ListBranchProbe({
+  branches,
+  onOpenBranches,
+}: Readonly<{
+  branches: readonly unknown[] | undefined;
+  onOpenBranches: (() => void) | undefined;
+}>): React.JSX.Element {
+  return (
+    <>
+      {branches === undefined ? null : (
+        <span data-testid="message-list-branches">{branches.length}</span>
+      )}
+      {onOpenBranches === undefined ? null : (
+        <button type="button" onClick={onOpenBranches}>
+          list open branches
+        </button>
+      )}
+    </>
+  );
+}
+
 vi.mock('@/components/chat/message/message-list', () => ({
   MessageList: ({
     messages,
@@ -192,8 +210,18 @@ vi.mock('@/components/chat/message/message-list', () => ({
     isGroupChat,
     currentUserId,
     members,
+    branches,
+    onOpenBranches,
+    threadHeader,
+    threadFooter,
+    isMessageLink,
   }: {
     messages: Message[];
+    threadHeader?: React.ReactNode;
+    threadFooter?: React.ReactNode;
+    isMessageLink?: boolean;
+    branches?: readonly unknown[];
+    onOpenBranches?: () => void;
     onShare?: (id: string) => void;
     onRegenerate?: (id: string) => void;
     onEdit?: (id: string, content: string) => void;
@@ -215,8 +243,12 @@ vi.mock('@/components/chat/message/message-list', () => ({
         {...(isGroupChat ? { 'data-is-group-chat': 'true' } : {})}
         {...(currentUserId === undefined ? {} : { 'data-current-user-id': currentUserId })}
         {...(members === undefined ? {} : { 'data-member-count-list': String(members.length) })}
+        {...(isMessageLink === undefined ? {} : { 'data-message-link': String(isMessageLink) })}
       >
+        {threadHeader}
         {messages.length} messages
+        <ListBranchProbe branches={branches} onOpenBranches={onOpenBranches} />
+        {threadFooter}
       </div>
     );
   },
@@ -358,9 +390,15 @@ vi.mock('@/components/chat/layout/branch-switcher', () => ({
     onRename,
     onDelete,
     boundary,
+    forks,
+    open,
+    onOpenChange,
   }: BranchSwitcherProps): React.JSX.Element => (
     <div
       data-testid="branch-switcher-stub"
+      data-open={String(open)}
+      data-forks={(forks ?? []).map((fork) => `${fork.id}|${fork.name}`).join(',')}
+      data-branch-count={String(branches.length)}
       data-current-fork-id={currentForkId ?? ''}
       data-first-messages={branches.map((b) => b.firstMessage).join('|')}
       data-has-boundary={String(boundary instanceof HTMLElement)}
@@ -388,6 +426,14 @@ vi.mock('@/components/chat/layout/branch-switcher', () => ({
         }}
       >
         stub delete
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onOpenChange(false);
+        }}
+      >
+        stub close
       </button>
     </div>
   ),
@@ -498,14 +544,16 @@ describe('ChatLayout', () => {
     expect(screen.getByTestId('prompt-input')).toBeInTheDocument();
   });
 
-  it('does not show decrypting indicator when messages exist', () => {
+  // This file's list stand-in never reports the thread revealed, so the indicator stays; its
+  // removal on reveal is pinned in `chat-main-content.reveal.test.tsx`.
+  it('keeps the decrypting indicator over the mounted list until the list reveals the thread', () => {
     const messages: Message[] = [
       { id: '1', conversationId: 'conv-1', role: 'user', content: 'Hi', createdAt: '' },
     ];
 
     render(<ChatLayout {...defaultProps} messages={messages} isDecrypting={true} />);
 
-    expect(screen.queryByTestId('shared-conversation-loading')).not.toBeInTheDocument();
+    expect(screen.getByTestId('shared-conversation-loading')).toBeInTheDocument();
     expect(screen.getByTestId('message-list')).toBeInTheDocument();
   });
 
@@ -696,6 +744,21 @@ describe('ChatLayout', () => {
       expect(screen.queryByTestId('add-member-modal')).not.toBeInTheDocument();
       expect(screen.queryByTestId('budget-settings-modal')).not.toBeInTheDocument();
       expect(screen.queryByTestId('invite-link-modal')).not.toBeInTheDocument();
+    });
+
+    it('tells the header the reader is a link guest', () => {
+      render(<ChatLayout {...defaultProps} conversationId="conv-123" isLinkGuest />);
+
+      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-link-guest', 'true');
+    });
+
+    it('hands the header the conversation member count before the members arrive', () => {
+      render(<ChatLayout {...defaultProps} conversationId="conv-123" memberCount={3} />);
+
+      expect(screen.getByTestId('chat-header')).toHaveAttribute(
+        'data-conversation-member-count',
+        '3'
+      );
     });
 
     it('passes members to ChatHeader when groupChat provided', () => {
@@ -1101,6 +1164,18 @@ describe('ChatLayout', () => {
     expect(screen.getByTestId('message-list')).toHaveAttribute('data-has-on-share', 'true');
   });
 
+  it('tells the message list it holds a message shared by link', () => {
+    render(<ChatLayout {...defaultProps} isMessageLink />);
+
+    expect(screen.getByTestId('message-list')).toHaveAttribute('data-message-link', 'true');
+  });
+
+  it('tells the message list nothing of a message link on any other thread', () => {
+    render(<ChatLayout {...defaultProps} />);
+
+    expect(screen.getByTestId('message-list')).not.toHaveAttribute('data-message-link', 'true');
+  });
+
   describe('the branch switcher', () => {
     const forks = [
       { id: 'fork-main', name: 'Main', tipMessageId: 'main-a2', createdAt: isoAt(TEST_DAY_START) },
@@ -1177,6 +1252,40 @@ describe('ChatLayout', () => {
       renderWithForks();
       expect(screen.getByTestId('chat-header')).toContainElement(
         screen.getByTestId('branch-switcher-stub')
+      );
+    });
+
+    it('hands the thread the branches the switcher lists', () => {
+      renderWithForks();
+      expect(screen.getByTestId('message-list-branches')).toHaveTextContent(
+        screen.getByTestId('branch-switcher-stub').dataset['branchCount'] ?? 'none'
+      );
+    });
+
+    it('keeps the switcher shut until something opens it', () => {
+      renderWithForks();
+      expect(screen.getByTestId('branch-switcher-stub')).toHaveAttribute('data-open', 'false');
+    });
+
+    it('opens the switcher from the thread', async () => {
+      renderWithForks();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'list open branches' }));
+      expect(screen.getByTestId('branch-switcher-stub')).toHaveAttribute('data-open', 'true');
+    });
+
+    it('shuts the switcher when it asks', async () => {
+      renderWithForks();
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: 'list open branches' }));
+      await user.click(screen.getByRole('button', { name: 'stub close' }));
+      expect(screen.getByTestId('branch-switcher-stub')).toHaveAttribute('data-open', 'false');
+    });
+
+    it('gives the switcher the forks in creation order', () => {
+      renderWithForks();
+      expect(screen.getByTestId('branch-switcher-stub')).toHaveAttribute(
+        'data-forks',
+        'fork-main|Main,fork-1|Fork 1'
       );
     });
 
@@ -1355,8 +1464,7 @@ describe('ChatLayout', () => {
       isMobileRef.current = false;
     });
 
-    it('opens the mobile member sidebar when the facepile is clicked on mobile', () => {
-      isMobileRef.current = true;
+    it('hands the header no facepile handler, since the facepile opens the pane itself', () => {
       const groupChat = {
         conversationId: 'conv-123',
         members: [
@@ -1368,14 +1476,11 @@ describe('ChatLayout', () => {
         currentUserId: 'u1',
         currentUserLinkId: null,
         currentUserPrivilege: 'owner',
-        currentEpochKey: { epochNumber: 1, privateKey: new Uint8Array(32) },
-      } as unknown as Parameters<typeof ChatLayout>[0]['groupChat'];
+      } satisfies GroupChatProps;
 
       render(<ChatLayout {...defaultProps} conversationId="conv-123" groupChat={groupChat} />);
 
-      capturedOnFacepileClick?.();
-
-      expect(setMobileMemberSidebarOpenMock).toHaveBeenCalledTimes(1);
+      expect(capturedOnFacepileClick).toBeUndefined();
     });
 
     it('switches the active modality via the composer', async () => {
@@ -1399,28 +1504,6 @@ describe('ChatLayout', () => {
       expect(
         (useModelStore.getState() as unknown as ModelStoreStub).setSelectedModels
       ).toHaveBeenCalledWith('text', entries);
-    });
-
-    it('toggles the member sidebar when the facepile is clicked on desktop', () => {
-      const groupChat = {
-        conversationId: 'conv-123',
-        members: [
-          { id: 'm1', userId: 'u1', username: 'alice', privilege: 'owner' },
-          { id: 'm2', userId: 'u2', username: 'bob', privilege: 'write' },
-        ],
-        links: [],
-        onlineMemberIds: new Set<string>(),
-        currentUserId: 'u1',
-        currentUserLinkId: null,
-        currentUserPrivilege: 'owner',
-        currentEpochKey: { epochNumber: 1, privateKey: new Uint8Array(32) },
-      } as unknown as Parameters<typeof ChatLayout>[0]['groupChat'];
-
-      render(<ChatLayout {...defaultProps} conversationId="conv-123" groupChat={groupChat} />);
-
-      capturedOnFacepileClick?.();
-
-      expect(toggleMemberSidebarMock).toHaveBeenCalledTimes(1);
     });
 
     it('opens the share modal via the message list share handler', () => {
@@ -1519,5 +1602,77 @@ describe('ChatLayout — message queue', () => {
   it('renders no pills container when no queue props are supplied', () => {
     render(<ChatLayout {...baseProps} />);
     expect(screen.queryByTestId('queued-messages')).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatLayout — page slots', () => {
+  const baseProps = {
+    messages: [] as Message[],
+    streamingMessageIds: new Set<string>(),
+    inputValue: '',
+    onInputChange: vi.fn(),
+    onSubmit: vi.fn(),
+    inputDisabled: false,
+    isProcessing: false,
+    historyCharacters: 0,
+    isAuthenticated: true,
+  };
+
+  function inputContainer(): HTMLElement {
+    const container = document.querySelector<HTMLElement>('[data-chat-input]');
+    if (container === null) throw new Error('no [data-chat-input] container rendered');
+    return container;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockWebSearch.current = { preferred: false, canUse: true, active: false, toggle: vi.fn() };
+  });
+
+  it('renders the composer slot inside the input container', () => {
+    render(<ChatLayout {...baseProps} composerSlot={<p>Guest bar</p>} />);
+    expect(inputContainer()).toContainElement(screen.getByText('Guest bar'));
+  });
+
+  it('renders no composer textbox in place of a composer slot', () => {
+    render(<ChatLayout {...baseProps} composerSlot={<p>Guest bar</p>} />);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+
+  it('renders no queued pills in place of a composer slot', () => {
+    render(
+      <ChatLayout
+        {...baseProps}
+        composerSlot={<p>Guest bar</p>}
+        queuedMessages={[{ id: 'q1', text: 'queued', payerSwitch: undefined }]}
+        onCancelQueued={vi.fn()}
+      />
+    );
+    expect(screen.queryByTestId('queued-messages')).not.toBeInTheDocument();
+  });
+
+  it('hands the thread header to the message list', () => {
+    render(<ChatLayout {...baseProps} threadHeader={<p>Shared head</p>} />);
+    expect(screen.getByTestId('message-list')).toContainElement(screen.getByText('Shared head'));
+  });
+
+  it('hands the thread footer to the message list', () => {
+    render(<ChatLayout {...baseProps} threadFooter={<p>Shared footer</p>} />);
+    expect(screen.getByTestId('message-list')).toContainElement(screen.getByText('Shared footer'));
+  });
+
+  it('renders the composer in the input container when neither slot is given', () => {
+    render(<ChatLayout {...baseProps} />);
+    expect(inputContainer()).toContainElement(screen.getByRole('textbox'));
+  });
+
+  it('renders the composer in the input container for a null composer slot', () => {
+    render(<ChatLayout {...baseProps} composerSlot={null} />);
+    expect(inputContainer()).toContainElement(screen.getByRole('textbox'));
+  });
+
+  it('draws no input container when the composer slot is false', () => {
+    render(<ChatLayout {...baseProps} composerSlot={false} />);
+    expect(document.querySelector('[data-chat-input]')).toBeNull();
   });
 });

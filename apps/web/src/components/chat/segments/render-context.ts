@@ -17,6 +17,8 @@ export interface MessageRenderFacts {
   /** Billing metadata beside the text, never inside it. */
   readonly reasoningTokens: number | undefined;
   readonly reasoningEffort: ResolvedReasoningEffort | undefined;
+  /** How long the model reasoned, where it was recorded; absent on a live tile and on older replies. */
+  readonly reasoningDurationMs?: number | undefined;
 }
 
 /**
@@ -34,7 +36,7 @@ export interface SegmentRenderContext extends MessageRenderFacts {
   rowPages(key: string): RowPages;
   /** The reasoning span still receiving content: the root's last child of a streaming message. */
   readonly liveReasoningKey: string | undefined;
-  /** The message's first reasoning span, the only one that names the effort. */
+  /** The message's first reasoning span, the only one that names the duration and token count. */
   readonly firstReasoningKey: string | undefined;
   /** Whether the root holds any answer text. */
   readonly hasAnswer: boolean;

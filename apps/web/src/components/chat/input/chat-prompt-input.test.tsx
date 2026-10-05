@@ -190,18 +190,16 @@ describe('ChatPromptInput', () => {
 
 describe('buildChatHeaderGroupProps', () => {
   it('returns an empty object when there is no group chat', () => {
-    expect(buildChatHeaderGroupProps(undefined, vi.fn())).toEqual({});
+    expect(buildChatHeaderGroupProps()).toEqual({});
   });
 
-  it('maps group members and the facepile handler when a group chat is present', () => {
-    const onFacepileClick = vi.fn();
+  it('maps the group members and their presence when a group chat is present', () => {
     const groupChat = makeGroupChat();
 
-    const result = buildChatHeaderGroupProps(groupChat, onFacepileClick);
-
-    expect(result.members).toBe(groupChat.members);
-    expect(result.onlineMemberIds).toBe(groupChat.onlineMemberIds);
-    expect(result.onFacepileClick).toBe(onFacepileClick);
+    expect(buildChatHeaderGroupProps(groupChat)).toStrictEqual({
+      members: groupChat.members,
+      onlineMemberIds: groupChat.onlineMemberIds,
+    });
   });
 });
 

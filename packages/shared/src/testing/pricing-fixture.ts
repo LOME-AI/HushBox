@@ -23,6 +23,9 @@ function parsedAs<Kind extends ModelPricing['kind']>(
   ).parse({ ...wire, kind });
 }
 
+/** The default anchor context's floor; the default rises past the fixture's highest tier when that is higher. */
+const DEFAULT_ANCHOR_CONTEXT_TOKENS = 1_000_000;
+
 function rateRecord(rates: Readonly<Record<string, bigint>>): Record<string, string> {
   return Object.fromEntries(Object.entries(rates).map(([key, rate]) => [key, rate.toString()]));
 }
@@ -35,11 +38,17 @@ export function tokenPricingFixture(input: {
     readonly input: bigint;
     readonly output: bigint;
   }[];
+  /** Defaults past every tier the fixture builds, so each tier is the anchor's own. */
+  readonly anchorContextTokens?: number;
 }): TokenPricing {
+  const tiers = input.tiers ?? [];
   return parsedAs('tokens', {
+    anchorContextTokens:
+      input.anchorContextTokens ??
+      Math.max(DEFAULT_ANCHOR_CONTEXT_TOKENS, ...tiers.map((tier) => tier.abovePromptTokens + 1)),
     anchor: {
       base: { input: input.input.toString(), output: input.output.toString() },
-      tiers: (input.tiers ?? []).map((tier) => ({
+      tiers: tiers.map((tier) => ({
         abovePromptTokens: tier.abovePromptTokens,
         rates: { input: tier.input.toString(), output: tier.output.toString() },
       })),

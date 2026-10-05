@@ -1095,6 +1095,25 @@ describe('member count on the conversation list', () => {
     expect(await listedMemberCount(userId, conversationId)).toBe(2);
   });
 
+  it('reads the same count for one conversation as the list reads for it', async () => {
+    const { userId, conversationId } = await seedOwnedConversation();
+    await seatMember(conversationId);
+    await seatLinkGuest(conversationId);
+    const counted = await stores.conversations.memberCount(conversationId);
+    expect(counted._unsafeUnwrap()).toBe(await listedMemberCount(userId, conversationId));
+  });
+
+  it('reads no seats for a conversation that does not exist', async () => {
+    const counted = await stores.conversations.memberCount(crypto.randomUUID());
+    expect(counted._unsafeUnwrap()).toBe(0);
+  });
+
+  it('reads the count of a solo conversation as one', async () => {
+    const { conversationId } = await seedOwnedConversation();
+    const counted = await stores.conversations.memberCount(conversationId);
+    expect(counted._unsafeUnwrap()).toBe(1);
+  });
+
   it('reads the list with its counts in one statement', async () => {
     const { userId, conversationId } = await seedOwnedConversation();
     await seatMember(conversationId);

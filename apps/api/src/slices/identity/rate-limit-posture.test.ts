@@ -110,7 +110,7 @@ describe("the step-up routes' citations", () => {
 
   it('cites every counter the deletion finish spends, in the order it spends them', () => {
     // The deletion gate answers first; a 2FA-enabled account then pays the
-    // shared TOTP pair — ceiling, then window — on the same request. Declaring
+    // shared TOTP ceiling and then the TOTP window on the same request. Declaring
     // only the first would understate the route's bound, and `keyedBy` is
     // positional, so the order here is the order the flow charges them in.
     expect(

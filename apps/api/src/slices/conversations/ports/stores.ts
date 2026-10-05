@@ -235,6 +235,11 @@ export interface ConversationsStore {
    * taking an exclusive lock.
    */
   lockForShare(conversationId: string): ResultAsync<ConversationRecord | null, DomainError>;
+  /**
+   * Seats not left, users and link guests alike: what `listForUser` counts for each
+   * row, read for one conversation.
+   */
+  memberCount(conversationId: string): ResultAsync<number, DomainError>;
   listForUser(params: {
     readonly userId: string;
     readonly limit: number;

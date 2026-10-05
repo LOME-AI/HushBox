@@ -63,6 +63,20 @@ describe('createModelResolver', () => {
     expect(priced?._unsafeUnwrap()).toBe(80n);
   });
 
+  it("caps a language call at the max_price its input bound reaches on the binding's own price", () => {
+    const pricing: ModelDescriptor['pricing'] = tokenPricingFixture({
+      input: 230n,
+      output: 1438n,
+      anchorContextTokens: 400_000,
+      tiers: [{ abovePromptTokens: 400_000, input: 5750n, output: 25_875n }],
+    });
+    const descriptor = descriptorWith('segmented-model', ['text'], ['text'], pricing);
+    const binding = createModelResolver(resolverOver([descriptor])).resolve('segmented-model');
+
+    expect(binding?.maxPrice(1000)).toEqual({ prompt: '0.250434', completion: '1.563478' });
+    expect(binding?.maxPrice(400_001)).toEqual({ prompt: '6.250434', completion: '28.125217' });
+  });
+
   it('fails closed on an unknown model id', () => {
     const resolver = createModelResolver(resolverOver([]));
     expect(resolver.resolve('missing')).toBeUndefined();
@@ -87,6 +101,19 @@ describe('createModelResolver — deterministic media pricer', () => {
     const priced = resolver.resolve('image-model')?.priceMedia?.({});
 
     expect(priced?._unsafeUnwrap()).toBe(40n);
+  });
+
+  it("reserves an image call at the descriptor's dearest per-image row", () => {
+    const pricing: ModelDescriptor['pricing'] = perImagePricingFixture({
+      anchor: 51_750_000n,
+      dearest: 103_500_000n,
+    });
+    const descriptor = descriptorWith('image-model', ['text'], ['image'], pricing);
+    const resolver = createModelResolver(resolverOver([descriptor]));
+
+    const reserved = resolver.resolve('image-model')?.reserveMedia({});
+
+    expect(reserved?._unsafeUnwrap()).toBe(103_500_000n);
   });
 
   it('fails closed when an image call requests more than one artifact', () => {

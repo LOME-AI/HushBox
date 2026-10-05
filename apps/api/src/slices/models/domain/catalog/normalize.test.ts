@@ -2,14 +2,30 @@ import { describe, expect, it } from 'vitest';
 import { ModelDescriptor } from '@hushbox/shared';
 import { MAX_MODEL_AGE_MS } from '@hushbox/shared/affordability';
 import { DAY_MS, TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
-import { normalizeCatalog, normalizeModel } from './normalize.js';
+import { canonicalJson } from '../../../../lib/idempotency/index.js';
+import {
+  normalizeCatalog as normalizeListedCatalog,
+  normalizeModel as normalizeListedModel,
+  pinnableZdrTags,
+  textPricingFromEndpoints,
+} from './normalize.js';
 import { isNonConversational } from './non-chat-exclusions.js';
-import type { ImageMetadata, LanguageMetadata, VideoMetadata } from './gateway-metadata.js';
+import { zdrEndpointFixture } from './gateway-fixtures.js';
+import { endpointBucketCounts } from './price-schedule.js';
+import type {
+  ImageMetadata,
+  ImagePricingEntry,
+  LanguageMetadata,
+  VideoMetadata,
+  ZdrEndpoint,
+} from './gateway-metadata.js';
 import type {
   CatalogAdmission,
   CatalogEntry,
   DescriptorContent,
   StoredPricing,
+  TextPricing,
+  ZdrListing,
 } from './normalize.js';
 
 /**
@@ -20,7 +36,19 @@ import type {
  */
 const FIXTURE_RELEASE_SECONDS = secondsAt(TEST_DAY_START - 49 * DAY_MS);
 
-function languageModel(overrides: Partial<LanguageMetadata> = {}): LanguageMetadata {
+/** The rates a language fixture's one ZDR endpoint lists, as decimal USD strings. */
+interface FixtureRates {
+  readonly prompt?: string;
+  readonly completion?: string;
+  readonly cacheRead?: string;
+}
+
+/** A language model plus the price its single ZDR endpoint lists. */
+type LanguageFixture = LanguageMetadata & { readonly pricing?: FixtureRates | undefined };
+
+type ModelFixture = LanguageFixture | ImageMetadata | VideoMetadata;
+
+function languageModel(overrides: Partial<LanguageFixture> = {}): LanguageFixture {
   return {
     source: 'language',
     id: 'openai/gpt-test',
@@ -36,17 +64,35 @@ function languageModel(overrides: Partial<LanguageMetadata> = {}): LanguageMetad
   };
 }
 
-function imageModel(overrides: Partial<ImageMetadata> = {}): ImageMetadata {
+/** An image fixture's overrides; `endpointPricing` prices its one endpoint. */
+type ImageOverrides = Partial<ImageMetadata> & {
+  readonly endpointPricing?: readonly ImagePricingEntry[];
+};
+
+/**
+ * An image model with one endpoint, tagged as {@link zdrEndpointFixture} tags a
+ * ZDR row, so a listed fixture pins that endpoint unless `endpoints` says otherwise.
+ */
+function imageModel(overrides: ImageOverrides = {}): ImageMetadata {
+  const {
+    endpointPricing = [{ billable: 'output_image', unit: 'image', costUsd: '0.04' }],
+    ...rest
+  } = overrides;
   return {
     source: 'image',
     id: 'google/test-image',
     provider: 'google',
     inputModalities: ['text'],
     supportedParameters: { resolution: ['1024x1024'], aspectRatio: ['1:1'], maxN: 4 },
-    endpointPricing: [{ billable: 'output_image', unit: 'image', costUsd: '0.04' }],
+    endpoints: [{ providerTag: 'test-provider', pricing: endpointPricing }],
     releasedAt: FIXTURE_RELEASE_SECONDS,
-    ...overrides,
+    ...rest,
   };
+}
+
+/** A per-image output row at a vendor decimal rate. */
+function perImageRow(costUsd: string): ImagePricingEntry {
+  return { billable: 'output_image', unit: 'image', costUsd };
 }
 
 function videoModel(overrides: Partial<VideoMetadata> = {}): VideoMetadata {
@@ -64,6 +110,44 @@ function videoModel(overrides: Partial<VideoMetadata> = {}): VideoMetadata {
     releasedAt: FIXTURE_RELEASE_SECONDS,
     ...overrides,
   };
+}
+
+/** The one ZDR endpoint a fixture lists: standard tier, every parameter a call sends, at the fixture's price. */
+function endpointFor(model: ModelFixture | undefined): ZdrEndpoint {
+  if (model?.source !== 'language' || model.pricing === undefined) {
+    return zdrEndpointFixture(model?.source === 'language' ? { pricing: {} } : {});
+  }
+  const { prompt, completion, cacheRead } = model.pricing;
+  return zdrEndpointFixture({
+    pricing: {
+      ...(prompt === undefined ? {} : { prompt }),
+      ...(completion === undefined ? {} : { completion }),
+      ...(cacheRead === undefined ? {} : { input_cache_read: cacheRead }),
+    },
+  });
+}
+
+/** The ZDR listing for a set of listed ids, each listing its fixture's one endpoint. */
+function listingFor(models: readonly ModelFixture[], zdr: ReadonlySet<string>): ZdrListing {
+  return new Map(
+    [...zdr].map((id) => [id, [endpointFor(models.find((model) => model.id === id))]] as const)
+  );
+}
+
+function normalizeModel(
+  model: ModelFixture,
+  zdr: ReadonlySet<string>,
+  admission: CatalogAdmission
+): ReturnType<typeof normalizeListedModel> {
+  return normalizeListedModel(model, listingFor([model], zdr), admission);
+}
+
+function normalizeCatalog(
+  models: readonly ModelFixture[],
+  zdr: ReadonlySet<string>,
+  nowMs: number
+): CatalogEntry[] {
+  return normalizeListedCatalog(models, listingFor(models, zdr), nowMs);
 }
 
 const ZDR: ReadonlySet<string> = new Set([
@@ -91,13 +175,21 @@ const ADMISSION: CatalogAdmission = { contextExemptionTokens: 1_000_000_000, now
  * that state a sub-floor rate in order to exercise something else. */
 const EXEMPT: CatalogAdmission = { contextExemptionTokens: 0, nowMs: NOW_MS };
 
-function tokenPrice(input: string, output: string): StoredPricing {
-  return { kind: 'tokens', anchor: { base: { input, output }, tiers: [] } };
+function tokenPrice(input: string, output: string, anchorContextTokens = 128_000): StoredPricing {
+  return { kind: 'tokens', anchor: { base: { input, output }, tiers: [] }, anchorContextTokens };
 }
 
 function perImagePrice(rate: string): StoredPricing {
   return { kind: 'perImage', anchor: rate, dearest: rate };
 }
+
+/** `bytedance-seed/seedream-5-0-pro`'s one endpoint as listed: a $0.045 row, a $0.09
+ * row under the `high_resolution` variant, and an input-image row that prices no output. */
+const SEEDREAM_PRO_ROWS: readonly ImagePricingEntry[] = [
+  { billable: 'output_image', unit: 'image', costUsd: '0.045' },
+  { billable: 'output_image', unit: 'image', costUsd: '0.09' },
+  { billable: 'input_image', unit: 'image', costUsd: '0.003' },
+];
 
 function perSecondPrice(rates: Readonly<Record<string, string>>): StoredPricing {
   return { kind: 'perSecond', anchor: rates, dearest: rates };
@@ -252,7 +344,7 @@ describe('normalizeModel (language)', () => {
     const legacyRow = {
       id: 'openai/legacy',
       provider: 'openai',
-      version: '3',
+      version: '4',
       inputs: ['text'],
       outputs: ['text'],
       parameters: {},
@@ -322,14 +414,17 @@ describe('normalizeModel (language)', () => {
     expect(content.outputs).toEqual(['image', 'video']);
   });
 
-  it('excludes a text model that states one token rate, loudly (unknown-pricing-unit)', () => {
-    // The unstated leg charges nothing, and a price schedule holds only positive
-    // rates, so the row cannot be priced: excluded with the alerting reason. The
-    // warning that reason raises is emitted by the refresh, and asserted in
-    // `refresh.integration.test.ts`.
+  it('excludes a text model whose standard-tier endpoint lists no prompt rate, loudly', () => {
+    // A standard-tier endpoint whose price states no prompt rate prices a call at a
+    // rate nothing bounds. The warning the reason raises is emitted by the
+    // refresh, and asserted in `refresh.integration.test.ts`.
     expect(
       normalizeModel(languageModel({ pricing: { completion: '0.00001' } }), ZDR, ADMISSION)
-    ).toEqual({ kind: 'excluded', modelId: 'openai/gpt-test', reason: 'unknown-pricing-unit' });
+    ).toEqual({
+      kind: 'excluded',
+      modelId: 'openai/gpt-test',
+      reason: 'unrepresentable-endpoint-price',
+    });
   });
 
   it('excludes a text model with exactly one zero token rate, loudly (unknown-pricing-unit)', () => {
@@ -342,14 +437,18 @@ describe('normalizeModel (language)', () => {
     ).toEqual({ kind: 'excluded', modelId: 'openai/gpt-test', reason: 'unknown-pricing-unit' });
   });
 
-  it('excludes a text model whose one rate cannot be represented in nano-USD, loudly', () => {
+  it('excludes a text model whose standard-tier endpoint lists a rate that is not a decimal, loudly', () => {
     expect(
       normalizeModel(
         languageModel({ pricing: { prompt: 'mystery', completion: '0.00001' } }),
         ZDR,
         ADMISSION
       )
-    ).toEqual({ kind: 'excluded', modelId: 'openai/gpt-test', reason: 'unknown-pricing-unit' });
+    ).toEqual({
+      kind: 'excluded',
+      modelId: 'openai/gpt-test',
+      reason: 'unrepresentable-endpoint-price',
+    });
   });
 
   it('carries no cache-read rate, since nothing HushBox reserves or bills reads one', () => {
@@ -382,6 +481,42 @@ describe('normalizeModel (language)', () => {
         }
       );
     }
+  });
+
+  it('excludes a model whose gateway window is past the safe-integer range without failing the catalog', () => {
+    const models = [
+      languageModel({ id: 'unsafe/window', contextLength: 2 ** 53 }),
+      languageModel({ id: 'healthy/model' }),
+    ];
+    expect(
+      normalizeCatalog(models, new Set(models.map((model) => model.id)), NOW_MS).map((entry) =>
+        entry.kind === 'excluded' ? entry.reason : entry.kind
+      )
+    ).toEqual(['unrepresentable-token-limit', 'normalized']);
+  });
+
+  it.each([
+    ['window', { contextLength: 2 ** 53 }],
+    ['window', { contextLength: 1e300 }],
+    ['ceiling', { maxCompletionTokens: 2 ** 53 }],
+    ['ceiling', { maxCompletionTokens: 1e300 }],
+  ])(
+    'excludes a model whose gateway %s is an integer past the safe range: %o',
+    (_limit, limits) => {
+      expect(normalizeModel(languageModel(limits), ZDR, ADMISSION)).toEqual({
+        kind: 'excluded',
+        modelId: 'openai/gpt-test',
+        reason: 'unrepresentable-token-limit',
+      });
+    }
+  );
+
+  it('keeps a gateway window at the largest safe integer', () => {
+    expect(
+      normalized(
+        normalizeModel(languageModel({ contextLength: Number.MAX_SAFE_INTEGER }), ZDR, ADMISSION)
+      ).limits
+    ).toEqual({ contextLength: Number.MAX_SAFE_INTEGER });
   });
 
   it('writes limits.maxOutputTokens from a positive-integer gateway ceiling', () => {
@@ -587,6 +722,7 @@ describe('normalizeModel (image)', () => {
       behaviors: [],
       pricing: perImagePrice('46000000'),
       zdrReachable: true,
+      zdrPin: ['test-provider'],
     });
     expect(content.parameters['aspectRatio']).toMatchObject({ type: 'enum', values: ['1:1'] });
     expect(content.parameters['resolution']).toMatchObject({ type: 'enum', values: ['1024x1024'] });
@@ -716,20 +852,73 @@ describe('normalizeModel (image)', () => {
     ).toMatchObject({ kind: 'excluded', reason: 'token-priced-image' });
   });
 
-  it('prices per-image when both a token row and a per-image row exist', () => {
+  it.each([
+    ['an unrecognized unit', 'image_hd', '5'],
+    ['a per-token unit', 'token', '0.00003'],
+    ['a per-megapixel unit', 'megapixel', '0.01'],
+  ])(
+    'excludes an image model with an output row of %s beside a per-image row, loudly',
+    (_shape, unit, costUsd) => {
+      // The reserve must cover every row the provider can bill, and this row's
+      // per-image figure is unknown.
+      expect(
+        normalizeModel(
+          imageModel({
+            endpointPricing: [
+              { billable: 'output_image', unit, costUsd },
+              { billable: 'output_image', unit: 'image', costUsd: '0.045' },
+            ],
+          }),
+          ZDR,
+          ADMISSION
+        )
+      ).toEqual({
+        kind: 'excluded',
+        modelId: 'google/test-image',
+        reason: 'unknown-pricing-unit',
+      });
+    }
+  );
+
+  it('prices an image model whose output rows are all per-image', () => {
     const content = normalized(
       normalizeModel(
         imageModel({
           endpointPricing: [
-            { billable: 'output_image', unit: 'token', costUsd: '0.00003' },
-            { billable: 'output_image', unit: 'image', costUsd: '0.04' },
+            { billable: 'output_image', unit: 'image', costUsd: '0.045' },
+            { billable: 'output_image', unit: 'per_image', costUsd: '0.09' },
           ],
         }),
         ZDR,
         ADMISSION
       )
     );
-    expect(content.pricing).toEqual(perImagePrice('46000000'));
+    expect(content.pricing).toEqual({
+      kind: 'perImage',
+      anchor: '51750000',
+      dearest: '103500000',
+    });
+  });
+
+  it('excludes an image model with a sub-nano per-image row beside a priced one, loudly', () => {
+    // Below 1 nano-USD the row is a free row in another spelling, and a free row
+    // beside a priced one is a price the schedule cannot represent.
+    expect(
+      normalizeModel(
+        imageModel({
+          endpointPricing: [
+            { billable: 'output_image', unit: 'image', costUsd: '0.045' },
+            { billable: 'output_image', unit: 'image', costUsd: `0.${'0'.repeat(30)}1` },
+          ],
+        }),
+        ZDR,
+        ADMISSION
+      )
+    ).toEqual({
+      kind: 'excluded',
+      modelId: 'google/test-image',
+      reason: 'unknown-pricing-unit',
+    });
   });
 
   it('omits the optional image params the structured surface does not declare', () => {
@@ -747,6 +936,123 @@ describe('normalizeModel (image)', () => {
     });
   });
 
+  it('reserves an image at its dearest per-image row, variant rows included', () => {
+    const content = normalized(
+      normalizeModel(imageModel({ endpointPricing: SEEDREAM_PRO_ROWS }), ZDR, ADMISSION)
+    );
+    // $0.09 × 1.15, where the first-listed $0.045 row would store 51,750,000.
+    expect(content.pricing).toMatchObject({ kind: 'perImage', dearest: '103500000' });
+  });
+
+  it('anchors an image at its cheapest per-image row whatever order the rows are listed in', () => {
+    const content = normalized(
+      normalizeModel(
+        imageModel({ endpointPricing: SEEDREAM_PRO_ROWS.toReversed() }),
+        ZDR,
+        ADMISSION
+      )
+    );
+    expect(content.pricing).toMatchObject({ kind: 'perImage', anchor: '51750000' });
+  });
+
+  it('bakes a per-image rate from its vendor decimal with one round-up', () => {
+    // ceil(0.0000000605 × 10⁹ × 1.15) = ceil(69.575) = 70; rounding the rate to
+    // 60 nano first would store 69.
+    const content = normalized(
+      normalizeModel(
+        imageModel({
+          endpointPricing: [{ billable: 'output_image', unit: 'image', costUsd: '0.0000000605' }],
+        }),
+        ZDR,
+        ADMISSION
+      )
+    );
+    expect(content.pricing).toEqual(perImagePrice('70'));
+  });
+
+  it('excludes an image model with an unreadable per-image row beside a readable one, loudly', () => {
+    // The reserve must cover every row, and an unreadable row's rate is unknown.
+    expect(
+      normalizeModel(
+        imageModel({
+          endpointPricing: [
+            { billable: 'output_image', unit: 'image', costUsd: '0.045' },
+            { billable: 'output_image', unit: 'image', costUsd: 'mystery' },
+          ],
+        }),
+        ZDR,
+        ADMISSION
+      )
+    ).toEqual({
+      kind: 'excluded',
+      modelId: 'google/test-image',
+      reason: 'unknown-pricing-unit',
+    });
+  });
+
+  it('defaults the resolution to the smallest listed size when the per-image rows differ in price', () => {
+    const content = normalized(
+      normalizeModel(
+        imageModel({
+          endpointPricing: SEEDREAM_PRO_ROWS,
+          supportedParameters: { resolution: ['2K', '1K', '768'], aspectRatio: ['1:1'], maxN: 1 },
+        }),
+        ZDR,
+        ADMISSION
+      )
+    );
+    expect(content.parameters['resolution']).toMatchObject({ default: '768' });
+  });
+
+  it('defaults the resolution to a sized value over one that names no size', () => {
+    const content = normalized(
+      normalizeModel(
+        imageModel({
+          endpointPricing: SEEDREAM_PRO_ROWS,
+          supportedParameters: { resolution: ['auto', '2K', '1K'], aspectRatio: ['1:1'], maxN: 1 },
+        }),
+        ZDR,
+        ADMISSION
+      )
+    );
+    expect(content.parameters['resolution']).toMatchObject({ default: '1K' });
+  });
+
+  it('declares no resolution default when every per-image row prices the same', () => {
+    const content = normalized(
+      normalizeModel(
+        imageModel({
+          endpointPricing: [
+            { billable: 'output_image', unit: 'image', costUsd: '0.03' },
+            { billable: 'output_image', unit: 'image', costUsd: '0.03' },
+          ],
+          supportedParameters: { resolution: ['1K', '2K'], aspectRatio: ['1:1'], maxN: 1 },
+        }),
+        ZDR,
+        ADMISSION
+      )
+    );
+    expect(content.parameters['resolution']).toEqual({
+      type: 'enum',
+      values: ['1K', '2K'],
+      wire: 'providerOptions',
+    });
+  });
+
+  it('declares no resolution when a variant-priced model lists none', () => {
+    const content = normalized(
+      normalizeModel(
+        imageModel({
+          endpointPricing: SEEDREAM_PRO_ROWS,
+          supportedParameters: { resolution: [], aspectRatio: ['1:1'], maxN: 1 },
+        }),
+        ZDR,
+        ADMISSION
+      )
+    );
+    expect(content.parameters['resolution']).toBeUndefined();
+  });
+
   it('excludes an image model whose only per-image rate is unrepresentable in nano-USD', () => {
     expect(
       normalizeModel(
@@ -761,6 +1067,184 @@ describe('normalizeModel (image)', () => {
       modelId: 'google/test-image',
       reason: 'unknown-pricing-unit',
     });
+  });
+});
+
+describe('pinnableZdrTags', () => {
+  it('pins a ZDR tag that an image endpoint carries', () => {
+    expect(pinnableZdrTags(['seed'], ['seed'])).toEqual(['seed']);
+  });
+
+  it('leaves out a ZDR tag no image endpoint carries', () => {
+    expect(pinnableZdrTags(['seed', 'azure'], ['seed'])).toEqual(['seed']);
+  });
+
+  it('never pins an endpoint whose tag is null', () => {
+    expect(pinnableZdrTags(['seed'], [null])).toEqual([]);
+  });
+
+  it('pins nothing when any image endpoint has no tag', () => {
+    // The pin cannot speak for an endpoint it cannot name.
+    expect(pinnableZdrTags(['seed'], ['seed', null])).toEqual([]);
+  });
+
+  it('pins every tagged endpoint when each one is named', () => {
+    expect(pinnableZdrTags(['seed', 'azure'], ['seed', 'azure'])).toEqual(['seed', 'azure']);
+  });
+
+  it('pins each tag once', () => {
+    expect(pinnableZdrTags(['seed', 'seed'], ['seed', 'seed'])).toEqual(['seed']);
+  });
+
+  it('pins nothing when a non-ZDR endpoint carries a pinned tag', () => {
+    // Two endpoints under one tag against one ZDR row: `only` would admit both.
+    expect(pinnableZdrTags(['azure'], ['azure', 'azure'])).toEqual([]);
+  });
+
+  it('pins nothing when a non-ZDR endpoint is a variant of a pinned base slug', () => {
+    // A base slug in `only` matches every variant under it.
+    expect(pinnableZdrTags(['azure'], ['azure', 'azure/eu'])).toEqual([]);
+  });
+
+  it('keeps a pin whose non-ZDR sibling only shares a name prefix', () => {
+    expect(pinnableZdrTags(['azure'], ['azure', 'azure-eu'])).toEqual(['azure']);
+  });
+
+  it('keeps a full-slug pin beside non-ZDR endpoints of another provider', () => {
+    expect(
+      pinnableZdrTags(
+        ['google-vertex/global'],
+        [
+          'google-ai-studio/priority',
+          'google-ai-studio/flex',
+          'google-ai-studio',
+          'google-vertex/global',
+        ]
+      )
+    ).toEqual(['google-vertex/global']);
+  });
+
+  it('keeps a variant pin beside a non-ZDR base endpoint of the same provider', () => {
+    // `only: ["google-vertex/global"]` targets that variant alone, never the base.
+    expect(
+      pinnableZdrTags(['google-vertex/global'], ['google-vertex/global', 'google-vertex'])
+    ).toEqual(['google-vertex/global']);
+  });
+});
+
+describe('normalizeModel (image ZDR pin)', () => {
+  /** A ZDR listing of one model, one row per tag. */
+  function zdrRows(modelId: string, tags: readonly string[]): ZdrListing {
+    return new Map([[modelId, tags.map((tag) => zdrEndpointFixture({ tag }))]]);
+  }
+
+  it('excludes a model whose non-ZDR endpoint is a variant of its ZDR base slug', () => {
+    const model = imageModel({
+      id: 'microsoft/test-image',
+      endpoints: [
+        { providerTag: 'azure', pricing: [perImageRow('0.04')] },
+        { providerTag: 'azure/eu', pricing: [perImageRow('0.04')] },
+      ],
+    });
+
+    expect(
+      normalizeListedModel(model, zdrRows('microsoft/test-image', ['azure']), ADMISSION)
+    ).toEqual({ kind: 'excluded', modelId: 'microsoft/test-image', reason: 'non-zdr' });
+  });
+
+  it("pins google/gemini-2.5-flash-image's one ZDR endpoint among its AI Studio ones", () => {
+    const model = imageModel({
+      id: 'google/gemini-2.5-flash-image',
+      endpoints: [
+        { providerTag: 'google-ai-studio/priority', pricing: [perImageRow('0.039')] },
+        { providerTag: 'google-ai-studio/flex', pricing: [perImageRow('0.039')] },
+        { providerTag: 'google-ai-studio', pricing: [perImageRow('0.039')] },
+        { providerTag: 'google-vertex/global', pricing: [perImageRow('0.039')] },
+      ],
+    });
+
+    const content = normalized(
+      normalizeListedModel(
+        model,
+        zdrRows('google/gemini-2.5-flash-image', ['google-vertex/global']),
+        ADMISSION
+      )
+    );
+
+    expect(content.zdrPin).toEqual(['google-vertex/global']);
+  });
+
+  it('excludes a model with an untagged endpoint beside its ZDR endpoint', () => {
+    const model = imageModel({
+      endpoints: [
+        { providerTag: 'test-provider', pricing: [perImageRow('0.04')] },
+        { providerTag: null, pricing: [perImageRow('0.04')] },
+      ],
+    });
+
+    expect(normalizeModel(model, ZDR, ADMISSION)).toEqual({
+      kind: 'excluded',
+      modelId: 'google/test-image',
+      reason: 'non-zdr',
+    });
+  });
+
+  it('excludes a listed model whose ZDR tags no image endpoint carries', () => {
+    expect(
+      normalizeListedModel(imageModel(), zdrRows('google/test-image', ['other']), ADMISSION)
+    ).toEqual({ kind: 'excluded', modelId: 'google/test-image', reason: 'non-zdr' });
+  });
+
+  it('reserves the dearest row of the pinned endpoints only', () => {
+    const model = imageModel({
+      endpoints: [
+        { providerTag: 'test-provider', pricing: [perImageRow('0.04')] },
+        { providerTag: 'other', pricing: [perImageRow('0.09')] },
+      ],
+    });
+
+    expect(normalized(normalizeModel(model, ZDR, ADMISSION)).pricing).toEqual(
+      perImagePrice('46000000')
+    );
+  });
+
+  it('anchors on the cheapest row of the pinned endpoints only', () => {
+    const model = imageModel({
+      endpoints: [
+        { providerTag: 'test-provider', pricing: [perImageRow('0.04')] },
+        { providerTag: 'other', pricing: [perImageRow('0.01')] },
+      ],
+    });
+
+    expect(normalized(normalizeModel(model, ZDR, ADMISSION)).pricing).toEqual(
+      perImagePrice('46000000')
+    );
+  });
+
+  it('carries the pin when a language row and an image row merge into an image model', () => {
+    const entries = normalizeCatalog(
+      [
+        languageModel({ id: 'dup/pic', outputModalities: ['image'] }),
+        imageModel({ id: 'dup/pic' }),
+      ],
+      new Set(['dup/pic']),
+      NOW_MS
+    );
+
+    expect(entries[0]).toMatchObject({
+      kind: 'normalized',
+      content: { zdrPin: ['test-provider'] },
+    });
+  });
+
+  it('excludes an image model no image endpoint pins, reached through a language row alone', () => {
+    const entries = normalizeCatalog(
+      [languageModel({ id: 'solo/pic', outputModalities: ['image'] })],
+      new Set(['solo/pic']),
+      NOW_MS
+    );
+
+    expect(entries).toEqual([{ kind: 'excluded', modelId: 'solo/pic', reason: 'non-zdr' }]);
   });
 });
 
@@ -828,12 +1312,12 @@ describe('normalizeModel (video SKU interpreter)', () => {
     expect(content.pricing).toEqual(perSecondPrice({ '720p': '2875000000' }));
   });
 
-  it('keeps the first bare rate when two non-audio SKUs share a resolution', () => {
+  it('reserves the dearer of two SKUs that share a resolution', () => {
     const content = videoOutcome({
       resolutions: ['720p'],
       pricingSkus: { duration_seconds_720p: '0.1', cents_per_video_output_second_720p: '15' },
     }).content;
-    expect(content.pricing).toEqual(perSecondPrice({ '720p': '115000000' }));
+    expect(content.pricing).toEqual(perSecondPrice({ '720p': '172500000' }));
   });
 
   it('applies a flat rate to every supported resolution with no loud fallback', () => {
@@ -849,7 +1333,7 @@ describe('normalizeModel (video SKU interpreter)', () => {
     expect(outcome.pricingFallbacks).toBeUndefined();
   });
 
-  it('prefers a flat audio-inclusive rate over the bare flat rate (tier c over d)', () => {
+  it('reserves the dearer of a flat rate with audio and one without', () => {
     const content = videoOutcome({
       resolutions: ['720p'],
       pricingSkus: { duration_seconds: '0.112', duration_seconds_with_audio: '0.168' },
@@ -857,9 +1341,9 @@ describe('normalizeModel (video SKU interpreter)', () => {
     expect(content.pricing).toEqual(perSecondPrice({ '720p': '193200000' }));
   });
 
-  it('chooses a bare resolution rate over a flat audio rate (tier b beats tier c)', () => {
-    // kling-v3.0-pro: 720p has a bare text_to_video rate (tier b) and there is
-    // also a flat+audio rate (tier c); tier b wins, and image_to_video is dropped.
+  it("reserves kling-v3.0-pro's 720p at its flat with-audio rate, the dearest SKU that can bill it", () => {
+    // kling-v3.0-pro's live SKU set: a call that sends no audio flag can bill the
+    // flat with-audio $0.168, above every $0.112 rate; image_to_video is dropped.
     const outcome = videoOutcome({
       resolutions: ['720p'],
       pricingSkus: {
@@ -872,13 +1356,13 @@ describe('normalizeModel (video SKU interpreter)', () => {
         image_to_video_duration_seconds_1080p: '0.112',
       },
     });
-    expect(outcome.content.pricing).toEqual(perSecondPrice({ '720p': '128800000' }));
+    expect(outcome.content.pricing).toEqual(perSecondPrice({ '720p': '193200000' }));
     expect(outcome.pricingFallbacks).toBeUndefined();
   });
 
-  it('drops image_to_video, drops the no-audio tier, and matches 4K case-insensitively', () => {
-    // veo-3.1-fast: 720p → res+audio (a), 1080p → flat+audio (c), 4K → res+audio
-    // via a lower-case `4k` token matched to the `4K` supported value.
+  it('reserves each resolution at its dearest SKU, flat rates included, matching 4K case-insensitively', () => {
+    // veo-3.1-fast: 720p's own rates ($0.10, $0.08) sit below the flat $0.12;
+    // 4K's own $0.30, matched from a lower-case `4k` token, sits above it.
     const outcome = videoOutcome({
       resolutions: ['720p', '1080p', '4K'],
       pricingSkus: {
@@ -891,7 +1375,7 @@ describe('normalizeModel (video SKU interpreter)', () => {
       },
     });
     expect(outcome.content.pricing).toEqual(
-      perSecondPrice({ '720p': '115000000', '1080p': '138000000', '4K': '345000000' })
+      perSecondPrice({ '720p': '138000000', '1080p': '138000000', '4K': '345000000' })
     );
     expect(outcome.pricingFallbacks).toBeUndefined();
   });
@@ -929,8 +1413,9 @@ describe('normalizeModel (video SKU interpreter)', () => {
   });
 
   it('substitutes the max known rate with a LOUD fallback for an unpriced resolution', () => {
-    // Synthetic tier-e: 1080p is declared but only a 480p rate exists → 1080p
-    // takes the model's max known rate and is flagged for a human to verify.
+    // Synthetic: 1080p is declared but no SKU can bill it — the one rate is
+    // 480p's and there is no flat rate — so 1080p takes the model's max known
+    // rate and is flagged for a human to verify.
     const outcome = videoOutcome({
       resolutions: ['1080p'],
       pricingSkus: { text_to_video_duration_seconds_480p: '0.05' },
@@ -939,15 +1424,44 @@ describe('normalizeModel (video SKU interpreter)', () => {
     expect(outcome.pricingFallbacks).toEqual(['1080p']);
   });
 
-  it('falls back loudly for a resolution whose only SKU value is unrepresentable', () => {
-    const outcome = videoOutcome({
-      resolutions: ['720p', '1080p'],
-      pricingSkus: { duration_seconds_720p: 'mystery', duration_seconds_1080p: '0.15' },
+  it('reserves a resolution at its without-audio rate when that is its dearest SKU', () => {
+    const content = videoOutcome({
+      resolutions: ['720p'],
+      pricingSkus: {
+        duration_seconds_with_audio_720p: '0.1',
+        duration_seconds_without_audio_720p: '0.2',
+      },
+    }).content;
+    expect(content.pricing).toEqual(perSecondPrice({ '720p': '230000000' }));
+  });
+
+  it('bakes a per-second rate from its vendor decimal with one round-up', () => {
+    // 0.00000605 cents = $0.0000000605; ceil(69.575) = 70, where rounding the
+    // rate to 60 nano first would store 69.
+    const content = videoOutcome({
+      resolutions: ['720p'],
+      pricingSkus: { cents_per_video_output_second_720p: '0.00000605' },
+    }).content;
+    expect(content.pricing).toEqual(perSecondPrice({ '720p': '70' }));
+  });
+
+  it('excludes a video model with an unreadable SKU value beside readable ones, loudly', () => {
+    // The reserve must cover every SKU that can bill a resolution, and an
+    // unreadable SKU's rate is unknown.
+    expect(
+      normalizeModel(
+        videoModel({
+          resolutions: ['720p', '1080p'],
+          pricingSkus: { duration_seconds_720p: 'mystery', duration_seconds_1080p: '0.15' },
+        }),
+        ZDR,
+        ADMISSION
+      )
+    ).toEqual({
+      kind: 'excluded',
+      modelId: 'google/test-video',
+      reason: 'unknown-pricing-unit',
     });
-    expect(outcome.content.pricing).toEqual(
-      perSecondPrice({ '720p': '172500000', '1080p': '172500000' })
-    );
-    expect(outcome.pricingFallbacks).toEqual(['720p']);
   });
 
   it('excludes a token-priced video model quietly (token-priced-video)', () => {
@@ -974,12 +1488,121 @@ describe('normalizeModel (video SKU interpreter)', () => {
     });
   });
 
-  it('excludes a video model with no usable rate for its declared resolutions', () => {
-    // Every SKU value unparseable → zero usable rates → fail-closed exclusion,
-    // never an exposed model whose declared resolutions have no price.
+  it('excludes a video model whose only SKU value is unparseable', () => {
+    // An unparseable value is a rate no reserve can cover → fail-closed
+    // exclusion, never an exposed model whose declared resolutions have no price.
     expect(
       normalizeModel(
         videoModel({ resolutions: ['720p'], pricingSkus: { duration_seconds: 'mystery' } }),
+        ZDR,
+        ADMISSION
+      )
+    ).toEqual({
+      kind: 'excluded',
+      modelId: 'google/test-video',
+      reason: 'unknown-pricing-unit',
+    });
+  });
+
+  it('excludes a video model with a sub-nano resolution rate beside a priced one, loudly', () => {
+    expect(
+      normalizeModel(
+        videoModel({
+          resolutions: ['720p', '1080p'],
+          pricingSkus: {
+            duration_seconds_720p: '0.0000000009',
+            duration_seconds_1080p: '0.15',
+          },
+        }),
+        ZDR,
+        ADMISSION
+      )
+    ).toEqual({
+      kind: 'excluded',
+      modelId: 'google/test-video',
+      reason: 'unknown-pricing-unit',
+    });
+  });
+
+  it('excludes a video model with a sub-nano cents rate beside a priced one, loudly', () => {
+    // 0.00000009 cents a second is $0.0000000009, below 1 nano-USD.
+    expect(
+      normalizeModel(
+        videoModel({
+          resolutions: ['720p', '1080p'],
+          pricingSkus: {
+            cents_per_video_output_second_720p: '0.00000009',
+            cents_per_video_output_second_1080p: '15',
+          },
+        }),
+        ZDR,
+        ADMISSION
+      )
+    ).toEqual({
+      kind: 'excluded',
+      modelId: 'google/test-video',
+      reason: 'unknown-pricing-unit',
+    });
+  });
+
+  it('prices a resolution at a dearer covering rate that outvotes its sub-nano rate', () => {
+    const content = videoOutcome({
+      resolutions: ['720p'],
+      pricingSkus: {
+        duration_seconds_720p: '0.0000000009',
+        duration_seconds: '0.1',
+      },
+    }).content;
+    expect(content.pricing).toEqual(perSecondPrice({ '720p': '115000000' }));
+  });
+
+  it('excludes a video model with an empty cents value beside readable rates, loudly', () => {
+    expect(
+      normalizeModel(
+        videoModel({
+          resolutions: ['720p'],
+          pricingSkus: {
+            cents_per_video_output_second_720p: '8',
+            cents_per_video_output_second_with_audio: '',
+          },
+        }),
+        ZDR,
+        ADMISSION
+      )
+    ).toEqual({
+      kind: 'excluded',
+      modelId: 'google/test-video',
+      reason: 'unknown-pricing-unit',
+    });
+  });
+
+  it('excludes a video model with a bare-point cents value beside readable rates, loudly', () => {
+    expect(
+      normalizeModel(
+        videoModel({
+          resolutions: ['720p'],
+          pricingSkus: {
+            cents_per_video_output_second_720p: '8',
+            cents_per_video_output_second_with_audio: '.',
+          },
+        }),
+        ZDR,
+        ADMISSION
+      )
+    ).toEqual({
+      kind: 'excluded',
+      modelId: 'google/test-video',
+      reason: 'unknown-pricing-unit',
+    });
+  });
+
+  it('excludes a video model whose only SKUs price an input mode the call never sends, loudly', () => {
+    expect(
+      normalizeModel(
+        videoModel({
+          resolutions: ['720p'],
+          pricingSkus: { image_to_video_duration_seconds_720p: '0.1' },
+        }),
         ZDR,
         ADMISSION
       )
@@ -1230,11 +1853,11 @@ describe('normalizeCatalog (dedupe + merge by id)', () => {
   });
 });
 
-describe('normalizeModel (fee baking — billable rates, descriptor v3)', () => {
-  it("stamps descriptor version '3' on every family", () => {
-    expect(normalized(normalizeModel(languageModel(), ZDR, ADMISSION)).version).toBe('3');
-    expect(normalized(normalizeModel(imageModel(), ZDR, ADMISSION)).version).toBe('3');
-    expect(normalized(normalizeModel(videoModel(), ZDR, ADMISSION)).version).toBe('3');
+describe('normalizeModel (fee baking — billable rates, descriptor v4)', () => {
+  it("stamps descriptor version '4' on every family", () => {
+    expect(normalized(normalizeModel(languageModel(), ZDR, ADMISSION)).version).toBe('4');
+    expect(normalized(normalizeModel(imageModel(), ZDR, ADMISSION)).version).toBe('4');
+    expect(normalized(normalizeModel(videoModel(), ZDR, ADMISSION)).version).toBe('4');
   });
 
   it('bakes the ceil-rounded markup into a flat language rate (against the user)', () => {
@@ -1265,7 +1888,7 @@ describe('normalizeModel (fee baking — billable rates, descriptor v3)', () => 
     if (entry?.kind !== 'normalized') throw new Error('expected normalized');
     // 2500/10000 provider nano → 2875/11500 billable — not marked up again on merge.
     expect(entry.content.pricing).toEqual(tokenPrice('2875', '11500'));
-    expect(entry.content.version).toBe('3');
+    expect(entry.content.version).toBe('4');
   });
 
   it('marks up a substituted video fallback rate exactly once', () => {
@@ -1302,11 +1925,11 @@ describe('normalizeModel (catalog admission)', () => {
     ).toEqual({ kind: 'excluded', modelId: 'openai/gpt-test', reason: 'zero-priced' });
   });
 
-  it('excludes a language model that states no rate at all', () => {
+  it('excludes a language model whose standard-tier endpoint states no rate at all, loudly', () => {
     expect(normalizeModel(languageModel({ pricing: undefined }), ZDR, ADMISSION)).toEqual({
       kind: 'excluded',
       modelId: 'openai/gpt-test',
-      reason: 'zero-priced',
+      reason: 'unrepresentable-endpoint-price',
     });
   });
 
@@ -1609,6 +2232,165 @@ describe('normalizeCatalog (catalog admission over the pool)', () => {
     ]);
   });
 
+  it('measures a model against the exemption at the context it is sold with, not the gateway context', () => {
+    // The gateway states 131_072, but the model's only eligible endpoint
+    // serves 8_192, so the descriptor sells 8_192. At 20 entries the
+    // exemption index is the top, which `big/ctx` holds at 131_072 whichever
+    // context this model enters the pool with.
+    const fillers = Array.from({ length: 18 }, (_unused, index) =>
+      languageModel({ id: `filler/${String(index)}`, contextLength: 1000 })
+    );
+    const models = [
+      ...fillers,
+      languageModel({ id: 'big/ctx', contextLength: 131_072 }),
+      languageModel({
+        id: 'sao10k/l3.1-euryale-70b',
+        contextLength: 131_072,
+        pricing: BELOW_FLOOR,
+      }),
+    ];
+    const listing = new Map([
+      ...listingFor(models, new Set(models.map((model) => model.id))),
+      [
+        'sao10k/l3.1-euryale-70b',
+        [zdrEndpointFixture({ pricing: { ...BELOW_FLOOR }, contextLength: 8192 })],
+      ],
+    ]);
+    expect(dispositions(normalizeListedCatalog(models, listing, NOW_MS))).toEqual([
+      ...fillers.map((model) => [model.id, 'normalized'] as const),
+      ['big/ctx', 'normalized'],
+      ['sao10k/l3.1-euryale-70b', 'below-price-floor'],
+    ]);
+  });
+
+  it('counts a model in the exemption pool at the context it is sold with, not the gateway context', () => {
+    // At 21 entries the exemption index is one rank below the top. `wide/gateway`
+    // is sold at 500: counted there, the threshold is `second/ctx`'s 100_000 and
+    // exempts it; counted at the gateway's 1_000_000, the threshold rises to
+    // 200_000 and `second/ctx` falls to the price floor.
+    const fillers = Array.from({ length: 18 }, (_unused, index) =>
+      languageModel({ id: `filler/${String(index)}`, contextLength: 1000 })
+    );
+    const models = [
+      ...fillers,
+      languageModel({ id: 'second/ctx', contextLength: 100_000, pricing: BELOW_FLOOR }),
+      languageModel({ id: 'largest/ctx', contextLength: 200_000 }),
+      languageModel({ id: 'wide/gateway', contextLength: 1_000_000 }),
+    ];
+    const listing = new Map([
+      ...listingFor(models, new Set(models.map((model) => model.id))),
+      ['wide/gateway', [zdrEndpointFixture({ contextLength: 500 })]],
+    ]);
+    expect(dispositions(normalizeListedCatalog(models, listing, NOW_MS))).toEqual([
+      ...fillers.map((model) => [model.id, 'normalized'] as const),
+      ['second/ctx', 'normalized'],
+      ['largest/ctx', 'normalized'],
+      ['wide/gateway', 'normalized'],
+    ]);
+  });
+
+  it('counts and tests a model the gateway states no window for at its eligible endpoint context', () => {
+    // At 20 entries the exemption index is the top. `unstated/gateway` states
+    // no window on `/models`; its endpoint serves 200_000, which is the top of
+    // the pool and exempts it. `second/ctx` sits below that top.
+    const fillers = Array.from({ length: 18 }, (_unused, index) =>
+      languageModel({ id: `filler/${String(index)}`, contextLength: 1000 })
+    );
+    const models = [
+      ...fillers,
+      languageModel({ id: 'second/ctx', contextLength: 100_000, pricing: BELOW_FLOOR }),
+      languageModel({ id: 'unstated/gateway', contextLength: undefined, pricing: BELOW_FLOOR }),
+    ];
+    const listing = new Map([
+      ...listingFor(models, new Set(models.map((model) => model.id))),
+      [
+        'unstated/gateway',
+        [zdrEndpointFixture({ pricing: { ...BELOW_FLOOR }, contextLength: 200_000 })],
+      ],
+    ]);
+    expect(dispositions(normalizeListedCatalog(models, listing, NOW_MS))).toEqual([
+      ...fillers.map((model) => [model.id, 'normalized'] as const),
+      ['second/ctx', 'below-price-floor'],
+      ['unstated/gateway', 'normalized'],
+    ]);
+  });
+
+  it('leaves a language model with no context length out of a pool where it would rank above every stated one', () => {
+    // At 39 stated contexts the exemption index is floor(39 × 0.95) = 37, one
+    // rank below the top, so `second/ctx` is exempt. A 40th entry ranked above
+    // every stated context moves the index to 38, the top, and takes that
+    // exemption away; an unstated window is neither zero nor unbounded.
+    const fillers = Array.from({ length: 37 }, (_unused, index) =>
+      languageModel({ id: `filler/${String(index)}`, contextLength: 1000 })
+    );
+    const models = [
+      ...fillers,
+      languageModel({ id: 'second/ctx', contextLength: 100_000, pricing: BELOW_FLOOR }),
+      languageModel({ id: 'largest/ctx', contextLength: 200_000 }),
+      languageModel({ id: 'no/ctx', contextLength: undefined }),
+    ];
+    expect(
+      dispositions(normalizeCatalog(models, new Set(models.map((model) => model.id)), NOW_MS))
+    ).toEqual([
+      ...fillers.map((model) => [model.id, 'normalized'] as const),
+      ['second/ctx', 'normalized'],
+      ['largest/ctx', 'normalized'],
+      ['no/ctx', 'normalized'],
+    ]);
+  });
+
+  it.each([
+    ['a flex service tier', zdrEndpointFixture({ tag: 'vendor/flex' })],
+    ['no tool calls', zdrEndpointFixture({ supportedParameters: ['max_tokens', 'reasoning'] })],
+  ])(
+    'leaves a listed model whose only endpoint is %s out of the pool the exemption is measured over',
+    (_shape, endpoint) => {
+      // Same 21-entry arithmetic: a 21st context of 500 would move the
+      // exemption index onto `second/ctx`. `unsold/small` is listed for ZDR,
+      // but its only endpoint cannot anchor a call the model makes, so it is
+      // never sold and must not move the threshold.
+      const fillers = Array.from({ length: 18 }, (_unused, index) =>
+        languageModel({ id: `filler/${String(index)}`, contextLength: 1000 })
+      );
+      const models = [
+        ...fillers,
+        languageModel({ id: 'second/ctx', contextLength: 100_000, pricing: BELOW_FLOOR }),
+        languageModel({ id: 'largest/ctx', contextLength: 200_000 }),
+        languageModel({ id: 'unsold/small', contextLength: 500 }),
+      ];
+      const listing = new Map([
+        ...listingFor(models, new Set(models.map((model) => model.id))),
+        ['unsold/small', [endpoint]],
+      ]);
+      expect(dispositions(normalizeListedCatalog(models, listing, NOW_MS))).toEqual([
+        ...fillers.map((model) => [model.id, 'normalized'] as const),
+        ['second/ctx', 'below-price-floor'],
+        ['largest/ctx', 'normalized'],
+        ['unsold/small', 'non-zdr'],
+      ]);
+    }
+  );
+
+  it('keeps a listed model with an endpoint it can anchor on in the pool the exemption is measured over', () => {
+    const fillers = Array.from({ length: 18 }, (_unused, index) =>
+      languageModel({ id: `filler/${String(index)}`, contextLength: 1000 })
+    );
+    const models = [
+      ...fillers,
+      languageModel({ id: 'second/ctx', contextLength: 100_000, pricing: BELOW_FLOOR }),
+      languageModel({ id: 'largest/ctx', contextLength: 200_000 }),
+      languageModel({ id: 'sold/small', contextLength: 500 }),
+    ];
+    expect(
+      dispositions(normalizeCatalog(models, new Set(models.map((model) => model.id)), NOW_MS))
+    ).toEqual([
+      ...fillers.map((model) => [model.id, 'normalized'] as const),
+      ['second/ctx', 'normalized'],
+      ['largest/ctx', 'normalized'],
+      ['sold/small', 'normalized'],
+    ]);
+  });
+
   it('measures the age cutoff from the clock the caller passes', () => {
     const entries = normalizeCatalog(
       [
@@ -1628,4 +2410,669 @@ describe('normalizeCatalog (catalog admission over the pool)', () => {
       ['new/model', 'normalized'],
     ]);
   });
+});
+
+// --- the anchor schedule ------------------------------------------------------
+
+/** Every parameter a tool-capable reasoning model's calls carry. */
+const CALL_PARAMETERS: readonly string[] = ['max_tokens', 'tools', 'reasoning'];
+
+function limitsOf(
+  overrides: Partial<Parameters<typeof textPricingFromEndpoints>[1]> = {}
+): Parameters<typeof textPricingFromEndpoints>[1] {
+  return {
+    maxOutputTokens: undefined,
+    contextLength: undefined,
+    supportedParameters: CALL_PARAMETERS,
+    ...overrides,
+  };
+}
+
+/** One ZDR endpoint at two decimal rates, optionally with listed overrides. */
+function endpointAt(
+  tag: string,
+  prompt: string,
+  completion: string,
+  extra: Partial<ZdrEndpoint> = {}
+): ZdrEndpoint {
+  return zdrEndpointFixture({ tag, pricing: { prompt, completion }, ...extra });
+}
+
+interface ScheduleFigures {
+  readonly base: readonly [string, string];
+  readonly tiers: readonly (readonly [number, string, string])[];
+}
+
+/** A priced result's billable schedule as plain figures. */
+function figuresOf(result: TextPricing): ScheduleFigures {
+  if (result.kind !== 'priced') throw new Error(`expected priced, got ${result.reason}`);
+  const { base, tiers } = result.pricing.anchor;
+  return {
+    base: [base.input.toString(), base.output.toString()],
+    tiers: tiers.map(
+      (tier) =>
+        [tier.abovePromptTokens, tier.rates.input.toString(), tier.rates.output.toString()] as const
+    ),
+  };
+}
+
+function reasonOf(result: TextPricing): string {
+  return result.kind === 'excluded' ? result.reason : 'priced';
+}
+
+/** Claude Sonnet 4.5's four live ZDR endpoints, each with its tier above 200,000. */
+function sonnetEndpoint(tag: string, regional: boolean): ZdrEndpoint {
+  const scale = (base: string, region: string): string => (regional ? region : base);
+  return zdrEndpointFixture({
+    tag,
+    maxCompletionTokens: 64_000,
+    contextLength: 1_000_000,
+    pricing: {
+      prompt: scale('0.000003', '0.0000033'),
+      completion: scale('0.000015', '0.0000165'),
+      web_search: '0.01',
+      input_cache_read: scale('0.0000003', '0.00000033'),
+      input_cache_write: scale('0.00000375', '0.000004125'),
+      input_cache_write_1h: scale('0.000006', '0.0000066'),
+      discount: 0,
+    },
+    overrides: [
+      {
+        min_prompt_tokens: 200_000,
+        prompt: scale('0.000006', '0.0000066'),
+        completion: scale('0.0000225', '0.00002475'),
+        input_cache_read: scale('0.0000006', '0.00000066'),
+        input_cache_write: scale('0.0000075', '0.00000825'),
+        input_cache_write_1h: scale('0.000012', '0.0000132'),
+      },
+    ],
+  });
+}
+
+const SONNET_45 = [
+  sonnetEndpoint('amazon-bedrock/eu-west-1', true),
+  sonnetEndpoint('google-vertex/us-east5', true),
+  sonnetEndpoint('amazon-bedrock', false),
+  sonnetEndpoint('google-vertex/global', false),
+];
+
+const SONNET_45_LIMITS = limitsOf({ maxOutputTokens: 64_000, contextLength: 1_000_000 });
+
+/** DeepSeek V4 Pro's ZDR endpoints: the cheapest that accepts its 384,000 cap is DigitalOcean. */
+const DEEPSEEK_V4_PRO = [
+  endpointAt('relace/fp4', '0.0000009', '0.0000027', { maxCompletionTokens: 393_216 }),
+  endpointAt('digitalocean', '0.000001044', '0.000002088', { maxCompletionTokens: 384_000 }),
+  endpointAt('venice', '0.00000165', '0.000003301', { maxCompletionTokens: 32_768 }),
+  endpointAt('deepinfra/fp8', '0.0000013', '0.0000026', { maxCompletionTokens: 16_384 }),
+];
+
+/** One tier above 200,000 prompt tokens at the given prompt and completion rates. */
+function longContext(prompt: string, completion: string): ZdrEndpoint['overrides'] {
+  return [{ min_prompt_tokens: 200_000, prompt, completion }];
+}
+
+const GEMINI_31_PRO = [
+  endpointAt('google-vertex/global/priority', '0.0000036', '0.0000216', {
+    overrides: longContext('0.0000072', '0.0000324'),
+  }),
+  endpointAt('google-vertex/global/flex', '0.000001', '0.000006', {
+    overrides: longContext('0.000002', '0.000009'),
+  }),
+  endpointAt('google-vertex/global', '0.000002', '0.000012', {
+    overrides: longContext('0.000004', '0.000018'),
+  }),
+];
+
+const GROK_47 = [
+  endpointAt('xai/zdr/us', '0.0000022', '0.0000066', {
+    overrides: longContext('0.0000044', '0.0000132'),
+  }),
+  endpointAt('xai/zdr/priority', '0.000004', '0.000012', {
+    overrides: longContext('0.000008', '0.000024'),
+  }),
+  endpointAt('xai/zdr', '0.000002', '0.000006', {
+    overrides: longContext('0.000004', '0.000012'),
+  }),
+];
+
+/** The `openai/gpt-5.4` shape: a cheap 400,000-context endpoint beside 1,050,000-context ones tiered above 272,000. */
+const GPT_54 = [
+  endpointAt('small-context', '0.0000002', '0.00000125', {
+    contextLength: 400_000,
+    maxCompletionTokens: 128_000,
+  }),
+  endpointAt('azure/us', '0.00000275', '0.0000165', {
+    contextLength: 1_050_000,
+    maxCompletionTokens: 128_000,
+    overrides: [{ min_prompt_tokens: 272_000, prompt: '0.0000055', completion: '0.00002475' }],
+  }),
+  endpointAt('azure', '0.0000025', '0.000015', {
+    contextLength: 1_050_000,
+    maxCompletionTokens: 128_000,
+    overrides: [{ min_prompt_tokens: 272_000, prompt: '0.000005', completion: '0.0000225' }],
+  }),
+];
+
+/** Tencent's `tencent/hy3` endpoint as a refresh reads it inside one window: the top level is that window's price. */
+function hy3InWindow(window: 'dear' | 'cheap'): ZdrEndpoint {
+  const dear = { prompt: '0.000000132', completion: '0.000000528' };
+  const cheap = { prompt: '0.0000000825', completion: '0.00000033' };
+  return zdrEndpointFixture({
+    tag: 'tencent/fp8',
+    pricing: window === 'dear' ? dear : cheap,
+    overrides: [
+      { utc_start: 0, utc_end: 1600, ...dear },
+      { utc_start: 1600, utc_end: 0, ...cheap },
+    ],
+  });
+}
+
+describe('textPricingFromEndpoints (the anchor schedule)', () => {
+  it('bakes Claude Sonnet 4.5 at its cheapest endpoint with a tier above 200,000 prompt tokens', () => {
+    expect(figuresOf(textPricingFromEndpoints(SONNET_45, SONNET_45_LIMITS))).toEqual({
+      base: ['3450', '17250'],
+      tiers: [[200_000, '6900', '25875']],
+    });
+  });
+
+  it('anchors DeepSeek V4 Pro on the cheapest ZDR endpoint that accepts its output cap', () => {
+    expect(
+      figuresOf(textPricingFromEndpoints(DEEPSEEK_V4_PRO, limitsOf({ maxOutputTokens: 384_000 })))
+        .base
+    ).toEqual(['1201', '2402']);
+  });
+
+  it('bakes each rate once from the exact vendor decimal', () => {
+    expect(
+      figuresOf(
+        textPricingFromEndpoints([endpointAt('vendor', '0.0000000605', '0.000000121')], limitsOf())
+      ).base[0]
+    ).toBe('70');
+  });
+
+  it('never anchors on a flex endpoint, even at half the default tier price', () => {
+    expect(figuresOf(textPricingFromEndpoints(GEMINI_31_PRO, limitsOf()))).toEqual({
+      base: ['2300', '13800'],
+      tiers: [[200_000, '4600', '20700']],
+    });
+  });
+
+  it('takes the anchor and its tier from the standard endpoint, never the priority one', () => {
+    expect(figuresOf(textPricingFromEndpoints(GROK_47, limitsOf()))).toEqual({
+      base: ['2300', '6900'],
+      tiers: [[200_000, '4600', '13800']],
+    });
+  });
+
+  it('anchors on the next-cheapest endpoint when the cheapest cannot accept the output cap', () => {
+    const endpoints = [
+      endpointAt('cheapest/fp8', '0.0000003', '0.000001', { maxCompletionTokens: 117_964 }),
+      endpointAt('dearest', '0.0000006', '0.000002', { maxCompletionTokens: 131_072 }),
+      endpointAt('next', '0.0000004', '0.0000012', { maxCompletionTokens: 131_072 }),
+    ];
+    expect(
+      figuresOf(textPricingFromEndpoints(endpoints, limitsOf({ maxOutputTokens: 131_072 }))).base
+    ).toEqual(['460', '1380']);
+  });
+
+  it('caps the output at the largest cap an eligible endpoint accepts', () => {
+    const endpoints = [
+      endpointAt('a', '0.000001', '0.000002', { maxCompletionTokens: 32_768 }),
+      endpointAt('b', '0.000001', '0.000003', { maxCompletionTokens: 16_384 }),
+    ];
+    const result = textPricingFromEndpoints(endpoints, limitsOf({ maxOutputTokens: 117_964 }));
+    expect(result.kind === 'priced' ? result.maxOutputTokens : undefined).toBe(32_768);
+  });
+
+  it('keeps the gateway output cap when every eligible endpoint accepts more', () => {
+    const endpoints = [endpointAt('a', '0.000001', '0.000002', { maxCompletionTokens: 65_536 })];
+    const result = textPricingFromEndpoints(endpoints, limitsOf({ maxOutputTokens: 16_384 }));
+    expect(result.kind === 'priced' ? result.maxOutputTokens : undefined).toBe(16_384);
+  });
+
+  it('bounds the context at the largest context an eligible endpoint serves', () => {
+    const endpoints = [endpointAt('a', '0.000001', '0.000002', { contextLength: 131_072 })];
+    const result = textPricingFromEndpoints(endpoints, limitsOf({ contextLength: 1_000_000 }));
+    expect(result.kind === 'priced' ? result.contextLength : undefined).toBe(131_072);
+  });
+
+  it("records the anchor endpoint's own context, below which every tier is the anchor's", () => {
+    const result = textPricingFromEndpoints(
+      GPT_54,
+      limitsOf({ maxOutputTokens: 128_000, contextLength: 1_050_000 })
+    );
+    expect(result.kind === 'priced' ? result.pricing.anchorContextTokens : undefined).toBe(400_000);
+  });
+
+  it("records an anchor's context past its own tier when no larger context exists", () => {
+    const result = textPricingFromEndpoints(SONNET_45, SONNET_45_LIMITS);
+    expect(result.kind === 'priced' ? result.pricing.anchorContextTokens : undefined).toBe(
+      1_000_000
+    );
+  });
+
+  it('writes the anchor context into the stored price it parses', () => {
+    const result = textPricingFromEndpoints(SONNET_45, SONNET_45_LIMITS);
+    expect(result.kind === 'priced' && result.stored).toEqual(
+      expect.objectContaining({ anchorContextTokens: 1_000_000 })
+    );
+  });
+
+  it('prices prompts past the anchor context at the covering endpoint, tier included', () => {
+    expect(
+      figuresOf(
+        textPricingFromEndpoints(
+          GPT_54,
+          limitsOf({ maxOutputTokens: 128_000, contextLength: 1_050_000 })
+        )
+      )
+    ).toEqual({ base: ['230', '1438'], tiers: [[400_000, '5750', '25875']] });
+  });
+
+  it('drops a tier whose threshold no prompt can reach inside the context', () => {
+    const endpoints = [
+      endpointAt('a', '0.000003', '0.000015', {
+        contextLength: 200_000,
+        overrides: longContext('0.000006', '0.0000225'),
+      }),
+    ];
+    expect(
+      figuresOf(textPricingFromEndpoints(endpoints, limitsOf({ contextLength: 200_000 }))).tiers
+    ).toEqual([]);
+  });
+
+  it('folds a tiered override into each higher tier as a cumulative maximum', () => {
+    const endpoints = [
+      endpointAt('a', '0.000001', '0.000004', {
+        overrides: [
+          { min_prompt_tokens: 100_000, prompt: '0.000003' },
+          { min_prompt_tokens: 200_000, completion: '0.000005' },
+        ],
+      }),
+    ];
+    expect(figuresOf(textPricingFromEndpoints(endpoints, limitsOf())).tiers).toEqual([
+      [100_000, '3450', '4600'],
+      [200_000, '3450', '5750'],
+    ]);
+  });
+
+  it('normalizes a windowed endpoint to the same content whichever window the refresh reads it in', () => {
+    const model = languageModel({ id: 'tencent/hy3', contextLength: 262_144 });
+    const contentIn = (window: 'dear' | 'cheap'): string =>
+      canonicalJson(
+        normalized(
+          normalizeListedModel(model, new Map([['tencent/hy3', [hy3InWindow(window)]]]), EXEMPT)
+        )
+      );
+    expect(contentIn('cheap')).toBe(contentIn('dear'));
+  });
+
+  it('prices a windowed endpoint at its dear window', () => {
+    expect(figuresOf(textPricingFromEndpoints([hy3InWindow('cheap')], limitsOf())).base).toEqual([
+      '152',
+      '608',
+    ]);
+  });
+
+  it('gives equal-sum endpoints the same anchor in either listing order', () => {
+    const left = endpointAt('left', '0.000001', '0.000003');
+    const right = endpointAt('right', '0.000002', '0.000002');
+    expect([
+      figuresOf(textPricingFromEndpoints([left, right], limitsOf())).base,
+      figuresOf(textPricingFromEndpoints([right, left], limitsOf())).base,
+    ]).toEqual([
+      ['2300', '2300'],
+      ['2300', '2300'],
+    ]);
+  });
+
+  it('breaks an equal-rate tie by tag, in either listing order', () => {
+    // Equal base rates; only `alpha`'s tier separates the stored schedules.
+    const alpha = endpointAt('alpha', '0.000001', '0.000002', {
+      overrides: [{ min_prompt_tokens: 100_000, prompt: '0.000003' }],
+    });
+    const beta = endpointAt('beta', '0.000001', '0.000002');
+    expect([
+      figuresOf(textPricingFromEndpoints([alpha, beta], limitsOf())),
+      figuresOf(textPricingFromEndpoints([beta, alpha], limitsOf())),
+    ]).toEqual([
+      { base: ['1150', '2300'], tiers: [[100_000, '3450', '2300']] },
+      { base: ['1150', '2300'], tiers: [[100_000, '3450', '2300']] },
+    ]);
+  });
+
+  it('breaks an equal-rate, equal-tag tie by provider name, in either listing order', () => {
+    const bedrock = endpointAt('shared-tag', '0.000001', '0.000002', {
+      providerName: 'Amazon Bedrock',
+      overrides: [{ min_prompt_tokens: 100_000, prompt: '0.000003' }],
+    });
+    const vertex = endpointAt('shared-tag', '0.000001', '0.000002', { providerName: 'Google' });
+    expect([
+      figuresOf(textPricingFromEndpoints([bedrock, vertex], limitsOf())),
+      figuresOf(textPricingFromEndpoints([vertex, bedrock], limitsOf())),
+    ]).toEqual([
+      { base: ['1150', '2300'], tiers: [[100_000, '3450', '2300']] },
+      { base: ['1150', '2300'], tiers: [[100_000, '3450', '2300']] },
+    ]);
+  });
+
+  it.each(['fast', 'priority', 'flex'])(
+    'never anchors on a %s endpoint priced below the standard one',
+    (variant) => {
+      const serviceTier = endpointAt(`vendor/${variant}`, '0.0000005', '0.000001');
+      const standard = endpointAt('vendor', '0.000001', '0.000002');
+      expect(figuresOf(textPricingFromEndpoints([serviceTier, standard], limitsOf())).base).toEqual(
+        ['1150', '2300']
+      );
+    }
+  );
+
+  it('reads a service tier from a hyphenated variant token', () => {
+    const serviceTier = endpointAt('vendor/eu-fast', '0.0000005', '0.000001');
+    const standard = endpointAt('vendor', '0.000001', '0.000002');
+    expect(figuresOf(textPricingFromEndpoints([serviceTier, standard], limitsOf())).base).toEqual([
+      '1150',
+      '2300',
+    ]);
+  });
+
+  it('reads no service tier from a tag without a variant, even one named for a tier', () => {
+    const named = endpointAt('fast', '0.0000005', '0.000001');
+    const standard = endpointAt('vendor', '0.000001', '0.000002');
+    expect(figuresOf(textPricingFromEndpoints([named, standard], limitsOf())).base).toEqual([
+      '575',
+      '1150',
+    ]);
+  });
+});
+
+describe('textPricingFromEndpoints (reachability)', () => {
+  it('excludes a model with no standard-tier endpoint as non-zdr', () => {
+    expect(
+      reasonOf(
+        textPricingFromEndpoints(
+          [endpointAt('google-vertex/global/flex', '0.000001', '0.000006')],
+          limitsOf()
+        )
+      )
+    ).toBe('non-zdr');
+  });
+
+  it('excludes a tool-capable model as non-zdr when its one endpoint lacks tools', () => {
+    expect(
+      reasonOf(
+        textPricingFromEndpoints(
+          [
+            endpointAt('a', '0.000001', '0.000002', {
+              supportedParameters: ['max_tokens', 'reasoning'],
+            }),
+          ],
+          limitsOf()
+        )
+      )
+    ).toBe('non-zdr');
+  });
+
+  it('excludes a reasoning model as non-zdr when its one endpoint lacks reasoning', () => {
+    expect(
+      reasonOf(
+        textPricingFromEndpoints(
+          [
+            endpointAt('a', '0.000001', '0.000002', {
+              supportedParameters: ['max_tokens', 'tools'],
+            }),
+          ],
+          limitsOf()
+        )
+      )
+    ).toBe('non-zdr');
+  });
+
+  it('excludes a model whose endpoint accepts no output cap parameter, loudly', () => {
+    expect(
+      reasonOf(
+        textPricingFromEndpoints(
+          [
+            endpointAt('a', '0.000001', '0.000002', {
+              supportedParameters: ['tools', 'reasoning'],
+            }),
+          ],
+          limitsOf()
+        )
+      )
+    ).toBe('unrepresentable-endpoint-price');
+  });
+
+  it('accepts max_completion_tokens in place of max_tokens', () => {
+    expect(
+      reasonOf(
+        textPricingFromEndpoints(
+          [
+            endpointAt('a', '0.000001', '0.000002', {
+              supportedParameters: ['max_completion_tokens', 'tools', 'reasoning'],
+            }),
+          ],
+          limitsOf()
+        )
+      )
+    ).toBe('priced');
+  });
+
+  it('reaches an endpoint without tools or reasoning for a model that sends neither', () => {
+    expect(
+      reasonOf(
+        textPricingFromEndpoints(
+          [endpointAt('a', '0.000001', '0.000002', { supportedParameters: ['max_tokens'] })],
+          limitsOf({ supportedParameters: ['max_tokens', 'temperature'] })
+        )
+      )
+    ).toBe('priced');
+  });
+
+  it('never anchors on an endpoint lacking a parameter, even when it is cheaper', () => {
+    const endpoints = [
+      endpointAt('cheap', '0.0000001', '0.0000002', { supportedParameters: ['max_tokens'] }),
+      endpointAt('served', '0.000001', '0.000002'),
+    ];
+    expect(figuresOf(textPricingFromEndpoints(endpoints, limitsOf())).base).toEqual([
+      '1150',
+      '2300',
+    ]);
+  });
+});
+
+/** One eligible endpoint priced normally, beside one carrying the shape under test. */
+function besideAnchor(odd: Partial<ZdrEndpoint>, tag = 'odd'): readonly ZdrEndpoint[] {
+  return [endpointAt('anchor', '0.000001', '0.000002'), zdrEndpointFixture({ tag, ...odd })];
+}
+
+const UNREPRESENTABLE_SHAPES: readonly (readonly [string, Partial<ZdrEndpoint>])[] = [
+  ['a request fee', { pricing: { prompt: '0.000001', completion: '0.000002', request: '0.001' } }],
+  [
+    'reasoning dearer than completion',
+    { pricing: { prompt: '0.000001', completion: '0.000002', internal_reasoning: '0.000003' } },
+  ],
+  [
+    'a cached read dearer than the prompt',
+    { pricing: { prompt: '0.000001', completion: '0.000002', input_cache_read: '0.000002' } },
+  ],
+  [
+    'an override key outside the conditions and rates',
+    {
+      pricing: { prompt: '0.000001', completion: '0.000002' },
+      overrides: [{ min_prompt_tokens: 100_000, prompt: '0.000002', surge: '2' }],
+    },
+  ],
+  [
+    'a time schedule that does not tile every weekday',
+    {
+      pricing: { prompt: '0.000001', completion: '0.000002' },
+      overrides: [{ utc_start: 0, utc_end: 1200, prompt: '0.000002' }],
+    },
+  ],
+  [
+    'a top-level price key in neither the represented nor the ignored list',
+    { pricing: { prompt: '0.000001', completion: '0.000002', surge_multiplier: '2' } },
+  ],
+  ['a price that could not be read', { pricing: 'unreadable' }],
+];
+
+describe('textPricingFromEndpoints (prices the schedule cannot represent)', () => {
+  it.each(UNREPRESENTABLE_SHAPES)(
+    'excludes the model when a standard-tier endpoint lists %s',
+    (_label, odd) => {
+      expect(reasonOf(textPricingFromEndpoints(besideAnchor(odd), limitsOf()))).toBe(
+        'unrepresentable-endpoint-price'
+      );
+    }
+  );
+
+  it.each(UNREPRESENTABLE_SHAPES)('ignores %s on a flex endpoint', (_label, odd) => {
+    expect(reasonOf(textPricingFromEndpoints(besideAnchor(odd, 'vendor/flex'), limitsOf()))).toBe(
+      'priced'
+    );
+  });
+
+  it('excludes a model whose anchor lists a 5-minute cache write above five quarters of its prompt rate', () => {
+    const endpoints = [
+      endpointAt('a', '0.000001', '0.000002', {
+        overrides: [
+          { min_prompt_tokens: 100_000, prompt: '0.000002', input_cache_write: '0.0000026' },
+        ],
+      }),
+    ];
+    expect(reasonOf(textPricingFromEndpoints(endpoints, limitsOf()))).toBe(
+      'unrepresentable-endpoint-price'
+    );
+  });
+
+  it('admits an anchor cache write of exactly five quarters of its prompt rate', () => {
+    const endpoints = [
+      zdrEndpointFixture({
+        pricing: {
+          prompt: '0.000001',
+          completion: '0.000002',
+          input_cache_write: '0.00000125',
+          input_cache_write_1h: '0.000002',
+        },
+      }),
+    ];
+    expect(reasonOf(textPricingFromEndpoints(endpoints, limitsOf()))).toBe('priced');
+  });
+
+  it('ignores the prices a text call never triggers', () => {
+    const endpoints = [
+      zdrEndpointFixture({
+        pricing: {
+          prompt: '0.000001',
+          completion: '0.000002',
+          web_search: '0.01',
+          discount: 0.15,
+          image: '0.001',
+          audio: '0.00001',
+          input_audio_cache: '0.000001',
+          image_output: '0.00003',
+          image_token: '0.00001',
+        },
+      }),
+    ];
+    expect(reasonOf(textPricingFromEndpoints(endpoints, limitsOf()))).toBe('priced');
+  });
+
+  it('excludes a model whose every rate is zero as zero-priced', () => {
+    expect(reasonOf(textPricingFromEndpoints([endpointAt('a', '0', '0')], limitsOf()))).toBe(
+      'zero-priced'
+    );
+  });
+
+  it('excludes a model with exactly one zero rate, loudly', () => {
+    expect(reasonOf(textPricingFromEndpoints([endpointAt('a', '0.000001', '0')], limitsOf()))).toBe(
+      'unknown-pricing-unit'
+    );
+  });
+});
+
+describe('textPricingFromEndpoints (the max_price band)', () => {
+  /** An anchor at 1 / 10 USD a million with a tier above 100,000 at 2 / 20. */
+  const anchor = endpointAt('anchor', '0.000001', '0.00001', {
+    overrides: [{ min_prompt_tokens: 100_000, prompt: '0.000002', completion: '0.00002' }],
+  });
+
+  function bandOf(endpoints: readonly ZdrEndpoint[]): number | undefined {
+    const result = textPricingFromEndpoints(endpoints, limitsOf());
+    return result.kind === 'priced' ? result.bandOpenEndpoints : undefined;
+  }
+
+  it('counts an endpoint above the base ceiling that a short call still admits', () => {
+    expect(bandOf([anchor, endpointAt('mid', '0.0000015', '0.000012')])).toBe(1);
+  });
+
+  it('leaves out an endpoint inside the base ceiling', () => {
+    expect(bandOf([anchor, endpointAt('near', '0.0000011', '0.000011')])).toBe(0);
+  });
+
+  it('leaves out an endpoint above the short-call max_price', () => {
+    expect(bandOf([anchor, endpointAt('far', '0.000003', '0.00003')])).toBe(0);
+  });
+
+  it('counts nothing on Claude Sonnet 4.5, whose regional endpoints sit inside the base ceiling', () => {
+    const result = textPricingFromEndpoints(SONNET_45, SONNET_45_LIMITS);
+    expect(result.kind === 'priced' ? result.bandOpenEndpoints : undefined).toBe(0);
+  });
+});
+
+describe('endpointBucketCounts', () => {
+  it("lands each of a model's ZDR endpoints in exactly one bucket", () => {
+    const endpoints = [
+      ...GEMINI_31_PRO,
+      endpointAt('no-tools', '0.000001', '0.000002', { supportedParameters: ['max_tokens'] }),
+      zdrEndpointFixture({ tag: 'garbled', pricing: 'unreadable' }),
+      zdrEndpointFixture({ tag: 'fee', pricing: { prompt: '1', completion: '1', request: '1' } }),
+    ];
+    const counts = endpointBucketCounts(endpoints, CALL_PARAMETERS);
+    expect(counts).toEqual({
+      'service-tier': 2,
+      'unsupported-parameter': 1,
+      unreadable: 1,
+      unrepresentable: 1,
+      reachable: 1,
+    });
+    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(endpoints.length);
+  });
+});
+
+describe('the descriptor invariants over every fixture listing', () => {
+  const listings: readonly (readonly [string, readonly ZdrEndpoint[]])[] = [
+    ['Claude Sonnet 4.5', SONNET_45],
+    ['DeepSeek V4 Pro', DEEPSEEK_V4_PRO],
+    ['Gemini 3.1 Pro', GEMINI_31_PRO],
+    ['Grok 4.7', GROK_47],
+    ['GPT-5.4', GPT_54],
+    ['Hy3', [hy3InWindow('dear')]],
+  ];
+
+  it.each(listings)(
+    '%s: tiers ascend strictly, no rate falls, and every rate is positive',
+    (_label, endpoints) => {
+      const result = textPricingFromEndpoints(endpoints, limitsOf());
+      if (result.kind !== 'priced') throw new Error(`expected priced, got ${result.reason}`);
+      const { base, tiers } = result.pricing.anchor;
+      const levels = [base, ...tiers.map((tier) => tier.rates)];
+      expect(
+        tiers.every(
+          (tier, index) =>
+            index === 0 || tier.abovePromptTokens > (tiers[index - 1]?.abovePromptTokens ?? 0)
+        )
+      ).toBe(true);
+      expect(
+        levels.every(
+          (rates, index) =>
+            index === 0 ||
+            (rates.input >= (levels[index - 1]?.input ?? 0n) &&
+              rates.output >= (levels[index - 1]?.output ?? 0n))
+        )
+      ).toBe(true);
+      expect(levels.every((rates) => rates.input > 0n && rates.output > 0n)).toBe(true);
+    }
+  );
 });

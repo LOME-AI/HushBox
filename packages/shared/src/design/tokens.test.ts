@@ -245,6 +245,19 @@ const GREETING_ROLES: readonly (readonly [TypeRole, RoleValues])[] = [
   ],
 ];
 
+const SHARE_ROLES: readonly (readonly [TypeRole, RoleValues])[] = [
+  [
+    'share-title',
+    {
+      face: 'serif',
+      size: '1.5rem',
+      lineHeight: '1.25',
+      weight: 700,
+      fromDesktop: { size: '1.875rem', lineHeight: '1.25' },
+    },
+  ],
+];
+
 const SNUG_ROLES: readonly (readonly [TypeRole, RoleValues])[] = [
   ['ui-snug', { face: 'sans', size: '0.875rem', lineHeight: '1.35', weight: 400 }],
 ];
@@ -254,7 +267,7 @@ const SMALL_MONO_ROLES: readonly (readonly [TypeRole, RoleValues])[] = [
 ];
 
 describe('the type roles', () => {
-  it('are exactly the seventeen kit roles, the ten site roles, the auth title, the header title, the chat greeting, the snug ui row and the small mono line', () => {
+  it('are exactly the seventeen kit roles, the ten site roles, the auth title, the header title, the chat greeting, the shared-page title, the snug ui row and the small mono line', () => {
     expect(Object.keys(TYPE_ROLES).toSorted((a, b) => a.localeCompare(b))).toStrictEqual(
       [
         ...KIT_ROLES,
@@ -262,6 +275,7 @@ describe('the type roles', () => {
         ...AUTH_ROLES,
         ...HEADER_ROLES,
         ...GREETING_ROLES,
+        ...SHARE_ROLES,
         ...SNUG_ROLES,
         ...SMALL_MONO_ROLES,
       ]
@@ -273,6 +287,7 @@ describe('the type roles', () => {
     expect(AUTH_ROLES).toHaveLength(1);
     expect(HEADER_ROLES).toHaveLength(1);
     expect(GREETING_ROLES).toHaveLength(1);
+    expect(SHARE_ROLES).toHaveLength(1);
     expect(SNUG_ROLES).toHaveLength(1);
     expect(SMALL_MONO_ROLES).toHaveLength(1);
   });
@@ -283,6 +298,7 @@ describe('the type roles', () => {
     ...AUTH_ROLES,
     ...HEADER_ROLES,
     ...GREETING_ROLES,
+    ...SHARE_ROLES,
     ...SNUG_ROLES,
     ...SMALL_MONO_ROLES,
   ])('%s carries its values', (role, values) => {

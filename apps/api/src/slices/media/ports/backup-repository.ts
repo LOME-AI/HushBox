@@ -67,6 +67,13 @@ export interface BackupVersionPage {
   readonly nextCursor?: BackupVersionCursor;
 }
 
+/**
+ * A failed read. `status` is the HTTP status the store refused it with, and is
+ * absent when no response came back (a timeout, a dropped connection): the
+ * status is what tells a missing credential capability from a store outage.
+ */
+export type BackupStoreError = DomainError & { readonly status?: number };
+
 export interface BackupRepositoryReader {
   /**
    * The key prefix this reader is a view of, closed with a separator. The
@@ -80,9 +87,9 @@ export interface BackupRepositoryReader {
    * one object per snapshot, last in a run, so that instant is the run's
    * completion time.
    */
-  newestSnapshotAt(): ResultAsync<Date | null, DomainError>;
+  newestSnapshotAt(): ResultAsync<Date | null, BackupStoreError>;
   /** Every lifecycle rule the backup bucket carries; empty when it carries none. */
-  lifecycleRules(): ResultAsync<readonly BackupLifecycleRule[], DomainError>;
+  lifecycleRules(): ResultAsync<readonly BackupLifecycleRule[], BackupStoreError>;
   /**
    * One page of the repository's object versions, from the start of the
    * listing when given no cursor. Listing versions is what the retention audit
@@ -91,7 +98,9 @@ export interface BackupRepositoryReader {
    * listing shows whether versions are actually being destroyed, which is the
    * thing the published ceiling is about.
    */
-  listObjectVersions(cursor?: BackupVersionCursor): ResultAsync<BackupVersionPage, DomainError>;
+  listObjectVersions(
+    cursor?: BackupVersionCursor
+  ): ResultAsync<BackupVersionPage, BackupStoreError>;
 }
 
 /**

@@ -299,6 +299,12 @@ describe('the output directory', () => {
     expect(config.outputDir).toBe(e2eOutputDir(machine.host));
   });
 
+  it('keeps a test attempt’s output only when the attempt did not end as expected', async () => {
+    const { default: config } = await loadConfig();
+
+    expect(config.preserveOutput).toBe('failures-only');
+  });
+
   it.each(['darwin', 'win32'] as const)(
     'is left to Playwright’s default, the repository’s test-results directory, on %s',
     async (platform) => {

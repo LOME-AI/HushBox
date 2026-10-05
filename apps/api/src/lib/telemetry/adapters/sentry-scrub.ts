@@ -369,6 +369,89 @@ function backupAuditTags(originalException: unknown): {
 }
 
 /**
+ * An HTTP status, the only shape a status lifted from a property travels in: an
+ * integer in the HTTP status range. A number carries no text, and anything
+ * else under a status name is a content vector, so it is dropped (fail closed).
+ */
+function httpStatusInRange(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value
+    : undefined;
+}
+
+/**
+ * The HTTP status a backup store refused an auditor read with, surfaced as a
+ * discrete tag so an operator paged by an unreadable backup can tell a
+ * credential missing a capability (403) from a store outage (5xx) — the code
+ * alone separates neither, and the status rides on a domain error the
+ * {@link firstHttpStatusCode} cause walk never reaches. Only an integer in the
+ * HTTP status range travels ({@link httpStatusInRange}). What this record holds is
+ * spread into {@link scrubSentryEvent}'s `tags:` object; the range is a check
+ * rather than an enumeration, so the producer carries the test the
+ * tag-admission rule commented there demands
+ * (`apps/api/src/slices/media/domain/audit/entries.test.ts` asserts the value
+ * and the emitted error's whole own-key set).
+ */
+function backupStoreStatusTag(originalException: unknown): { backupStoreStatus?: number } {
+  if (!(originalException instanceof Error)) {
+    return {};
+  }
+  const status = httpStatusInRange(Reflect.get(originalException, 'backupStoreStatus'));
+  return status === undefined ? {} : { backupStoreStatus: status };
+}
+
+/**
+ * The codes a model provider failure is classified into, as the producer names
+ * them (the models slice's `InferenceErrorCode`). Restated here rather than
+ * imported, for the reason every other value in this file is: this gate is the
+ * last one before the wire and must not trust the producer to have kept its own
+ * promise. Drift costs the tag and nothing else — an unrecognized value is
+ * dropped, which is the safe direction.
+ */
+const INFERENCE_CODES: ReadonlySet<string> = new Set([
+  'invalid_request',
+  'unsupported_modality',
+  'no_providers_available',
+  'no_reasoning_endpoints',
+  'rate_limited',
+  'content_policy',
+  'context_length',
+  'network',
+  'aborted',
+  'truncated_stream',
+  'empty_completion',
+  'upstream_error',
+]);
+
+/**
+ * HOW a model call's provider failed, surfaced as discrete tags so an operator
+ * paged by a failed run learns which repair it is: a refused credential or
+ * exhausted credit (401, 402, 403) is ours to fix, a 5xx or a rate limit is the
+ * provider's to wait out, and a rejected request names a defect in what we
+ * sent. The code gate is an ENUMERATION over {@link INFERENCE_CODES}. The status
+ * is a range check ({@link httpStatusInRange}), so the producer carries the test
+ * the tag-admission rule commented on {@link scrubSentryEvent}'s `tags:` object
+ * demands (`apps/api/src/slices/workflows/domain/nodes/model-call-execution.test.ts`
+ * asserts the value and the emitted error's whole own-key set). What this record
+ * holds is spread into that object, so a third key here is a third tag on the
+ * wire.
+ */
+function providerFailureTags(originalException: unknown): {
+  inferenceCode?: string;
+  providerStatus?: number;
+} {
+  if (!(originalException instanceof Error)) {
+    return {};
+  }
+  const code: unknown = Reflect.get(originalException, 'inferenceCode');
+  const status = httpStatusInRange(Reflect.get(originalException, 'providerStatus'));
+  return {
+    ...(typeof code === 'string' && INFERENCE_CODES.has(code) ? { inferenceCode: code } : {}),
+    ...(status === undefined ? {} : { providerStatus: status }),
+  };
+}
+
+/**
  * The aggregate grains growth counts in, as the schema's own enum spells them.
  * Restated here rather than imported, for the reason every other value in this
  * file is: this gate is the last one before the wire and must not trust the
@@ -471,6 +554,31 @@ function searchOversizeTags(originalException: unknown): {
 }
 
 /**
+ * HOW MANY model steps a hard abort cut in flight, surfaced as a discrete tag so
+ * an operator paged by `workflow_hard_stop_absorbed` learns how much the abort
+ * cut: under the run's hard stop, how much the drain grace failed to cover;
+ * under a retry superseding the run, how much the lost claim cost. The run it cut travels
+ * under `runId` through {@link absorbedLossTags}. The count is a number of
+ * steps the producer counted, never text. Only a whole non-negative number
+ * travels; anything else is a content vector and is dropped (fail closed),
+ * like the backup counts. What this record holds is spread into
+ * {@link scrubSentryEvent}'s `tags:` object, so another key here is another
+ * tag on the wire; the tag-admission rule commented on that object is what
+ * decides whether it may be one. Because {@link wholeCount} is a shape check
+ * rather than an enumeration, the producer carries the test that rule demands,
+ * asserting the value and the emitted error's whole own-key set:
+ * `apps/api/src/slices/workflows/domain/nodes/model-call-execution.test.ts`
+ * ("captures the cut step under the id of the run it served").
+ */
+function hardStopCutTags(originalException: unknown): { cutStepCount?: number } {
+  if (!(originalException instanceof Error)) {
+    return {};
+  }
+  const cutStepCount = wholeCount(Reflect.get(originalException, 'cutStepCount'));
+  return cutStepCount === undefined ? {} : { cutStepCount };
+}
+
+/**
  * WHICH conversation a recovery rotation superseded an unverifiable epoch in,
  * and which epochs, surfaced as discrete tags: the server holds no key, so this
  * event is the only channel an operator learns of a bad rotation on, and one
@@ -504,6 +612,81 @@ function supersededEpochTags(originalException: unknown): {
       : {}),
     ...(supersededEpoch === undefined ? {} : { supersededEpoch }),
     ...(predecessorEpoch === undefined ? {} : { predecessorEpoch }),
+  };
+}
+
+/**
+ * The legs a settled bill above its hold may name, as the price core's
+ * `HoldOverrunLeg` spells them. Restated here rather than imported, for the
+ * reason every other value in this file is: this gate is the last one before
+ * the wire and must not trust the producer to have kept its own promise. Drift
+ * costs the tag and nothing else — an unrecognized leg drops the whole value,
+ * which is the safe direction.
+ */
+const HOLD_OVERRUN_LEGS: ReadonlySet<string> = new Set([
+  'input-above-estimate',
+  'output-above-wire-cap',
+  'tier-crossed',
+  'rate-above-ceiling',
+  'storage-above-allowance',
+  'unattributed',
+]);
+
+/** How a bill was priced: each charge at its inline cost, or one at least at its estimate. */
+const BILLINGS: ReadonlySet<string> = new Set(['inline', 'estimated']);
+
+/** The error's nano-USD string under `name`, or `undefined`: any other type or shape is a content vector. */
+function nanoUsdString(originalException: Error, name: string): string | undefined {
+  const value: unknown = Reflect.get(originalException, name);
+  return typeof value === 'string' && NANO_USD_STRING.test(value) ? value : undefined;
+}
+
+/**
+ * WHAT a run billed against the hold it was admitted under, and WHICH bounds
+ * broke, surfaced as discrete tags so an operator paged by
+ * `settlement_above_hold` learns by how much and whose fact broke — a dense
+ * prompt, a vendor overcharge, or a defect of ours — without opening the run;
+ * and, for `workflow_cost_circuit_tripped`, the spend that closed the gate and
+ * the limit it crossed. The run travels under `runId` through
+ * {@link absorbedLossTags}. `legs` is an ENUMERATION: a comma-joined list whose
+ * every member is in {@link HOLD_OVERRUN_LEGS}, so nothing else can travel
+ * under it; `billing` is an enumeration over {@link BILLINGS}. The four amounts
+ * are nano-USD strings, a shape check rather than an enumeration, so their
+ * producers carry the test the tag-admission rule commented on
+ * {@link scrubSentryEvent}'s `tags:` object demands, asserting the values and
+ * the emitted error's whole own-key set: the workflow interpreter's "captures
+ * exactly one event carrying the run, both amounts and the legs when the
+ * receipt exceeds the hold" and "captures exactly one Sentry event carrying the
+ * runId, the accrual and the limit when the circuit closes the gate". What this
+ * record holds is spread into that object, so another key here is another tag
+ * on the wire.
+ */
+function settlementOverrunTags(originalException: unknown): {
+  holdNanoUsd?: string;
+  billedNanoUsd?: string;
+  legs?: string;
+  billing?: string;
+  accruedNanoUsd?: string;
+  limitNanoUsd?: string;
+} {
+  if (!(originalException instanceof Error)) {
+    return {};
+  }
+  const holdNanoUsd = nanoUsdString(originalException, 'holdNanoUsd');
+  const billedNanoUsd = nanoUsdString(originalException, 'billedNanoUsd');
+  const legs: unknown = Reflect.get(originalException, 'legs');
+  const billing: unknown = Reflect.get(originalException, 'billing');
+  const accruedNanoUsd = nanoUsdString(originalException, 'accruedNanoUsd');
+  const limitNanoUsd = nanoUsdString(originalException, 'limitNanoUsd');
+  return {
+    ...(holdNanoUsd === undefined ? {} : { holdNanoUsd }),
+    ...(billedNanoUsd === undefined ? {} : { billedNanoUsd }),
+    ...(typeof legs === 'string' && legs.split(',').every((leg) => HOLD_OVERRUN_LEGS.has(leg))
+      ? { legs }
+      : {}),
+    ...(typeof billing === 'string' && BILLINGS.has(billing) ? { billing } : {}),
+    ...(accruedNanoUsd === undefined ? {} : { accruedNanoUsd }),
+    ...(limitNanoUsd === undefined ? {} : { limitNanoUsd }),
   };
 }
 
@@ -563,9 +746,13 @@ export function scrubSentryEvent(event: ErrorEvent, hint?: EventHint): ErrorEven
         ...dependencyFailureTags(reported),
         ...strandedSecondFactorTags(reported),
         ...backupAuditTags(reported),
+        ...backupStoreStatusTag(reported),
+        ...providerFailureTags(reported),
         ...landingClampTags(reported),
         ...searchOversizeTags(reported),
+        ...hardStopCutTags(reported),
         ...supersededEpochTags(reported),
+        ...settlementOverrunTags(reported),
       },
       // '{{ default }}' keeps Sentry's stack-based grouping; errorCode splits
       // groups per logical failure (stack-only grouping merges distinct

@@ -15,15 +15,17 @@ import { Mode, envConfig, resolveRaw } from '@hushbox/shared/env.config';
 import { TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
 import { generateEpochKeyPair } from '@hushbox/crypto';
 import { tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
+import { wallets } from '@hushbox/db';
 import { TRIAL_DAILY_SPEND_CAP_NANO_USD } from '../../billing/index.js';
-import {
-  DEFAULT_WORKFLOW_CAPABILITIES,
-  SettlementConflictError,
-  createConstraintRegistry,
-} from '../../workflows/index.js';
-import { conflictError } from '../../../lib/errors/index.js';
+import { BILLING_KEYS } from '../../billing/domain/keys.js';
+import { DEFAULT_WORKFLOW_CAPABILITIES, createConstraintRegistry } from '../../workflows/index.js';
 import { ok, okAsync } from '../../../lib/result/index.js';
-import { InferenceError, createToolRegistry, mockProviderEnabled } from '../../models/index.js';
+import {
+  callMaxPrice,
+  createToolRegistry,
+  InferenceError,
+  mockProviderEnabled,
+} from '../../models/index.js';
 import { createChatConversationRuntime } from '../conversation-runtime.js';
 import {
   adaptersFor,
@@ -37,12 +39,12 @@ import {
   usesMockProvider,
   withAnswerMessageIds,
   withMediaPutBarrier,
-  withPostCommitSnapshotRefresh,
 } from './runtime.js';
 import { CHAT_TURN_HOOKS, CHAT_TURN_NODE_ID, TRIAL_TURN_HOOKS } from './constants.js';
 import type { ChatHookBindings, ConversationRuntimeDeps, HeldStartRequest } from './runtime.js';
 import type { MediaPersistPlan } from '@hushbox/shared';
 import type { ChatStores } from '../ports/stores.js';
+import type { WalletRecord } from '../../billing/index.js';
 import type { ModelBinding } from '../../workflows/index.js';
 import type { ModelProvider, ToolRegistry } from '../../models/index.js';
 import type { Bindings } from '../../../lib/context/index.js';
@@ -61,6 +63,11 @@ import type {
 /** An inert fixture stamp: nothing in this file reads it against a clock. */
 const FIXTURE_STAMP_SECONDS = secondsAt(TEST_DAY_START);
 const FIXTURE_UTC_DAY = utcDayKey(new Date(TEST_DAY_START));
+
+/** A 1-nano anchor's ceiling un-baked: the cap every minimal test language call is served under. */
+const TEST_ROUTING: NonNullable<InferenceRequest['routing']> = {
+  maxPrice: { prompt: '0.001739', completion: '0.001739' },
+};
 
 const telemetry: Telemetry = {
   debug: vi.fn(),
@@ -106,13 +113,40 @@ const rejectingRedis = {
   createScript: () => ({ exec: () => Promise.reject(new Error('redis down')) }),
 } as unknown as ConversationRuntimeDeps['redis'];
 
+/** The payer wallet's committed row, as `noMemberDb` serves it. */
+const COMMITTED_WALLET: WalletRecord = {
+  id: 'w1',
+  balanceNanoUsd: 5n,
+  ledgerSeq: 2n,
+  type: 'purchased',
+};
+
+// `noMemberDb`, `noRowsDb` and `readFailingDb` are partial Drizzle handles that
+// answer canned results for only the reads under test, hence their
+// `as unknown as` casts.
+
 /**
- * A db whose only supported read is the admission hook's membership lookup,
- * which returns no member — so no member-budget scope applies and admission
- * proceeds to the balance/run-cap gate the tests actually exercise.
+ * A db whose only supported reads are the admission hook's: the payer wallet
+ * finds its committed row, and the membership lookup returns no member — so no
+ * member-budget scope applies and admission proceeds to the balance/run-cap
+ * gate the tests actually exercise.
  */
 const noMemberDb = {
+  select: () => ({
+    from: (table: unknown) => ({
+      where: () => Promise.resolve(table === wallets ? [COMMITTED_WALLET] : []),
+    }),
+  }),
+} as unknown as ConversationRuntimeDeps['db'];
+
+/** A db where no read finds a row: the payer wallet has none either. */
+const noRowsDb = {
   select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+} as unknown as ConversationRuntimeDeps['db'];
+
+/** A db whose every read fails. */
+const readFailingDb = {
+  select: () => ({ from: () => ({ where: () => Promise.reject(new Error('db down')) }) }),
 } as unknown as ConversationRuntimeDeps['db'];
 
 /** Text-turn paths must never reach storage; a throwing proxy proves it. */
@@ -183,7 +217,7 @@ const HOOKS = {
       holdRef: 'h',
       circuit: { estimateNanoUsd: 1n, costCircuitMultiplier: 5n, costCircuitLimitNanoUsd: 5n },
     }),
-  settlement: () => Promise.resolve(),
+  settlement: () => Promise.resolve({ billed: [] }),
   answerMessageIds: new Map<string, string>(),
   assistantMessageIds: [],
 };
@@ -257,6 +291,7 @@ describe('adaptersFor: the per-run model provider', () => {
       parameters: {},
       outputs: ['text'],
       utcDay: FIXTURE_UTC_DAY,
+      routing: TEST_ROUTING,
     };
   }
   async function classifierText(provider: ModelProvider): Promise<string> {
@@ -287,6 +322,7 @@ describe('adaptersFor: the per-run model provider', () => {
       parameters: {},
       outputs: ['text'],
       utcDay: FIXTURE_UTC_DAY,
+      routing: TEST_ROUTING,
     };
     const provider = providerOf(dev, { failingModels: [model] });
     const stream = provider.infer(textRequest, languageDescriptor(model));
@@ -294,6 +330,29 @@ describe('adaptersFor: the per-run model provider', () => {
       for await (const event of stream) expect(event).toBeDefined();
     };
     await expect(drain()).rejects.toThrow();
+  });
+
+  it('refuses a call capped below the model’s cheapest endpoint, as the gateway would', async () => {
+    const dev = { mockProviderEnabled: true, apiKey: '' } as const;
+    const model = 'base/model';
+    const capped: InferenceRequest = {
+      model,
+      inputs: [{ modality: 'text', text: 'hello' }],
+      parameters: {},
+      outputs: ['text'],
+      utcDay: FIXTURE_UTC_DAY,
+      routing: { maxPrice: { prompt: '0.000000', completion: '0.000000' } },
+    };
+    const drain = async (): Promise<void> => {
+      for await (const event of providerOf(dev, {}).infer(capped, languageDescriptor(model))) {
+        expect(event).toBeDefined();
+      }
+    };
+
+    await expect(drain()).rejects.toMatchObject({
+      name: 'InferenceError',
+      code: 'no_providers_available',
+    });
   });
 
   it('returns the real provider in production regardless of a crafted directives body', () => {
@@ -316,6 +375,7 @@ describe('adaptersFor: the per-run model provider', () => {
       parameters: {},
       outputs: ['text'],
       utcDay: FIXTURE_UTC_DAY,
+      routing: TEST_ROUTING,
     };
     const provider = providerOf(dev, { holdPrimaryStream: true }, () => gate);
     const iterator = provider.infer(request, languageDescriptor(model))[Symbol.asyncIterator]();
@@ -346,6 +406,7 @@ describe('adaptersFor: the per-run model provider', () => {
         parameters: {},
         outputs: ['text'],
         utcDay: FIXTURE_UTC_DAY,
+        routing: TEST_ROUTING,
       };
       const drain = async (provider: ModelProvider): Promise<void> => {
         for await (const event of provider.infer(request, languageDescriptor(model))) {
@@ -426,6 +487,7 @@ describe('adaptersFor (the composition root of a run’s adapters)', () => {
       parameters: {},
       outputs: ['text'],
       utcDay: FIXTURE_UTC_DAY,
+      routing: TEST_ROUTING,
     };
     try {
       provider.infer(request, unreachableModel);
@@ -836,6 +898,8 @@ const ANSWER_BINDING: ModelBinding = {
   descriptor: ANSWER_DESCRIPTOR,
   ports: { in: [textTag()], out: textTag() },
   price: () => ok(1n),
+  reserveMedia: () => ok(1n),
+  maxPrice: (bound) => callMaxPrice(ANSWER_DESCRIPTOR.pricing, bound),
 };
 
 function answerNode(): Extract<Node, { type: 'modelCall' }> {
@@ -882,6 +946,8 @@ describe('createTurnExecutionRegistry', () => {
       clock: { now: () => 0 },
       rng: { random: () => 0.5 },
       signal: new AbortController().signal,
+      spend: { isOpen: () => true, report: () => undefined },
+      runId: undefined,
     };
     const result = await execution.resolveExecution(node)?.run(node, ['hi'], nodeContext);
     expect(result?.isOk()).toBe(true);
@@ -954,6 +1020,21 @@ const keyRowDownDb = {
 
 const FENCE = { id: 'f', executorId: 'e', claims: 1 };
 
+describe('conversation runtime admission (the scope read)', () => {
+  it('refuses before the script when the payer wallet has no row', async () => {
+    const exec = vi.fn(() => Promise.resolve('admitted'));
+    const redis = {
+      get: () => Promise.resolve({ balanceNanoUsd: '1000000000', ledgerSeq: 1, type: 'purchased' }),
+      createScript: () => ({ exec }),
+    } as unknown as ConversationRuntimeDeps['redis'];
+    const runtime = createConversationRuntime(deps({ db: noRowsDb, redis }));
+    const hooks = runtime.bindHooks(CONTEXT, DEFINITION);
+    const decision = await hooks.admission({ definition: DEFINITION, estimate: 1n as never });
+    expect(decision).toEqual({ admitted: false, code: ERROR_CODES.NOT_FOUND });
+    expect(exec).not.toHaveBeenCalled();
+  });
+});
+
 describe('conversation runtime admission (hold identity on the grant)', () => {
   it('carries the wallet-hold identity on the admission grant', async () => {
     const runtime = createConversationRuntime(deps({ redis: grantingRedis }));
@@ -981,24 +1062,63 @@ describe('conversation runtime executor (admitted propagation)', () => {
   });
 });
 
+/**
+ * A Redis that records every release script call and every bare hash delete; a
+ * partial Redis handle stubbed to those two calls, hence the cast.
+ */
+function releaseRecordingRedis(scriptReply: () => Promise<unknown>): {
+  readonly redis: ConversationRuntimeDeps['redis'];
+  readonly exec: ReturnType<typeof vi.fn>;
+  readonly hdel: ReturnType<typeof vi.fn>;
+} {
+  const exec = vi.fn((_keys: readonly string[], _args: readonly string[]) => scriptReply());
+  const hdel = vi.fn(() => Promise.resolve(1));
+  return {
+    redis: { createScript: () => ({ exec }), hdel } as unknown as ConversationRuntimeDeps['redis'],
+    exec,
+    hdel,
+  };
+}
+
 describe('conversation runtime money capabilities', () => {
-  it('releases a hold through Redis (wallet hash plus every scope hash)', async () => {
-    const hdel = vi.fn(() => Promise.resolve(1));
-    const runtime = createConversationRuntime(
-      deps({ redis: { hdel } as unknown as ConversationRuntimeDeps['redis'] })
-    );
+  it('releases a hold with the committed snapshot, in one script over the wallet and every scope hash', async () => {
+    const recording = releaseRecordingRedis(() => Promise.resolve(1));
+    const runtime = createConversationRuntime(deps({ redis: recording.redis }));
     await runtime.releaseHold({ walletId: 'w1', holdId: 'run-1', scopeIds: ['s1'] });
-    expect(hdel).toHaveBeenCalledTimes(2);
+    expect(recording.exec).toHaveBeenCalledTimes(1);
+    expect(recording.exec.mock.calls[0]).toEqual([
+      [
+        BILLING_KEYS.walletSnapshot.buildKey('w1'),
+        BILLING_KEYS.walletHolds.buildKey('w1'),
+        BILLING_KEYS.scopeHolds.buildKey('s1'),
+      ],
+      [
+        JSON.stringify({ balanceNanoUsd: '5', ledgerSeq: 2, type: 'purchased' }),
+        '2',
+        String(BILLING_KEYS.walletSnapshot.ttlSeconds),
+        'run-1',
+      ],
+    ]);
+    expect(recording.hdel).not.toHaveBeenCalled();
   });
 
-  it('swallows a release failure (the hold TTL is the backstop)', async () => {
-    const hdel = vi.fn(() => Promise.reject(new Error('redis down')));
-    const runtime = createConversationRuntime(
-      deps({ redis: { hdel } as unknown as ConversationRuntimeDeps['redis'] })
-    );
+  it('leaves the hold in place when the wallet read fails (the hold TTL is the backstop)', async () => {
+    const recording = releaseRecordingRedis(() => Promise.resolve(1));
+    const runtime = createConversationRuntime(deps({ db: readFailingDb, redis: recording.redis }));
+    await expect(
+      runtime.releaseHold({ walletId: 'w1', holdId: 'run-1', scopeIds: ['s1'] })
+    ).resolves.toBeUndefined();
+    expect(recording.exec).not.toHaveBeenCalled();
+    expect(recording.hdel).not.toHaveBeenCalled();
+  });
+
+  it('swallows a release script failure (the hold TTL is the backstop)', async () => {
+    const recording = releaseRecordingRedis(() => Promise.reject(new Error('redis down')));
+    const runtime = createConversationRuntime(deps({ redis: recording.redis }));
     await expect(
       runtime.releaseHold({ walletId: 'w1', holdId: 'run-1', scopeIds: [] })
     ).resolves.toBeUndefined();
+    expect(recording.exec).toHaveBeenCalledTimes(1);
   });
 
   it('reports alive when the heartbeat touch matches the fence', async () => {
@@ -1028,84 +1148,6 @@ describe('conversation runtime money capabilities', () => {
   it('swallows a failRun store failure (the lease lapse is the backstop)', async () => {
     const runtime = createConversationRuntime(deps({ db: keyRowDownDb }));
     await expect(runtime.failRun(FENCE)).resolves.toBeUndefined();
-  });
-});
-
-describe('post-commit snapshot refresh (chat settlement wrap)', () => {
-  const REQUEST = { runKey: 'k', outputs: {}, charges: [] };
-
-  it('refreshes the wallet snapshot only after the settlement commits', async () => {
-    const calls: string[] = [];
-    const walletDb = {
-      select: () => ({
-        from: () => ({
-          where: () => Promise.resolve([{ balanceNanoUsd: 5n, ledgerSeq: 2n, type: 'purchased' }]),
-        }),
-      }),
-    } as unknown as ConversationRuntimeDeps['db'];
-    const casRedis = {
-      createScript: () => ({
-        exec: () => {
-          calls.push('refresh');
-          return Promise.resolve(1);
-        },
-      }),
-    } as unknown as ConversationRuntimeDeps['redis'];
-    const hook = withPostCommitSnapshotRefresh(
-      () => {
-        calls.push('settle');
-        return Promise.resolve();
-      },
-      { db: walletDb, redis: casRedis, telemetry },
-      'w1'
-    );
-    await hook(REQUEST);
-    expect(calls).toEqual(['settle', 'refresh']);
-  });
-
-  it('never fails a settled run when the refresh fails', async () => {
-    const hook = withPostCommitSnapshotRefresh(
-      () => Promise.resolve(),
-      { db: noMemberDb, redis: rejectingRedis, telemetry },
-      'w1'
-    );
-    await expect(hook(REQUEST)).resolves.toBeUndefined();
-  });
-
-  it('refreshes the wallet snapshot after a billed refusal, then rethrows the refusal', async () => {
-    const exec = vi.fn(() => Promise.resolve(1));
-    const walletDb = {
-      select: () => ({
-        from: () => ({
-          where: () => Promise.resolve([{ balanceNanoUsd: 5n, ledgerSeq: 2n, type: 'purchased' }]),
-        }),
-      }),
-    } as unknown as ConversationRuntimeDeps['db'];
-    const casRedis = {
-      createScript: () => ({ exec }),
-    } as unknown as ConversationRuntimeDeps['redis'];
-    const refusal = new SettlementConflictError(conflictError('refused'), 'settlement refused');
-    const hook = withPostCommitSnapshotRefresh(
-      () => Promise.reject(refusal),
-      { db: walletDb, redis: casRedis, telemetry },
-      'w1'
-    );
-    await expect(hook(REQUEST)).rejects.toBe(refusal);
-    expect(exec).toHaveBeenCalledTimes(1);
-  });
-
-  it('propagates a settlement failure without attempting the refresh', async () => {
-    const exec = vi.fn(() => Promise.resolve(1));
-    const casRedis = {
-      createScript: () => ({ exec }),
-    } as unknown as ConversationRuntimeDeps['redis'];
-    const hook = withPostCommitSnapshotRefresh(
-      () => Promise.reject(new Error('settlement boom')),
-      { db: noMemberDb, redis: casRedis, telemetry },
-      'w1'
-    );
-    await expect(hook(REQUEST)).rejects.toThrow('settlement boom');
-    expect(exec).not.toHaveBeenCalled();
   });
 });
 
@@ -1330,7 +1372,7 @@ describe('withMediaPutBarrier', () => {
     const hook = withMediaPutBarrier(
       () => {
         order.push('settle');
-        return Promise.resolve();
+        return Promise.resolve({ billed: [] });
       },
       () => {
         order.push('flush');
@@ -1342,7 +1384,7 @@ describe('withMediaPutBarrier', () => {
   });
 
   it('rejects without settling when a put failed', async () => {
-    const settle = vi.fn(() => Promise.resolve());
+    const settle = vi.fn(() => Promise.resolve({ billed: [] }));
     const hook = withMediaPutBarrier(settle, () => Promise.reject(new Error('put lost')));
     await expect(hook(REQUEST)).rejects.toThrow('put lost');
     expect(settle).not.toHaveBeenCalled();

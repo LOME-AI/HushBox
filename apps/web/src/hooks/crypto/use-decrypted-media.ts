@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { createContext, use, useMemo } from 'react';
 import {
   unwrapContentKeyFromEpoch,
   asEpochPrivateKey,
@@ -24,19 +24,78 @@ interface MessageContentKeyResult {
   error: Error | null;
 }
 
+/** Resolves a message's wrapped content key (base64) to its content key. */
+export type MessageContentKeySource = (
+  conversationId: string,
+  epochNumber: number,
+  wrappedContentKey: string
+) => MessageContentKeyResult;
+
+function unwrapWithCachedEpochKey(
+  conversationId: string,
+  epochNumber: number,
+  wrappedContentKey: string
+): MessageContentKeyResult {
+  const epochKey = getEpochKey(conversationId, epochNumber);
+  if (!epochKey) {
+    return {
+      contentKey: null,
+      wrappedContentKey: null,
+      error: new Error('Epoch key not available'),
+    };
+  }
+  const wrapped = fromBase64(wrappedContentKey) as WrappedSecret;
+  const contentKey = unwrapContentKeyFromEpoch(asEpochPrivateKey(epochKey), wrapped);
+  return { contentKey, wrappedContentKey: wrapped, error: null };
+}
+
 /**
- * Resolve a message's content key ONCE per message: look up the epoch key from
- * the cache and unwrap the wrapped content key with the new epoch reader
- * (`unwrapContentKeyFromEpoch`, the counterpart of the server's
- * `wrapContentKeyToEpoch`). Hoisted out of `useDecryptedMedia` so an N-media
- * message performs one unwrap, not N. `MessageItem` calls this and stamps the
- * resulting key + wrap onto each media item's `RenderableMedia.envelope`.
+ * Where `useMessageContentKey` gets a message's content key. The default
+ * unwraps it with the epoch key from the epoch-key cache; a reader who holds no
+ * epoch key provides a source built by `contentKeySourceFor`. The value is a
+ * function so a supplied key stays in its closure, out of the context value
+ * devtools serialise. A provider memoises it: a new function re-resolves the key.
+ */
+export const MessageContentKeySourceContext =
+  createContext<MessageContentKeySource>(unwrapWithCachedEpochKey);
+
+/**
+ * A source that answers with `contentKey` for the message wrapped as
+ * `wrappedContentKey`, and with an error for any other wrap.
+ */
+export function contentKeySourceFor(
+  wrappedContentKey: WrappedSecret,
+  contentKey: ContentKey
+): MessageContentKeySource {
+  return (_conversationId, _epochNumber, requestedWrap) => {
+    const requested = fromBase64(requestedWrap);
+    const isGivenWrap =
+      requested.length === wrappedContentKey.length &&
+      requested.every((byte, index) => byte === wrappedContentKey[index]);
+    if (!isGivenWrap) {
+      return {
+        contentKey: null,
+        wrappedContentKey: null,
+        error: new Error('Content key not available'),
+      };
+    }
+    return { contentKey, wrappedContentKey, error: null };
+  };
+}
+
+/**
+ * Resolve a message's content key ONCE per message, through the source
+ * `MessageContentKeySourceContext` provides. Hoisted out of `useDecryptedMedia`
+ * so an N-media message performs one unwrap, not N. `MessageItem` calls this
+ * and stamps the resulting key + wrap onto each media item's
+ * `RenderableMedia.envelope`.
  */
 export function useMessageContentKey(
   conversationId: string,
   epochNumber: number,
   wrappedContentKey: string
 ): MessageContentKeyResult {
+  const source = use(MessageContentKeySourceContext);
   return useMemo(() => {
     // A message with no media carries no wrapped key, and callers pass '' for
     // it. That is an absent input, not a failure: unwrapping it would reject
@@ -45,17 +104,7 @@ export function useMessageContentKey(
       return { contentKey: null, wrappedContentKey: null, error: null };
     }
     try {
-      const epochKey = getEpochKey(conversationId, epochNumber);
-      if (!epochKey) {
-        return {
-          contentKey: null,
-          wrappedContentKey: null,
-          error: new Error('Epoch key not available'),
-        };
-      }
-      const wrapped = fromBase64(wrappedContentKey) as WrappedSecret;
-      const contentKey = unwrapContentKeyFromEpoch(asEpochPrivateKey(epochKey), wrapped);
-      return { contentKey, wrappedContentKey: wrapped, error: null };
+      return source(conversationId, epochNumber, wrappedContentKey);
     } catch (error) {
       return {
         contentKey: null,
@@ -63,7 +112,7 @@ export function useMessageContentKey(
         error: error instanceof Error ? error : new Error('Decryption failed'),
       };
     }
-  }, [conversationId, epochNumber, wrappedContentKey]);
+  }, [source, conversationId, epochNumber, wrappedContentKey]);
 }
 
 interface UseDecryptedMediaParams {
@@ -76,11 +125,11 @@ interface UseDecryptedMediaParams {
   envelope?: MediaEnvelopeDecryptor | undefined;
   mimeType: string;
   /**
-   * Pre-fetched presigned GET URL forwarded by the SSE `done` event. When
-   * present, we skip the `/api/media/:id/download-url` round-trip — the URL
-   * is already on the wire and valid for `MEDIA_DOWNLOAD_URL_TTL_SECONDS`.
-   * Falls back to the query when the URL is absent (re-fetched messages) or
-   * the in-flight URL has expired.
+   * Presigned GET URL the caller already holds, which a message's media
+   * carries when the read that produced it set one, as the public message
+   * share's read does. When present, the download-url query
+   * (`useMediaDownloadUrl`) stays disabled for this item; when absent, that
+   * query mints the URL.
    */
   preFetchedUrl?: string | undefined;
   /**
@@ -138,9 +187,10 @@ function composeDecryptedMediaResult(inputs: {
  */
 export function useDecryptedMedia(params: UseDecryptedMediaParams): DecryptedMediaResult {
   const { contentItemId, envelope, mimeType, preFetchedUrl, sizeBytes } = params;
-  // Skip the network round-trip when the SSE done event already gave us a URL.
-  // `useMediaDownloadUrl` keys its query on the contentItemId, so passing
-  // `null` disables it for the lifetime of this consumer.
+  // Skip the network round-trip when the caller already holds a URL, as the
+  // public message share's read provides.
+  // Passing `null` disables `useMediaDownloadUrl`'s query, whose `enabled` is
+  // `!!contentItemId`, for as long as the caller holds a URL.
   const queryEnabled = preFetchedUrl === undefined;
   const {
     downloadUrl: queriedUrl,

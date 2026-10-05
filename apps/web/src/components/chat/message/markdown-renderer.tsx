@@ -117,8 +117,12 @@ const FENCE_LANGUAGE = /language-(\S+)/;
 // Streamdown draws its own header and a floating toolbar inside the block it renders.
 // With `controls.code` off its toolbar never renders, and these descendant rules hide its
 // header and flatten its frame into this one, as the renderer's link recolour does.
+// Streamdown's block also sets an inline `content-visibility: auto` with a fixed intrinsic
+// size, so it first draws at that size whatever its code and resizes a frame later, moving
+// the thread; the important `visible` (beating the inline style) draws it at its own size.
 const CODE_BLOCK_CLASS = cn(
   'not-prose bg-muted border-border my-4 overflow-hidden rounded-lg border font-sans',
+  '[&_[data-streamdown=code-block]]:[content-visibility:visible]!',
   '[&_[data-streamdown=code-block]]:m-0 [&_[data-streamdown=code-block]]:gap-0 [&_[data-streamdown=code-block]]:rounded-none [&_[data-streamdown=code-block]]:border-0 [&_[data-streamdown=code-block]]:bg-transparent [&_[data-streamdown=code-block]]:p-0',
   '[&_[data-streamdown=code-block-header]]:hidden',
   '[&_[data-streamdown=code-block-body]]:rounded-none [&_[data-streamdown=code-block-body]]:border-0 [&_[data-streamdown=code-block-body]]:bg-transparent [&_[data-streamdown=code-block-body]]:px-4 [&_[data-streamdown=code-block-body]]:py-3.5 [&_[data-streamdown=code-block-body]]:text-[0.8125rem] [&_[data-streamdown=code-block-body]]:leading-relaxed md:[&_[data-streamdown=code-block-body]]:text-sm',

@@ -85,6 +85,7 @@ function composerSends(outputPerToken: bigint, promptChars: number): boolean {
       modality: 'text',
       pinned: {},
       webSearch: false,
+      effortAuto: true,
     },
     {
       models: catalog.flatMap((row) => priceableModelFrom(row) ?? []),
@@ -98,6 +99,7 @@ function serverBuilds(outputPerToken: bigint, promptChars: number): boolean {
   return (
     compileTrialSingleTurn(catalogAt(outputPerToken), SINGLE_RUNG, {
       budget: trialBudget(promptChars),
+      catalogGeneration: '0123456789abcdef',
       reasoningEffort: 'auto',
     })._unsafeUnwrap().kind === 'built'
   );
@@ -149,10 +151,11 @@ describe('the trial single-model compile against the composer', () => {
 });
 
 describe('compileTrialSingleTurn', () => {
-  it('builds the definition the single-model compile builds when the ceiling funds it', () => {
+  it('builds the definition the single-model compile builds, stamped with its catalog generation, when the ceiling funds it', () => {
     const catalog = catalogAt(1n);
     const build = compileTrialSingleTurn(catalog, SINGLE_RUNG, {
       budget: trialBudget(400),
+      catalogGeneration: '0123456789abcdef',
       reasoningEffort: 'auto',
     })._unsafeUnwrap();
     const today = compileSingleTurn(snapshotResolver(catalog), SINGLE_RUNG, {
@@ -160,12 +163,16 @@ describe('compileTrialSingleTurn', () => {
       budget: trialBudget(400),
       reasoningEffort: 'auto',
     })._unsafeUnwrap();
-    expect(build).toEqual({ kind: 'built', definition: today });
+    expect(build).toEqual({
+      kind: 'built',
+      definition: { ...today, catalogGeneration: '0123456789abcdef' },
+    });
   });
 
   it('builds a send that names no effort', () => {
     const build = compileTrialSingleTurn(catalogAt(1n), 'vendor/cheap', {
       budget: trialBudget(400),
+      catalogGeneration: '0123456789abcdef',
     })._unsafeUnwrap();
     expect(build.kind).toBe('built');
   });
@@ -173,6 +180,7 @@ describe('compileTrialSingleTurn', () => {
   it('answers over-ceiling when the rung plus a minimum answer exceeds the ceiling', () => {
     const build = compileTrialSingleTurn(catalogAt(100_000n), SINGLE_RUNG, {
       budget: trialBudget(400),
+      catalogGeneration: '0123456789abcdef',
       reasoningEffort: 'auto',
     })._unsafeUnwrap();
     expect(build).toEqual({ kind: 'over-ceiling' });
@@ -181,6 +189,7 @@ describe('compileTrialSingleTurn', () => {
   it('passes the compile refusal of a model the catalog does not carry through', () => {
     const build = compileTrialSingleTurn(catalogAt(1n), 'vendor/absent', {
       budget: trialBudget(400),
+      catalogGeneration: '0123456789abcdef',
     });
     expect(build._unsafeUnwrapErr().code).toBe('validation');
   });

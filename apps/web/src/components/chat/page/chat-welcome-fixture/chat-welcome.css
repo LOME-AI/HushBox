@@ -1,0 +1,14 @@
+/* The app's own entry stylesheet, so the new chat page is measured under the cascade it
+   ships in: the root font steps, the breakpoints and the pointer variant included. */
+@import '../../../../app.css';
+
+/* The page's classes live in the chat and shared components, which this fixture's
+   directory does not contain. */
+@source '../*.tsx';
+@source '../../input/*.tsx';
+@source '../../layout/*.tsx';
+@source '../../budget/*.tsx';
+@source '../../media/*.tsx';
+@source '../../model-selector/*.tsx';
+@source '../../indicators/*.tsx';
+@source '../../../shared/*.tsx';

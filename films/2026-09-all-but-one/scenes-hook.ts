@@ -27,7 +27,7 @@ function snapOn(time: number, cue: number): number {
   return t < cue ? 0 : 0.5 + 0.5 * springOf(t + 1, cue, SNAPPY);
 }
 
-export function lamp(g: G, time: number, strength: number): void {
+function lamp(g: G, time: number, strength: number): void {
   g.fillStyle = INK.bg;
   g.fillRect(-200, -200, W + 400, H + 400);
   if (strength <= 0) {

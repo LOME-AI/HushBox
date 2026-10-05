@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ESTIMATED_IMAGE_BYTES, ESTIMATED_VIDEO_BYTES_PER_SECOND } from '../constants.ts';
 import { mediaTurnCostNanoUsd } from './media-turn-cost.ts';
-import { MEDIA_STORAGE_COST_PER_BYTE_NANO } from './storage-rate.ts';
 import type { Model } from '../../schemas/api/models.ts';
+
+/** The run's media storage: the value-store budget, 20,971,520 bytes × 18. */
+const RUN_STORAGE = 377_487_360n;
 
 function costOf(result: ReturnType<typeof mediaTurnCostNanoUsd>): bigint {
   if (!result.ok) throw new Error(`expected a priced turn, got ${result.error.code}`);
@@ -39,9 +40,7 @@ function videoRow(
 }
 
 describe('mediaTurnCostNanoUsd', () => {
-  it('prices an image turn as each model rate plus one stored image each', () => {
-    const storage = BigInt(ESTIMATED_IMAGE_BYTES) * MEDIA_STORAGE_COST_PER_BYTE_NANO * 2n;
-
+  it('prices an image turn as each model rate plus the run storage once', () => {
     expect(
       costOf(
         mediaTurnCostNanoUsd({
@@ -49,26 +48,19 @@ describe('mediaTurnCostNanoUsd', () => {
           models: [imageRow('40000000'), imageRow('60000000')],
         })
       )
-    ).toBe(100_000_000n + storage);
+    ).toBe(100_000_000n + RUN_STORAGE);
   });
 
   it('reserves each image model at its dearest rate, not the rate it is shown at', () => {
-    const storage = BigInt(ESTIMATED_IMAGE_BYTES) * MEDIA_STORAGE_COST_PER_BYTE_NANO;
-
     expect(
       costOf(
         mediaTurnCostNanoUsd({ modality: 'image', models: [imageRow('40000000', '90000000')] })
       )
-    ).toBe(90_000_000n + storage);
+    ).toBe(90_000_000n + RUN_STORAGE);
   });
 
-  it('prices a video turn as each model rate at the resolution times the duration, plus stored seconds', () => {
+  it('prices a video turn as each model rate at the resolution times the duration, plus the run storage once', () => {
     const durationSeconds = 4;
-    const storage =
-      BigInt(durationSeconds) *
-      BigInt(ESTIMATED_VIDEO_BYTES_PER_SECOND) *
-      MEDIA_STORAGE_COST_PER_BYTE_NANO *
-      2n;
 
     expect(
       costOf(
@@ -82,13 +74,10 @@ describe('mediaTurnCostNanoUsd', () => {
           durationSeconds,
         })
       )
-    ).toBe((100_000_000n + 400_000_000n) * 4n + storage);
+    ).toBe((100_000_000n + 400_000_000n) * 4n + RUN_STORAGE);
   });
 
   it('reserves each video model at its dearest rate for the resolution', () => {
-    const storage =
-      2n * BigInt(ESTIMATED_VIDEO_BYTES_PER_SECOND) * MEDIA_STORAGE_COST_PER_BYTE_NANO;
-
     expect(
       costOf(
         mediaTurnCostNanoUsd({
@@ -98,7 +87,7 @@ describe('mediaTurnCostNanoUsd', () => {
           durationSeconds: 2,
         })
       )
-    ).toBe(300_000_000n * 2n + storage);
+    ).toBe(300_000_000n * 2n + RUN_STORAGE);
   });
 
   it('refuses a video turn at a resolution a selected model does not price', () => {

@@ -54,8 +54,17 @@ const SUMMARY: RefreshSummary = {
     'unknown-pricing-unit': 0,
     'missing-aspect-ratio': 0,
     'unrepresentable-token-limit': 0,
+    'unrepresentable-endpoint-price': 0,
   },
   excludedReasonById: new Map([['vendor/withheld', 'non-zdr']]),
+  // One eligible standard-tier ZDR endpoint behind each of the five written models.
+  endpointsByBucket: {
+    'service-tier': 0,
+    'unsupported-parameter': 0,
+    unreadable: 0,
+    unrepresentable: 0,
+    reachable: 5,
+  },
 };
 
 let savedDbUrl: string | undefined;

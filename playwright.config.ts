@@ -350,6 +350,10 @@ export default defineConfig({
   // it reaches a dependency whose types the root `tsconfig.json`, the project
   // that typechecks this file, does not declare.
   ...(ramPaths === undefined ? {} : { outputDir: ramPaths.testResults }),
+  // Decided per attempt: a flaky test keeps its failed attempt and loses its
+  // passing retry. The reporter reads only attempts that did not end as expected,
+  // and every other attempt's HARs would hold RAM-root space until the next clean.
+  preserveOutput: 'failures-only',
   timeout: TIMEOUTS.LONG,
   // Backstop so a wedged run can't hang forever. Playwright aborts via its
   // normal shutdown, which group-kills each webServer — so it won't leak orphan

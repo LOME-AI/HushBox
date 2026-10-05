@@ -29,8 +29,8 @@ if (TEXTURE === undefined) {
 }
 
 /** The first frame the UI is a texture, and the last. */
-export const TEXTURE_FROM = TEXTURE.fromBeat * GRID.framesPerBeat;
-export const TEXTURE_LAST = TEXTURE.toBeat * GRID.framesPerBeat - 1;
+const TEXTURE_FROM = TEXTURE.fromBeat * GRID.framesPerBeat;
+const TEXTURE_LAST = TEXTURE.toBeat * GRID.framesPerBeat - 1;
 
 /** Where the UI layer sits on a frame. */
 export function placementAt(frame: number): UiPlacement {

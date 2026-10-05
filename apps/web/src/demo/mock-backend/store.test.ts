@@ -17,6 +17,7 @@ import {
   keyChainResponseSchema,
   listConversationsResponseSchema,
 } from '@hushbox/shared';
+import { HOUR_MS, TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
 import { DemoBackendStore } from './store';
 import { DEMO_CONVERSATIONS, DEMO_BOOT_ID, DEMO_GROUP_MODEL_ID, DEMO_USER } from './fixtures';
 import { DEMO_SCENE_IMAGE, DEMO_GENERATED_VIDEO } from './media-assets';
@@ -118,13 +119,15 @@ function isNonDecreasing(values: readonly number[]): boolean {
   return values.every((value, index) => index === 0 || value >= (values[index - 1] ?? value));
 }
 
+const VISIT_MS = TEST_DAY_START + 12 * HOUR_MS;
+
 describe('DemoBackendStore', () => {
   let account: KeyPair;
   let store: DemoBackendStore;
 
   beforeEach(() => {
     account = generateKeyPair();
-    store = new DemoBackendStore(account.publicKey);
+    store = new DemoBackendStore(account.publicKey, () => new Date(VISIT_MS));
   });
 
   it('lists one schema-valid conversation per fixture with a decryptable title', () => {
@@ -331,7 +334,7 @@ describe('DemoBackendStore', () => {
     const balance = store.getBalance();
     expect(BigInt(balance.purchased.balanceNanoUsd)).toBeGreaterThan(0n);
     expect(BigInt(balance.free.balanceNanoUsd)).toBe(0n);
-    expect(balance.allowance.day).toBe('2026-06-01');
+    expect(balance.allowance.day).toBe(isoAt(VISIT_MS).slice(0, 10));
     expect(balance.allowance.remainingNanoUsd).toBe(balance.allowance.limitNanoUsd);
     expect(balance.allowance.spentNanoUsd).toBe('0');
 

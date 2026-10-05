@@ -4,12 +4,12 @@ import {
   createEstimateRun,
   createModelPricingResolver,
   createToolRegistry,
+  maxPriceReachesAnchor,
   resolveModelProvider,
   resolveSearchProvider,
 } from '../../models/index.js';
 import {
   DEFAULT_WORKFLOW_CAPABILITIES,
-  SettlementConflictError,
   createFencedSettlementHook,
   createLiveExecutionRegistry,
   createWorkflowExecutor,
@@ -20,13 +20,12 @@ import {
 import {
   admitRun,
   createBillingStores,
-  refreshWalletSnapshot,
   releaseHold,
   resolveBudgetScopes,
 } from '../../billing/index.js';
 import { createConversationsStores, resolveCallerMember } from '../../conversations/index.js';
-import { domainWireCode } from '../../../lib/errors/index.js';
-import { okAsync } from '../../../lib/result/index.js';
+import { domainWireCode, notFoundError } from '../../../lib/errors/index.js';
+import { errAsync, okAsync } from '../../../lib/result/index.js';
 import { senderCaller, senderUserId } from './messages/sender.js';
 import {
   RUN_LEASE_SECONDS,
@@ -314,6 +313,7 @@ export function adaptersFor(
     apiKey: deps.apiKey,
     isCI: deps.isCI,
     db: deps.db,
+    maxPriceReachesAnchor,
     ...(deps.isDevServer === undefined ? {} : { isDevServer: deps.isDevServer }),
     ...(mockDirectives === undefined ? {} : { mockDirectives }),
     ...(awaitStreamRelease === undefined ? {} : { awaitStreamRelease }),
@@ -405,21 +405,26 @@ export async function prepareStartRequest(request: HeldStartRequest): Promise<He
   };
 }
 
-/** The catalog snapshot + compile registries, loaded once and shared by every run. */
+/** The catalog snapshot + compile registries, shared by every run until a turn names another catalog. */
 type ExecutorCommon = ReturnType<typeof createTurnCompileRegistries> & {
   readonly pricingResolver: Parameters<typeof createEstimateRun>[0];
+  /** The generation of the catalog read the snapshot was built from. */
+  readonly generation: string;
 };
 
 /**
  * The executor is built lazily: the catalog pricing snapshot loads on the
  * first run and the one resolver instance feeds BOTH the compile registries
  * and the live execution registry (compile ⟺ runtime never diverge). The
- * memoized build matches the resolver's read-once freshness contract; a DO
- * that outlives the catalog's hourly refresh is reconstructed by the platform.
+ * snapshot is kept until a run's definition names a catalog generation other
+ * than the snapshot's, or until a run naming a generation finds the snapshot's
+ * read failed; that run rebuilds it from a fresh read, so the hold prices
+ * against the catalog the route priced the turn with, or a newer one. A
+ * definition naming no generation runs on the snapshot held.
  */
 function createLazyExecutor(deps: ConversationRuntimeDeps): FlowExecutor {
   let cachedCommon: Promise<ExecutorCommon> | undefined;
-  let cachedReal: FlowExecutor | undefined;
+  let cachedReal: { readonly common: ExecutorCommon; readonly executor: FlowExecutor } | undefined;
   const buildCommon = async (): Promise<ExecutorCommon> => {
     const pricingResolver = await createModelPricingResolver({
       db: deps.db,
@@ -430,9 +435,26 @@ function createLazyExecutor(deps: ConversationRuntimeDeps): FlowExecutor {
         throw new Error('chat runtime: model catalog snapshot unavailable', { cause: error });
       }
     );
-    return { pricingResolver, ...createTurnCompileRegistries(pricingResolver) };
+    return {
+      pricingResolver,
+      generation: pricingResolver.generation,
+      ...createTurnCompileRegistries(pricingResolver),
+    };
   };
-  const commonReady = (): Promise<ExecutorCommon> => (cachedCommon ??= buildCommon());
+  const commonFor = async (generation: string | undefined): Promise<ExecutorCommon> => {
+    const held = (cachedCommon ??= buildCommon());
+    try {
+      const common = await held;
+      if (generation === undefined || common.generation === generation) return common;
+    } catch (error) {
+      // A failed read carries no generation, so a run naming one retries it; a
+      // run naming none fails with the read it was given.
+      if (generation === undefined) throw error;
+    }
+    // Runs that await the same stale or failed snapshot share one rebuild.
+    if (cachedCommon === held) cachedCommon = buildCommon();
+    return cachedCommon;
+  };
   // Only the cheap wiring (execution registry + executor) is built per invocation;
   // the expensive catalog snapshot + compile registries are the shared `common`.
   const buildExecutor = (common: ExecutorCommon, adapters: RunAdapters): FlowExecutor => {
@@ -455,9 +477,9 @@ function createLazyExecutor(deps: ConversationRuntimeDeps): FlowExecutor {
   };
   // Per-run adapter selection: the mock path rebuilds the cheap wiring for each
   // run so per-request `mockDirectives` take effect; the real (OpenRouter/cassette)
-  // path is built ONCE and cached.
+  // path is built once per catalog snapshot and cached.
   const executorFor = async (request: HeldStartRequest): Promise<FlowExecutor> => {
-    const common = await commonReady();
+    const common = await commonFor(request.definition.catalogGeneration);
     if (usesMockProvider(deps, request.mockDirectives)) {
       // The held-stream barrier (dev/E2E only) rides through to the mock provider;
       // undefined on every unheld run and never present on the real path.
@@ -466,8 +488,10 @@ function createLazyExecutor(deps: ConversationRuntimeDeps): FlowExecutor {
         adaptersFor(deps, request.mockDirectives, request.awaitStreamRelease)
       );
     }
-    cachedReal ??= buildExecutor(common, adaptersFor(deps));
-    return cachedReal;
+    if (cachedReal?.common !== common) {
+      cachedReal = { common, executor: buildExecutor(common, adaptersFor(deps)) };
+    }
+    return cachedReal.executor;
   };
   return {
     start(request: HeldStartRequest): FlowRunHandle {
@@ -673,6 +697,30 @@ function resolveMemberBudgetScopes(
   });
 }
 
+/** Admission's scope read, as `admitRun` takes it. */
+type AdmissionScopeRead = Parameters<typeof admitRun>[1]['readScopes'];
+
+/**
+ * The payer wallet's sequence, then the budget scope rows. The sequence is read
+ * FIRST: every charge at or below it is then in the rows, which is what
+ * admission's sequence check relies on.
+ */
+function readAdmissionScopes(
+  deps: ConversationRuntimeDeps,
+  stores: BillingStores,
+  context: PaidRunContext,
+  scope: ScopeContext
+): ReturnType<AdmissionScopeRead> {
+  return stores.readWalletSnapshot(deps.db, context.walletId).andThen((wallet) =>
+    wallet === null
+      ? errAsync(notFoundError('admission: the payer wallet does not exist'))
+      : resolveMemberBudgetScopes(deps, stores, context, scope).map((scopes) => ({
+          scopes,
+          walletSeq: wallet.ledgerSeq,
+        }))
+  );
+}
+
 /** The per-run admission inputs bundled to stay under the param cap. */
 interface AdmissionRunContext {
   readonly clock: () => Date;
@@ -723,104 +771,62 @@ function createAdmissionHook(
   };
   return (request) => {
     const now = run.clock();
-    return resolveMemberBudgetScopes(deps, stores, context, { now, ownerFunded: run.ownerFunded })
-      .andThen((budgets) =>
-        admitRun(admissionDeps, {
-          walletId: context.walletId,
-          holdId: context.runId,
-          estimateNanoUsd: request.estimate,
-          deadlineClass: definition.deadlineClass,
-          concurrentRunCap: PER_WALLET_CONCURRENT_RUN_CAP,
-          budgets,
-          now,
-        })
-      )
-      .match(
-        (decision) => {
-          if (!decision.admitted) {
-            // Each condition carries its OWN wire code, so the client renders
-            // what actually bound rather than one sentence covering every
-            // refusal (§Notices 2). The reason is finer-grained than the code —
-            // it names WHICH group ceiling bound, where the code cannot — so it
-            // still rides the log with content-free correlation ids: money stays
-            // off the line, no field carries the nano-USD estimate, and
-            // `errorCode` is the machine-readable reason, never content.
-            const { runId, conversationId } = context;
-            deps.telemetry.warn('chat admission refused', {
-              errorCode: decision.reason,
-              runId,
-              conversationId,
-            });
-            return { admitted: false as const, code: admissionRefusalCode(decision.reason) };
-          }
-          return {
-            admitted: true as const,
-            holdRef: decision.hold.holdId,
-            // The hold identity rides the grant to the run handle's
-            // `admitted` promise, so the DO's terminal sink can release
-            // the hold instead of waiting out its TTL.
-            hold: {
-              walletId: decision.hold.walletId,
-              holdId: decision.hold.holdId,
-              scopeIds: decision.hold.scopeIds,
-            },
-            circuit: {
-              estimateNanoUsd: decision.hold.estimateNanoUsd,
-              costCircuitMultiplier: decision.hold.costCircuitMultiplier,
-              costCircuitLimitNanoUsd: decision.hold.costCircuitLimitNanoUsd,
-            },
-          };
-        },
-        // Redis-down is the one failure with an admission-specific answer (503,
-        // fail-closed). Everything else here is infrastructure or a defect — a
-        // missing wallet row — and projects through its own taxonomy code.
-        // Wearing the money refusal told the user their balance was short when
-        // nothing about their balance was wrong.
-        (error) => ({
-          admitted: false as const,
-          code:
-            error.code === 'unavailable'
-              ? ERROR_CODES.ADMISSION_UNAVAILABLE
-              : domainWireCode(error),
-        })
-      );
-  };
-}
-
-/**
- * Post-commit, best-effort snapshot refresh around the fenced settlement: once
- * the charge commits, the Redis balance snapshot is CAS-written from DB truth
- * so the NEXT admission gates on the fresh balance instead of a stale
- * admission-time snapshot (until now only the snapshot TTL healed it). A
- * refresh failure is swallowed — it must never fail a run that already
- * settled. A settlement refusal reaches here only after its settlement
- * committed, with its bill when there was anyone to bill, so it refreshes too
- * and then propagates; any other settlement failure propagates and skips the
- * refresh (nothing committed, nothing to refresh).
- */
-export function withPostCommitSnapshotRefresh(
-  settle: SettlementHook,
-  deps: Pick<ConversationRuntimeDeps, 'db' | 'redis' | 'telemetry'>,
-  walletId: string
-): SettlementHook {
-  const stores = createBillingStores();
-  const refresh = (): Promise<void> =>
-    refreshWalletSnapshot({ redis: deps.redis, db: deps.db, stores }, walletId).match(
-      () => {
-        // Written through — the next admission gates on the fresh balance.
+    const scope: ScopeContext = { now, ownerFunded: run.ownerFunded };
+    return admitRun(admissionDeps, {
+      walletId: context.walletId,
+      holdId: context.runId,
+      estimateNanoUsd: request.estimate,
+      deadlineClass: definition.deadlineClass,
+      concurrentRunCap: PER_WALLET_CONCURRENT_RUN_CAP,
+      readScopes: () => readAdmissionScopes(deps, stores, context, scope),
+      now,
+    }).match(
+      (decision) => {
+        if (!decision.admitted) {
+          // Each condition carries its OWN wire code, so the client renders
+          // what actually bound rather than one sentence covering every
+          // refusal (§Notices 2). The reason is finer-grained than the code —
+          // it names WHICH group ceiling bound, where the code cannot — so it
+          // still rides the log with content-free correlation ids: money stays
+          // off the line, no field carries the nano-USD estimate, and
+          // `errorCode` is the machine-readable reason, never content.
+          const { runId, conversationId } = context;
+          deps.telemetry.warn('chat admission refused', {
+            errorCode: decision.reason,
+            runId,
+            conversationId,
+          });
+          return { admitted: false as const, code: admissionRefusalCode(decision.reason) };
+        }
+        return {
+          admitted: true as const,
+          holdRef: decision.hold.holdId,
+          // The hold identity rides the grant to the run handle's
+          // `admitted` promise, so the DO's terminal sink can release
+          // the hold instead of waiting out its TTL.
+          hold: {
+            walletId: decision.hold.walletId,
+            holdId: decision.hold.holdId,
+            scopeIds: decision.hold.scopeIds,
+          },
+          circuit: {
+            estimateNanoUsd: decision.hold.estimateNanoUsd,
+            costCircuitMultiplier: decision.hold.costCircuitMultiplier,
+            costCircuitLimitNanoUsd: decision.hold.costCircuitLimitNanoUsd,
+          },
+        };
       },
-      () => {
-        deps.telemetry.warn('post-settlement snapshot refresh skipped', {});
-      }
+      // Redis-down is the one failure with an admission-specific answer (503,
+      // fail-closed). Everything else here is infrastructure or a defect — a
+      // missing wallet row — and projects through its own taxonomy code.
+      // Wearing the money refusal told the user their balance was short when
+      // nothing about their balance was wrong.
+      (error) => ({
+        admitted: false as const,
+        code:
+          error.code === 'unavailable' ? ERROR_CODES.ADMISSION_UNAVAILABLE : domainWireCode(error),
+      })
     );
-  return async (request) => {
-    try {
-      await settle(request);
-    } catch (error) {
-      if (error instanceof SettlementConflictError) await refresh();
-      throw error;
-    }
-    await refresh();
   };
 }
 
@@ -837,7 +843,7 @@ export function withMediaPutBarrier(
 ): SettlementHook {
   return async (request) => {
     await flushPuts();
-    await settle(request);
+    return settle(request);
   };
 }
 
@@ -922,26 +928,22 @@ function bindChatHooks(
     now: binder.clock,
     newId: binder.newId,
   };
-  const settlement = withPostCommitSnapshotRefresh(
-    createFencedSettlementHook({
-      db: deps.db,
-      fence: context.fence,
-      // The replayable response a succeeded key row returns on a resend: the
-      // run and the message ids its run-start response named, so a client
-      // whose first response was lost still learns them. The client
-      // re-fetches the settled turn's final cost. A refused run flips the same
-      // row, billed or absorbed, and replays the same body.
-      complete: keyRowCompletion({
-        runId: context.runId,
-        userMessageId: context.userMessage.id,
-        assistantMessageIds,
-      }),
-      commit: createChatSettlementCommit(settlementDeps),
-      refusalCommit: createChatRefusalCommit(settlementDeps),
+  const settlement = createFencedSettlementHook({
+    db: deps.db,
+    fence: context.fence,
+    // The replayable response a succeeded key row returns on a resend: the
+    // run and the message ids its run-start response named, so a client
+    // whose first response was lost still learns them. The client
+    // re-fetches the settled turn's final cost. A refused run flips the same
+    // row, billed or absorbed, and replays the same body.
+    complete: keyRowCompletion({
+      runId: context.runId,
+      userMessageId: context.userMessage.id,
+      assistantMessageIds,
     }),
-    deps,
-    context.walletId
-  );
+    commit: createChatSettlementCommit(settlementDeps),
+    refusalCommit: createChatRefusalCommit(settlementDeps),
+  });
   return {
     admission: createAdmissionHook(deps, context, definition, { clock: binder.clock, ownerFunded }),
     settlement: media === undefined ? settlement : withMediaPutBarrier(settlement, media.flushPuts),
@@ -1050,7 +1052,10 @@ export function createConversationRuntime(deps: ConversationRuntimeDeps): Conver
     // error is swallowed into the mechanism's own backstop (hold TTL, lease
     // lapse) because none of these may ever fail or stop a run.
     releaseHold: (hold: FlowHoldIdentity): Promise<void> =>
-      releaseHold(deps.redis, hold).match(noop, noop),
+      releaseHold({ redis: deps.redis, db: deps.db, stores: createBillingStores() }, hold).match(
+        noop,
+        noop
+      ),
     heartbeat: (fence: RunFence): Promise<'alive' | 'lost'> =>
       heartbeatKeyRow(deps.db, fence).match(
         (outcome) => outcome,

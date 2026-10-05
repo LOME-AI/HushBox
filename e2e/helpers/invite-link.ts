@@ -106,7 +106,7 @@ export async function createInviteLink(
   await sidebar.clickInviteLink();
   const modal = page.getByTestId(TEST_IDS.inviteLinkModal);
   await expect(modal).toBeVisible();
-  await expectCorrectOverlayVariant(page);
+  await expectCorrectOverlayVariant(page, modal);
 
   await fillInviteLinkModal(page, privilege, withHistory, displayName);
 

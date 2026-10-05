@@ -1,6 +1,6 @@
 import { ChatRequestError, ChatRunFailedError } from '@/hooks/chat/use-chat-stream';
 import { turnNoticeForCode, turnNoticeText, type TurnNotice } from '@/lib/chat/turn-notice';
-import { useChatErrorStore, createChatError } from '@/stores/chat/error';
+import { useChatErrorStore, createChatError, type FailedTurn } from '@/stores/chat/error';
 import type * as React from 'react';
 import type { UserFacingMessage } from '@hushbox/shared';
 import type { PromptInputRef } from '@/components/chat/message/types';
@@ -36,7 +36,7 @@ export function turnErrorContent(error: unknown): { content: UserFacingMessage }
 
 export function handleTurnError(
   error: unknown,
-  failedContent: string,
+  failedTurn: FailedTurn,
   forkKey: string,
   promptInputRef: React.RefObject<PromptInputRef | null>
 ): void {
@@ -44,7 +44,12 @@ export function handleTurnError(
     console.error('Turn failed:', error);
     promptInputRef.current?.focus();
   }
-  useChatErrorStore
-    .getState()
-    .setError(forkKey, createChatError({ notice: turnNoticeOf(error), failedContent }));
+  useChatErrorStore.getState().setError(
+    forkKey,
+    createChatError({
+      notice: turnNoticeOf(error),
+      failedContent: failedTurn.retry.request.userMessage.content,
+      failedTurn,
+    })
+  );
 }

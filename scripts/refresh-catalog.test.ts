@@ -32,6 +32,7 @@ function summaryOf(
     'unknown-pricing-unit': 0,
     'missing-aspect-ratio': 0,
     'unrepresentable-token-limit': 0,
+    'unrepresentable-endpoint-price': 0,
     ...excludedByReason,
   };
   const excluded = Object.values(full).reduce((sum, count) => sum + count, 0);
@@ -42,6 +43,13 @@ function summaryOf(
     // The one-line summary renders counts only; which id carried which reason
     // is the E2E gate's concern, not this formatter's.
     excludedReasonById: new Map(),
+    endpointsByBucket: {
+      'service-tier': 0,
+      'unsupported-parameter': 0,
+      unreadable: 0,
+      unrepresentable: 0,
+      reachable: 0,
+    },
     previouslyIncluded: totals.unchanged,
     newlyExcluded: 0,
   };

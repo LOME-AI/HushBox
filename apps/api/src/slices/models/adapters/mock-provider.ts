@@ -8,6 +8,7 @@ import {
   WEB_SEARCH_TOOL_NAME,
   WebSearchResults,
   callShapeFamilyFor,
+  languageRoutingOptions,
   mockDirectivesSchema,
 } from '@hushbox/shared';
 import { MEDIA_PARAMETER_NAMES, toolCallsOfSteps } from '@hushbox/shared/affordability';
@@ -19,12 +20,15 @@ import {
 } from './inference-error.js';
 import { mediaFinishEvent, mediaOutputEvents } from './media-generate.js';
 import { MOCK_VIDEO_BYTES, MOCK_VIDEO_MIME_TYPE } from './mock-video-clip.js';
+import { reservedMaxPrice } from './language-adapter.js';
 import { ToolCallLimitError, toolErrorReason } from './tool-error-reason.js';
 import type { GeneratedMediaFile } from './media-generate.js';
 import type {
   EnvUtilities,
   InferenceEvent,
   InferenceRequest,
+  LanguageRoutingOptions,
+  MaxPrice,
   MockDirectives,
   ModelDescriptor,
   ToolErrorReason,
@@ -446,6 +450,12 @@ export function createMockModelProvider(
       descriptor: ModelDescriptor,
       options: InferOptions = {}
     ): AsyncIterable<InferenceEvent> {
+      // Built only to refuse an unreserved call the way the real adapter does.
+      if (callShapeFamilyFor(descriptor.outputs) === 'language') routingBlockOf(request);
+      // The real image adapter refuses an unpinned image call before any request.
+      if (callShapeFamilyFor(descriptor.outputs) === 'image' && descriptor.zdrPin === undefined) {
+        throw invalidRequestError(`Mock: image model ${descriptor.id} has no ZDR endpoint pin`);
+      }
       const events = inferMock({
         request,
         descriptor,
@@ -542,6 +552,56 @@ async function* inferMock(ctx: MockContext): AsyncGenerator<InferenceEvent> {
   yield* languageStream(ctx);
 }
 
+/**
+ * The routing block a language call sends, built as the real adapter builds
+ * it; an unreserved call throws `MissingPriceReservation`.
+ */
+function routingBlockOf(request: InferenceRequest): LanguageRoutingOptions {
+  return languageRoutingOptions({
+    reasoning: request.parameters['reasoning'] !== undefined,
+    maxPrice: reservedMaxPrice(request),
+  });
+}
+
+/**
+ * Whether a call's cap admits the model's cheapest endpoint, the comparison the
+ * gateway makes. Injected, because it un-bakes a billable rate and an adapter
+ * reaches no slice but its own.
+ */
+export type MaxPriceReachesAnchor = (
+  maxPrice: MaxPrice,
+  pricing: ModelDescriptor['pricing']
+) => boolean;
+
+/**
+ * The mock as the gateway answers a price: a language call whose cap the
+ * comparison says no endpoint is priced within is refused with
+ * `no_providers_available`; every other call is the wrapped mock's.
+ */
+export function refusingBelowAnchor(
+  provider: ModelProvider,
+  maxPriceReachesAnchor: MaxPriceReachesAnchor
+): ModelProvider {
+  return {
+    infer(request, descriptor, options): AsyncIterable<InferenceEvent> {
+      const events = provider.infer(request, descriptor, options);
+      if (callShapeFamilyFor(descriptor.outputs) !== 'language') return events;
+      return maxPriceReachesAnchor(routingBlockOf(request).provider.max_price, descriptor.pricing)
+        ? events
+        : refusedForPrice(request);
+    },
+  };
+}
+
+/** The gateway's refusal of a call no endpoint can serve under its `max_price`, on the first pull. */
+function refusedForPrice(request: InferenceRequest): AsyncIterable<InferenceEvent> {
+  const refusal = new InferenceError(
+    'no_providers_available',
+    `Mock: no endpoint of ${request.model} is priced within the call's max_price`
+  );
+  return { [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(refusal) }) };
+}
+
 /** A language turn: a search turn when the run carries web search and the turn searches, else the echo. */
 function languageStream(ctx: MockContext): AsyncGenerator<InferenceEvent> {
   const search = webSearchOf(ctx);
@@ -615,6 +675,10 @@ async function* searchStream(
   const searchingOutput = leadIn === '' ? 0 : tokensOf(leadIn);
   const searchingUsage = { inputTokens: tokensOf(prompt), outputTokens: searchingOutput };
   yield stepFinishEvent(0, ctx.mintGenerationId(), searchingUsage);
+  if (!gateAdmitsAnswerStep(ctx)) {
+    yield gateStoppedFinish(searchingUsage, reasoningText);
+    return;
+  }
   yield { kind: 'step-start', step: 1 };
   const source = firstTitle === undefined ? '' : `${MOCK_WEB_SEARCH_SOURCE_LABEL}${firstTitle}`;
   const content = `${MOCK_ECHO_AFFIXES.prefix}${prompt}${source}${MOCK_ECHO_AFFIXES.suffix}`;
@@ -641,10 +705,43 @@ async function* searchStream(
 }
 
 /**
- * Asks for every search at once, then answers each: a call within the loop's
- * budget runs through the tool's `execute`, and the rest are refused as the
- * adapter refuses them. A held run parks between the asking and the answering.
- * Returns the first result's title, when one returned.
+ * Whether the run's spend gate admits the answering step, asked with the
+ * searching step's inline cost as the adapter's stop condition asks it. A run
+ * handed no gate always answers.
+ */
+function gateAdmitsAnswerStep(ctx: MockContext): boolean {
+  return ctx.options.continuation?.mayStartNextStep([MOCK_GENERATION_COST_USD]) ?? true;
+}
+
+/** The finish of a turn the gate stopped after its searching step: that step's usage and cost alone. */
+function gateStoppedFinish(
+  searchingUsage: Usage,
+  reasoningText: string | undefined
+): InferenceEvent {
+  return {
+    kind: 'finish',
+    metadata: {
+      usage: {
+        ...searchingUsage,
+        ...(reasoningText === undefined ? {} : { reasoningTokens: tokensOf(reasoningText) }),
+      },
+      finishReason: 'tool-calls',
+      providerCostUsd: MOCK_GENERATION_COST_USD,
+    },
+  };
+}
+
+/** Whether the run's spend gate admits a search; a run handed no gate runs every search. */
+function gateAdmitsSearch(ctx: MockContext): boolean {
+  return ctx.options.continuation?.mayExecuteTool() ?? true;
+}
+
+/**
+ * Asks for every search at once, then answers each: a call the run's spend gate
+ * refuses stays unanswered, with no event, as the adapter leaves it; a call
+ * within the loop's budget runs through the tool's `execute`; and the rest are
+ * refused as the adapter refuses them. A held run parks between the asking and
+ * the answering. Returns the first result's title, when one returned.
  */
 async function* searchCalls(
   ctx: MockContext,
@@ -663,6 +760,7 @@ async function* searchCalls(
   if (park !== undefined) await park();
   let firstTitle: string | undefined;
   for (const [index, call] of calls.entries()) {
+    if (!gateAdmitsSearch(ctx)) continue;
     const outcome =
       index < search.budget
         ? await searchOutcome(search.tool, call.args, signal)
@@ -776,10 +874,9 @@ function classifierDimensionsOf(request: InferenceRequest): {
  * Synthesize one deterministic media artifact, mirroring the real image/video
  * adapters' event shape: the canned bytes flow through the caller's
  * `mapFilePart` (a missing mapper is an AdapterDefect, exactly as in the real
- * path) into a media-start/media-done pair, then a terminal finish. Video
- * carries OpenRouter's inline cost + a generation id so settlement bills
- * authoritative; image carries neither (its API returns no inline cost, so
- * settlement falls back to the deterministic estimate).
+ * path) into a media-start/media-done pair, then a terminal finish carrying
+ * the inline cost settlement bills. Video also carries a generation id; image
+ * carries none, as the images API's response names none.
  */
 async function* mediaStream(
   ctx: MockContext,
@@ -803,7 +900,7 @@ async function* mediaStream(
     yield mediaFinishEvent(metadata, { inputTokens: 0, outputTokens: 0 }, MOCK_GENERATION_COST_USD);
     return;
   }
-  yield mediaFinishEvent(undefined, { inputTokens: 0, outputTokens: 0 });
+  yield mediaFinishEvent(undefined, { inputTokens: 0, outputTokens: 0 }, MOCK_GENERATION_COST_USD);
 }
 
 /**

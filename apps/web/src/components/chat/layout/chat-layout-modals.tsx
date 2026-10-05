@@ -7,9 +7,9 @@ import { BudgetSettingsModal } from '@/components/chat/budget/budget-settings-mo
 import { InviteLinkModal } from '@/components/chat/member/invite-link-modal';
 import { ShareMessageModal } from '@/components/chat/message/share-message-modal';
 import { billingKeys } from '@/hooks/billing/billing';
-import type { RefusalCode, ResolvedReasoningEffort } from '@hushbox/shared';
+import type { RefusalCode } from '@hushbox/shared';
 import type { GroupChatProps } from '@/components/chat/layout/chat-layout';
-import type { MessageMediaItem } from '@/lib/api/api';
+import type { ShareMessageReply } from '@/components/chat/message/share-message-modal';
 
 interface GroupChatModalsProps {
   groupChat: GroupChatProps;
@@ -79,15 +79,8 @@ interface ChatLayoutModalsProps {
   readonly refusalReason: RefusalCode | undefined;
   readonly shareMessageModalOpen: boolean;
   readonly closeShareMessageModal: () => void;
-  readonly shareMessageId: string | null;
   readonly shareMessageConversationId: string | null;
-  readonly sharedMessageContent: string | null;
-  readonly sharedMessageEpochNumber: number | null;
-  readonly sharedMessageWrappedContentKey: string | null;
-  readonly sharedMessageMediaItems: MessageMediaItem[] | null;
-  readonly sharedMessageSenderId: string;
-  readonly sharedMessageReasoningTokens: number | null;
-  readonly sharedMessageReasoningEffort: ResolvedReasoningEffort | null;
+  readonly sharedMessage: ShareMessageReply | null;
   readonly groupChat: GroupChatProps | undefined;
   readonly title: string | undefined;
   readonly addMemberModalOpen: boolean;
@@ -107,15 +100,8 @@ export function ChatLayoutModals({
   refusalReason,
   shareMessageModalOpen,
   closeShareMessageModal,
-  shareMessageId,
   shareMessageConversationId,
-  sharedMessageContent,
-  sharedMessageEpochNumber,
-  sharedMessageWrappedContentKey,
-  sharedMessageMediaItems,
-  sharedMessageSenderId,
-  sharedMessageReasoningTokens,
-  sharedMessageReasoningEffort,
+  sharedMessage,
   groupChat,
   title,
   addMemberModalOpen,
@@ -161,15 +147,8 @@ export function ChatLayoutModals({
         onOpenChange={(open) => {
           if (!open) closeShareMessageModal();
         }}
-        messageId={shareMessageId}
-        messageContent={sharedMessageContent}
+        message={sharedMessage}
         conversationId={shareMessageConversationId}
-        epochNumber={sharedMessageEpochNumber}
-        wrappedContentKey={sharedMessageWrappedContentKey}
-        mediaItems={sharedMessageMediaItems}
-        senderId={sharedMessageSenderId}
-        reasoningTokens={sharedMessageReasoningTokens}
-        reasoningEffort={sharedMessageReasoningEffort}
       />
     </>
   );

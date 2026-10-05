@@ -1897,6 +1897,7 @@ describe('getConversationResponseSchema', () => {
 
   it('accepts a conversation with membership and forks', () => {
     const result = getConversationResponseSchema.parse({
+      memberCount: 1,
       conversation: validConversation,
       membership: validMembership,
       forks: [
@@ -1909,8 +1910,29 @@ describe('getConversationResponseSchema', () => {
     expect(result.forks).toHaveLength(1);
   });
 
+  /** The issue paths a detail body is rejected at, or none when it parses. */
+  function rejectedAt(body: Record<string, unknown>): string[] {
+    const result = getConversationResponseSchema.safeParse(body);
+    return result.success ? [] : result.error.issues.map((issue) => issue.path.join('.'));
+  }
+
+  const detail = { conversation: validConversation, membership: validMembership, forks: [] };
+
+  it('rejects a detail without a member count', () => {
+    expect(rejectedAt(detail)).toEqual(['memberCount']);
+  });
+
+  it('rejects a member count of zero, since the caller is always an active member', () => {
+    expect(rejectedAt({ ...detail, memberCount: 0 })).toEqual(['memberCount']);
+  });
+
+  it('rejects a fractional member count', () => {
+    expect(rejectedAt({ ...detail, memberCount: 1.5 })).toEqual(['memberCount']);
+  });
+
   it('defaults forks to an empty array when omitted', () => {
     const result = getConversationResponseSchema.parse({
+      memberCount: 1,
       conversation: validConversation,
       membership: validMembership,
     });
@@ -1919,6 +1941,7 @@ describe('getConversationResponseSchema', () => {
 
   it('carries the caller read cursor on the membership', () => {
     const result = getConversationResponseSchema.parse({
+      memberCount: 1,
       conversation: validConversation,
       membership: { ...validMembership, lastReadSeq: 12 },
       forks: [],
@@ -1928,6 +1951,7 @@ describe('getConversationResponseSchema', () => {
 
   it('defaults the membership read cursor to nothing read', () => {
     const result = getConversationResponseSchema.parse({
+      memberCount: 1,
       conversation: validConversation,
       membership: validMembership,
       forks: [],
@@ -1937,6 +1961,7 @@ describe('getConversationResponseSchema', () => {
 
   it('carries the caller link id on the membership', () => {
     const result = getConversationResponseSchema.parse({
+      memberCount: 1,
       conversation: validConversation,
       membership: { ...validMembership, privilege: 'read', linkId: 'link-1' },
       forks: [],
@@ -1947,6 +1972,7 @@ describe('getConversationResponseSchema', () => {
   it('rejects a membership missing the link id', () => {
     expect(() =>
       getConversationResponseSchema.parse({
+        memberCount: 1,
         conversation: validConversation,
         membership: {
           privilege: 'owner',
@@ -1962,6 +1988,7 @@ describe('getConversationResponseSchema', () => {
 
   it('carries the unaccepted membership state', () => {
     const result = getConversationResponseSchema.parse({
+      memberCount: 1,
       conversation: validConversation,
       membership: { ...validMembership, accepted: false, privilege: 'write' },
       forks: [],
@@ -1972,6 +1999,7 @@ describe('getConversationResponseSchema', () => {
 
   it('strips the retired flat fields', () => {
     const result = getConversationResponseSchema.parse({
+      memberCount: 1,
       conversation: validConversation,
       membership: validMembership,
       forks: [],
@@ -1989,6 +2017,7 @@ describe('getConversationResponseSchema', () => {
   it('rejects a missing membership', () => {
     expect(() =>
       getConversationResponseSchema.parse({
+        memberCount: 1,
         conversation: validConversation,
         forks: [],
       })
@@ -1998,6 +2027,7 @@ describe('getConversationResponseSchema', () => {
   it('rejects an invalid membership privilege', () => {
     expect(() =>
       getConversationResponseSchema.parse({
+        memberCount: 1,
         conversation: validConversation,
         membership: { ...validMembership, privilege: 'invalid_privilege' },
         forks: [],
@@ -2008,6 +2038,7 @@ describe('getConversationResponseSchema', () => {
   it('rejects a membership missing visibleFromEpoch', () => {
     expect(() =>
       getConversationResponseSchema.parse({
+        memberCount: 1,
         conversation: validConversation,
         membership: { privilege: 'owner', muted: false, pinned: false, accepted: true },
         forks: [],
@@ -2018,6 +2049,7 @@ describe('getConversationResponseSchema', () => {
   it('rejects a missing conversation', () => {
     expect(() =>
       getConversationResponseSchema.parse({
+        memberCount: 1,
         membership: validMembership,
         forks: [],
       })
@@ -2027,6 +2059,7 @@ describe('getConversationResponseSchema', () => {
   it('rejects a conversation missing epoch fields', () => {
     expect(() =>
       getConversationResponseSchema.parse({
+        memberCount: 1,
         conversation: {
           id: 'conv-123',
           title: 'base64encryptedtitle',
@@ -2338,6 +2371,7 @@ describe('getConversationResponseSchema with forks', () => {
 
   it('accepts response with forks array and strips the fork conversationId', () => {
     const result = getConversationResponseSchema.parse({
+      memberCount: 1,
       conversation: {
         id: 'conv-123',
         title: 'base64title',

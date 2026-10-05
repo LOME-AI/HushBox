@@ -117,6 +117,5 @@ export type ScoreInput = z.input<typeof scoreInputSchema>;
 export type Track = z.input<typeof trackSchema>;
 export type ScoreEvent = z.input<typeof eventSchema>;
 export type Bus = z.input<typeof busSchema>;
-export type BusEffect = z.input<typeof effectSchema>;
 export type Anchor = z.infer<typeof anchorSchema>;
 export type ParsedScore = z.output<typeof scoreInputSchema>;

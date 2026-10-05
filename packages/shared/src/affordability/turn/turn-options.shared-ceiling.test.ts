@@ -63,6 +63,7 @@ const SELECTION: Selection = {
   modality: 'text',
   pinned: {},
   webSearch: false,
+  effortAuto: true,
 };
 
 const FUNDING: FundingSnapshot = {

@@ -135,6 +135,22 @@ describe('newestSnapshotAt', () => {
     expect(result._unsafeUnwrapErr().code).toBe('unavailable');
   });
 
+  it("reports a refused listing's HTTP status as a number on the error", async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('denied', { status: 403 })));
+
+    const result = await createBackupRepositoryReader(config()).newestSnapshotAt();
+
+    expect(result._unsafeUnwrapErr().status).toBe(403);
+  });
+
+  it('reports no HTTP status for a transport failure, which drew no response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('socket closed')));
+
+    const result = await createBackupRepositoryReader(config()).newestSnapshotAt();
+
+    expect(result._unsafeUnwrapErr()).not.toHaveProperty('status');
+  });
+
   it('carries no response body into the error it reports', async () => {
     vi.stubGlobal(
       'fetch',
@@ -153,6 +169,7 @@ describe('newestSnapshotAt', () => {
 
 describe('lifecycleRules', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -202,6 +219,33 @@ describe('lifecycleRules', () => {
     const result = await createBackupRepositoryReader(config()).lifecycleRules();
 
     expect(result._unsafeUnwrapErr().code).toBe('unavailable');
+  });
+
+  it("reports a refused read's HTTP status as a number on the error", async () => {
+    // A fresh response per attempt: this read consumes the body before it
+    // judges the status, and a retry re-reading one shared body would fail on
+    // that instead of on the refusal.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => Promise.resolve(new Response('denied', { status: 403 })))
+    );
+
+    const result = await createBackupRepositoryReader(config()).lifecycleRules();
+
+    expect(result._unsafeUnwrapErr().status).toBe(403);
+  });
+
+  it('reports no HTTP status for a read that timed out, which drew no response', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise<never>(() => {})));
+
+    const pending = createBackupRepositoryReader(config()).lifecycleRules();
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    const error = result._unsafeUnwrapErr();
+
+    expect(error.code).toBe('timeout');
+    expect(error).not.toHaveProperty('status');
   });
 
   it('turns an unparseable configuration into an error result rather than a throw', async () => {
@@ -310,6 +354,14 @@ describe('listObjectVersions', () => {
     const listed = await createBackupRepositoryReader(config()).listObjectVersions();
 
     expect(listed.isErr()).toBe(true);
+  });
+
+  it("reports a refused listing's HTTP status as a number on the error", async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('denied', { status: 403 })));
+
+    const listed = await createBackupRepositoryReader(config()).listObjectVersions();
+
+    expect(listed._unsafeUnwrapErr().status).toBe(403);
   });
 
   it('carries the status and nothing the store wrote into the failure', async () => {

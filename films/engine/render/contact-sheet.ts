@@ -36,7 +36,7 @@ const DIGITS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** Where one frame's thumbnail and label sit on the sheet, in sheet pixels. */
-export interface SheetTile {
+interface SheetTile {
   left: number;
   top: number;
   /** The top of the label, centred in the strip under the thumbnail and set at `left`. */

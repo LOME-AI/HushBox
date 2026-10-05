@@ -360,11 +360,11 @@ function reportProjectionDrops(telemetry: Telemetry, dropped: readonly string[])
 export async function auditCatalogHealth(deps: ListDescriptorsDeps, nowMs: number): Promise<void> {
   const read = await readExposedCatalog(deps, nowMs);
   if (read.isErr()) {
-    // On the descriptor-version refusal there is nothing to add: that standing
-    // condition already fails every product read of the catalog, the loudest
-    // signal available. On a failed query of the catalog table, a one-off on
-    // this read alone, the best-effort audit skips this run rather than fail the
-    // refresh.
+    // On the descriptor-version refusal there is nothing to add: a catalog that
+    // exposes no current-version row already fails every product read of it,
+    // the loudest signal available. On a failed query of the catalog table, a
+    // one-off on this read alone, the best-effort audit skips this run rather
+    // than fail the refresh.
     return;
   }
   const { descriptors, defects } = read.value;

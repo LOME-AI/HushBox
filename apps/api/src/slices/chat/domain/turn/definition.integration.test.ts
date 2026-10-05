@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { Redis } from '@upstash/redis';
 import { inArray } from 'drizzle-orm';
 import { PAID_CUSHION_NANO_USD } from '@hushbox/shared';
 import {
@@ -14,6 +15,7 @@ import { userFactory } from '@hushbox/db/factories';
 import { TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
 import { createBillingStores } from '../../../billing/index.js';
 import { createConversationsStores } from '../../../conversations/index.js';
+import { createModelPricingResolver } from '../../../models/index.js';
 import { resolveTurnContext } from './context.js';
 import { buildMultiModelTurnDefinition, buildTurnDefinition } from './definition.js';
 import { seedConversationWithEpoch } from '../../../../test-support/conversation-seed.js';
@@ -28,7 +30,16 @@ if (!DATABASE_URL) {
   throw new Error('DATABASE_URL is required for turn-definition integration tests');
 }
 
+const UPSTASH_REDIS_REST_URL = process.env['UPSTASH_REDIS_REST_URL'];
+const UPSTASH_REDIS_REST_TOKEN = process.env['UPSTASH_REDIS_REST_TOKEN'];
+if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
+  throw new Error(
+    'UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required for turn-definition integration tests'
+  );
+}
+
 const db = createDb(DATABASE_URL, { neonDev: LOCAL_NEON_DEV_CONFIG });
+const redis = new Redis({ url: UPSTASH_REDIS_REST_URL, token: UPSTASH_REDIS_REST_TOKEN });
 const BYTES = new Uint8Array([3, 3, 3]);
 const MODEL = `chat-route-ceiling/${crypto.randomUUID().slice(0, 8)}`;
 const REASONING_MODEL = `chat-route-ceiling/${crypto.randomUUID().slice(0, 8)}`;
@@ -66,7 +77,7 @@ async function seedModel(): Promise<void> {
       descriptor: {
         id: MODEL,
         provider: 'p',
-        version: '3',
+        version: '4',
         inputs: ['text'],
         outputs: ['text'],
         parameters: {},
@@ -74,6 +85,7 @@ async function seedModel(): Promise<void> {
         limits: { contextLength: 128_000 },
         pricing: {
           kind: 'tokens',
+          anchorContextTokens: 1_000_000,
           anchor: { base: { input: '2500', output: '10000' }, tiers: [] },
         },
         zdrReachable: true,
@@ -93,7 +105,7 @@ async function seedReasoningModel(): Promise<void> {
       descriptor: {
         id: REASONING_MODEL,
         provider: 'p',
-        version: '3',
+        version: '4',
         inputs: ['text'],
         outputs: ['text'],
         parameters: {},
@@ -101,6 +113,7 @@ async function seedReasoningModel(): Promise<void> {
         limits: { contextLength: 128_000 },
         pricing: {
           kind: 'tokens',
+          anchorContextTokens: 1_000_000,
           anchor: { base: { input: '2500', output: '10000' }, tiers: [] },
         },
         zdrReachable: true,
@@ -128,7 +141,7 @@ async function seedVariantModel(modelId: string, reasoning?: ModelReasoning): Pr
       descriptor: {
         id: modelId,
         provider: 'p',
-        version: '3',
+        version: '4',
         inputs: ['text'],
         outputs: ['text'],
         parameters: {},
@@ -136,6 +149,7 @@ async function seedVariantModel(modelId: string, reasoning?: ModelReasoning): Pr
         limits: { contextLength: 128_000 },
         pricing: {
           kind: 'tokens',
+          anchorContextTokens: 1_000_000,
           anchor: { base: { input: '2500', output: '10000' }, tiers: [] },
         },
         zdrReachable: true,
@@ -182,7 +196,11 @@ async function builtAnswerParams(balanceNanoUsd: bigint): Promise<Record<string,
   const userId = await seedUser(balanceNanoUsd);
   const conversationId = await seedConversation(userId);
   const context = await resolveTurnContext(
-    { conversations: createConversationsStores, billing: createBillingStores() },
+    {
+      conversations: createConversationsStores,
+      billing: createBillingStores(),
+      redis,
+    },
     db,
     {
       conversationId,
@@ -409,5 +427,14 @@ describe("the hard-off ('off') turn build", () => {
   it('builds a budget-less (trial) hard-off turn uncapped, like a plain trial turn', async () => {
     const params = await noneAnswerParams({});
     expect(params).toEqual({ reasoning: { enabled: false } });
+  });
+});
+
+describe('the catalog generation stamp', () => {
+  it('stamps a single-model turn with the generation of the catalog it priced against', async () => {
+    await seedModel();
+    const built = await buildTurnDefinition({ db, telemetry: silentTelemetry }, MODEL, {});
+    const resolver = await createModelPricingResolver({ db, telemetry: silentTelemetry });
+    expect(built._unsafeUnwrap().catalogGeneration).toBe(resolver._unsafeUnwrap().generation);
   });
 });

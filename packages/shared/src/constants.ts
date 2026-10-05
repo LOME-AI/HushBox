@@ -164,6 +164,9 @@ export const PRIVACY_POLICY_COPY_DIGEST =
 export const TERMS_OF_SERVICE_COPY_DIGEST =
   'fab7f1e40fdadddcce5c788efcc44eb0f56237d993d897b368dbe98b6d4af642';
 
+/** The address a user writes to about a disputed charge; the legal documents publish {@link LEGAL_CONTACT_EMAIL}. */
+export const BILLING_CONTACT_EMAIL = 'billing@hushbox.ai';
+
 /** The one contact address both legal documents publish. */
 export const LEGAL_CONTACT_EMAIL = 'legal@hushbox.ai';
 

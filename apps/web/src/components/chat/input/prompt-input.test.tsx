@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, act, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as React from 'react';
-import { noticeText, TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
+import { notices, noticeText, TEST_IDS, TEST_ID_BUILDERS, TEST_SIGNALS } from '@hushbox/shared';
 import { expectExposes } from '@hushbox/shared/test-assertions';
 import { useA11yStore } from '@hushbox/ui/accessibility/store';
 import { renderWithProviders } from '@/test-utils/render';
@@ -89,6 +89,12 @@ vi.mock('@/stores/model', async (importOriginal) => {
   return { ...actual, useModelStore: store };
 });
 
+const formFactorRef: { current: FormFactor } = { current: { band: 'desktop', pointer: 'fine' } };
+vi.mock('@hushbox/ui/platform', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui/platform')>();
+  return { ...actual, useFormFactor: (): FormFactor => formFactorRef.current };
+});
+
 const useReducedMotionMock = vi.fn<() => boolean>();
 vi.mock('@hushbox/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@hushbox/ui')>();
@@ -108,6 +114,7 @@ import { useReasoningEffortStore } from '@/stores/reasoning-effort';
 import type { UseModelsStub } from '@/test-utils/models-hook-stub';
 import type { ChatSearchProps, PromptInputRef } from '@/components/chat/input/prompt-input';
 import type { PromptBudgetResult } from '@/hooks/billing/use-prompt-budget';
+import type { FormFactor } from '@hushbox/ui/platform';
 import type { PromptPredictor } from '@/lib/prediction/predictor';
 
 // Mock usePromptBudget directly — PromptInput's only budget dependency
@@ -170,6 +177,13 @@ function makeSearchProps(overrides: Partial<ChatSearchProps> = {}): ChatSearchPr
   };
 }
 
+/** One of the composer's named parts, by its `data-slot`. */
+function composerSlot(name: string): HTMLElement {
+  const element = document.querySelector<HTMLElement>(`[data-slot="${name}"]`);
+  if (element === null) throw new Error(`no [data-slot="${name}"] rendered`);
+  return element;
+}
+
 describe('PromptInput', () => {
   const mockOnChange = vi.fn();
   const mockOnSubmit = vi.fn();
@@ -203,11 +217,7 @@ describe('PromptInput', () => {
   });
 
   describe('the composer frame', () => {
-    function slot(name: string): HTMLElement {
-      const element = document.querySelector<HTMLElement>(`[data-slot="${name}"]`);
-      if (element === null) throw new Error(`no [data-slot="${name}"] rendered`);
-      return element;
-    }
+    const slot = composerSlot;
 
     function renderTextComposer(
       overrides: Partial<React.ComponentProps<typeof PromptInput>> = {}
@@ -380,6 +390,157 @@ describe('PromptInput', () => {
           name: '16:9',
         })
       ).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    /** A priced media turn: one selected model the catalog carries a rate for. */
+    function composeMediaTurn(modality: 'image' | 'video'): void {
+      mockUseModels.mockReturnValue({
+        data: {
+          models: [
+            modality === 'image'
+              ? {
+                  id: 'fictional/image',
+                  name: 'Image',
+                  provider: 'Fictional',
+                  description: 'Image generation model.',
+                  modality: 'image',
+                  contextLength: 0,
+                  supportedParameters: [],
+                  supportedAspectRatios: ['1:1', '16:9'],
+                  pricing: { perImage: '40000000', dearestPerImage: '40000000' },
+                }
+              : {
+                  id: 'fictional/video',
+                  name: 'Video',
+                  provider: 'Fictional',
+                  description: 'Video generation model.',
+                  modality: 'video',
+                  contextLength: 0,
+                  supportedParameters: [],
+                  supportedAspectRatios: ['16:9', '9:16'],
+                  supportedVideoResolutions: ['720p', '1080p'],
+                  supportedVideoDurationsSeconds: [4, 6, 8],
+                  pricing: {
+                    perSecondByResolution: { '720p': '100000000', '1080p': '150000000' },
+                    dearestPerSecondByResolution: { '720p': '100000000', '1080p': '150000000' },
+                  },
+                },
+          ],
+          premiumIds: new Set<string>(),
+        },
+      });
+      resetModelStoreStub({
+        activeModality: modality,
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+        selections: {
+          text: [],
+          image: modality === 'image' ? [{ id: 'fictional/image', name: 'Image' }] : [],
+          audio: [],
+          video: modality === 'video' ? [{ id: 'fictional/video', name: 'Video' }] : [],
+        },
+      });
+      renderTextComposer({ activeModality: modality, searchProps: undefined });
+    }
+
+    it('seats the video settings chip in the mode slot in video mode', () => {
+      renderTextComposer({ activeModality: 'video', searchProps: undefined });
+
+      expect(slot('composer-mode')).toContainElement(
+        screen.getByRole('button', { name: 'Video settings: 4s · 720p, 16:9' })
+      );
+    });
+
+    it.each(['text', 'image'] as const)('draws no video settings chip in %s mode', (mode) => {
+      renderTextComposer({ activeModality: mode, searchProps: undefined });
+
+      expect(screen.queryByRole('button', { name: /^Video settings:/ })).not.toBeInTheDocument();
+    });
+
+    it('opens the video settings from the chip', () => {
+      composeMediaTurn('video');
+
+      fireEvent.click(screen.getByRole('button', { name: /^Video settings:/ }));
+
+      const popover = screen.getByRole('dialog', { name: 'Video settings' });
+      expect(
+        within(popover).getByRole('slider', { name: 'Video duration in seconds' })
+      ).toBeInTheDocument();
+      expect(within(popover).getByRole('group', { name: 'Resolution' })).toBeInTheDocument();
+      expect(within(popover).getByRole('group', { name: 'Aspect ratio' })).toBeInTheDocument();
+    });
+
+    it('hands the video popover the verdict the payer can afford', () => {
+      const unaffordable = {
+        sendable: true,
+        all: [],
+        turnDimensions: [
+          {
+            dimensionId: 'resolution',
+            options: [
+              { optionId: '720p', label: '720p', availability: { available: true } },
+              {
+                optionId: '1080p',
+                label: '1080p',
+                availability: { available: false, reason: 'insufficient_funds' },
+              },
+            ],
+          },
+        ],
+      } satisfies NonNullable<PromptBudgetResult['mediaOptions']>['affordable'];
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        mediaOptions: { affordable: unaffordable, admissible: unaffordable },
+      });
+      composeMediaTurn('video');
+
+      fireEvent.click(screen.getByRole('button', { name: /^Video settings:/ }));
+
+      expect(
+        within(screen.getByRole('dialog', { name: 'Video settings' })).getByRole('button', {
+          name: '1080p',
+        })
+      ).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('draws no generation row under the text in video mode', () => {
+      composeMediaTurn('video');
+
+      expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '1080p' })).not.toBeInTheDocument();
+    });
+
+    describe.each(['image', 'video'] as const)('the %s estimate', (modality) => {
+      it('sits in the bar beside the model chip', () => {
+        composeMediaTurn(modality);
+
+        const estimate = slot('composer-estimate');
+        expect(within(estimate).getByText(/^≈ \$0\.\d{3}$/u)).toBeInTheDocument();
+        expect(within(estimate).getByText('(estimate)')).toBeInTheDocument();
+        expect(slot('composer-model').nextElementSibling).toBe(estimate);
+      });
+
+      it('stacks its caption under the figure in the bar', () => {
+        composeMediaTurn(modality);
+
+        expect(within(slot('composer-estimate')).getByText('(estimate)').parentElement).toHaveClass(
+          'flex-col'
+        );
+      });
+
+      it('rides the line above the field for a narrow composer, its caption on the same line', () => {
+        composeMediaTurn(modality);
+
+        const above = slot('composer-estimate-above');
+        expect(within(above).getByText(/^≈ \$0\.\d{3}$/u)).toBeInTheDocument();
+        expect(within(above).getByText('(estimate)').parentElement).toHaveClass('flex-row');
+      });
+    });
+
+    it('leaves both estimate places empty in text mode', () => {
+      renderTextComposer();
+
+      expect(slot('composer-estimate')).toBeEmptyDOMElement();
+      expect(slot('composer-estimate-above')).toBeEmptyDOMElement();
     });
 
     it('puts the search toggle in the Search slot', () => {
@@ -624,9 +785,7 @@ describe('PromptInput', () => {
     it('stacks the notices below the composer container, not inside it', () => {
       mockUsePromptBudget.mockReturnValue({
         ...defaultBudget,
-        notifications: [
-          { id: 'context_near_capacity', type: 'warning', message: 'Sample notice.' },
-        ],
+        notices: [{ id: 'context_near_capacity', type: 'warning', message: 'Sample notice.' }],
       });
       renderTextComposer();
 
@@ -863,15 +1022,15 @@ describe('PromptInput', () => {
         ...defaultBudget,
         fundingSource: 'denied',
         hasBlockingError: true,
-        notifications: [
-          { id: 'insufficient_funds', type: 'error', message: 'Sample blocking notice.' },
-        ],
+        notices: [{ id: 'insufficient_funds', type: 'error', message: 'Sample blocking notice.' }],
       });
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
       expect(screen.getByTestId('budget-messages')).toBeInTheDocument();
-      expect(screen.getByText('Sample blocking notice.')).toBeInTheDocument();
+      expect(
+        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('insufficient_funds'))
+      ).toHaveTextContent('Sample blocking notice.');
     });
 
     it('does not show budget messages when no notifications', () => {
@@ -884,7 +1043,7 @@ describe('PromptInput', () => {
     it('shows warning messages', () => {
       mockUsePromptBudget.mockReturnValue({
         ...defaultBudget,
-        notifications: [
+        notices: [
           {
             id: 'context_near_capacity',
             type: 'warning',
@@ -895,13 +1054,15 @@ describe('PromptInput', () => {
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      expect(screen.getByText('Sample warning notice.')).toBeInTheDocument();
+      expect(
+        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('context_near_capacity'))
+      ).toHaveTextContent('Sample warning notice.');
     });
 
     it('shows info messages', () => {
       mockUsePromptBudget.mockReturnValue({
         ...defaultBudget,
-        notifications: [
+        notices: [
           {
             id: 'trial_preview_pays',
             type: 'info',
@@ -912,7 +1073,9 @@ describe('PromptInput', () => {
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      expect(screen.getByText('Sample info notice.')).toBeInTheDocument();
+      expect(
+        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('trial_preview_pays'))
+      ).toHaveTextContent('Sample info notice.');
     });
 
     it('hides budget messages while app is not stable (balance loading)', () => {
@@ -923,7 +1086,7 @@ describe('PromptInput', () => {
       });
       mockUsePromptBudget.mockReturnValue({
         ...defaultBudget,
-        notifications: [
+        notices: [
           {
             id: 'trial_preview_pays',
             type: 'info',
@@ -935,7 +1098,9 @@ describe('PromptInput', () => {
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
       expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
-      expect(screen.queryByText('Sample info notice.')).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId(TEST_ID_BUILDERS.budgetMessage('trial_preview_pays'))
+      ).not.toBeInTheDocument();
     });
 
     it('hides budget messages while app is not stable (session loading)', () => {
@@ -946,7 +1111,7 @@ describe('PromptInput', () => {
       });
       mockUsePromptBudget.mockReturnValue({
         ...defaultBudget,
-        notifications: [
+        notices: [
           {
             id: 'trial_preview_pays',
             type: 'info',
@@ -958,7 +1123,9 @@ describe('PromptInput', () => {
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
       expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
-      expect(screen.queryByText('Sample info notice.')).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId(TEST_ID_BUILDERS.budgetMessage('trial_preview_pays'))
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -1071,6 +1238,77 @@ describe('PromptInput', () => {
       // length to an absolute one, so toHaveStyle cannot assert a rem value.
       expect(textarea.style.minHeight).toBe('4rem');
       expect(textarea).toHaveAttribute('rows', '2');
+    });
+
+    describe('the starting height per band', () => {
+      afterEach(() => {
+        formFactorRef.current = { band: 'desktop', pointer: 'fine' };
+      });
+
+      it('starts one line tall in the phone band', () => {
+        formFactorRef.current = { band: 'phone', pointer: 'coarse' };
+        // 1 line × 1.5rem line-height (text-base) + 1rem vertical padding.
+        renderWithProviders(
+          <PromptInput
+            value=""
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            activeModality="image"
+          />
+        );
+        const textarea = screen.getByRole('textbox');
+        expect(textarea.style.minHeight).toBe('2.5rem');
+        expect(textarea).toHaveAttribute('rows', '1');
+      });
+
+      it('starts two lines tall in the desktop band', () => {
+        formFactorRef.current = { band: 'desktop', pointer: 'coarse' };
+        renderWithProviders(
+          <PromptInput
+            value=""
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            activeModality="image"
+          />
+        );
+        const textarea = screen.getByRole('textbox');
+        expect(textarea.style.minHeight).toBe('4rem');
+        expect(textarea).toHaveAttribute('rows', '2');
+      });
+
+      it("pays the gauge's margin back from the one-line height in the phone band", () => {
+        formFactorRef.current = { band: 'phone', pointer: 'coarse' };
+        renderWithProviders(
+          <PromptInput
+            value="Hello"
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            isAuthenticated
+            activeModality="text"
+            onSelectModality={vi.fn()}
+            searchProps={makeSearchProps()}
+          />
+        );
+
+        expect(screen.getByRole('textbox').style.minHeight).toBe('calc(2rem)');
+      });
+
+      it('keeps a caller-given starting height in the phone band', () => {
+        formFactorRef.current = { band: 'phone', pointer: 'coarse' };
+        renderWithProviders(
+          <PromptInput
+            value=""
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            activeModality="image"
+            rows={3}
+            minHeight="5.5rem"
+          />
+        );
+        const textarea = screen.getByRole('textbox');
+        expect(textarea.style.minHeight).toBe('5.5rem');
+        expect(textarea).toHaveAttribute('rows', '3');
+      });
     });
 
     it('caps growth at a seven-line default maxHeight (founder-ruled sizing)', () => {
@@ -1373,6 +1611,32 @@ describe('PromptInput', () => {
         hasPersistentBlockingError: true,
         sendRefusal: 'prompt_too_long',
       });
+      renderWithProviders(
+        <PromptInput
+          value="hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isProcessing
+          onQueue={onQueue}
+        />
+      );
+      expect(screen.getByTestId('send-button')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('send-button'));
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' });
+      expect(onQueue).not.toHaveBeenCalled();
+    });
+
+    // The stack leads with a send refusal, and a refusal that clears on its own can lead
+    // over a block that outlasts the reply; the queue follows the lasting block.
+    it('does not queue while a passing refusal leads the notices over a lasting block', () => {
+      const onQueue = vi.fn();
+      mockUsePromptBudget.mockReturnValue({
+        ...defaultBudget,
+        hasBlockingError: true,
+        hasPersistentBlockingError: true,
+        sendRefusal: 'funds_held_by_run',
+        notices: [notices('funds_held_by_run'), notices('prompt_too_long')],
+      } satisfies PromptBudgetResult);
       renderWithProviders(
         <PromptInput
           value="hello"
@@ -2294,7 +2558,7 @@ describe('PromptInput', () => {
         ...defaultBudget,
         fundingSource: 'denied',
         hasBlockingError: true,
-        notifications: [
+        notices: [
           {
             id: 'conversation_read_only',
             type: 'info',
@@ -2310,7 +2574,9 @@ describe('PromptInput', () => {
           currentUserPrivilege="read"
         />
       );
-      expect(screen.getByText('Sample read-only notice.')).toBeInTheDocument();
+      expect(
+        screen.getByTestId(TEST_ID_BUILDERS.budgetMessage('conversation_read_only'))
+      ).toHaveTextContent('Sample read-only notice.');
     });
 
     it('Enter key does not submit when currentUserPrivilege is read', () => {
@@ -2649,10 +2915,12 @@ describe('PromptInput', () => {
       expect(screen.getByRole('button', { name: 'Aspect ratio: 1:1' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: '16:9' })).not.toBeInTheDocument();
       expect(screen.queryByTestId('capacity-bar')).not.toBeInTheDocument();
-      expect(screen.getByText(/^≈ \$\d+\.\d+/)).toBeInTheDocument();
+      expect(
+        within(composerSlot('composer-estimate')).getByText(/^≈ \$\d+\.\d+/)
+      ).toBeInTheDocument();
     });
 
-    it('renders video modality with duration in row 1 and aspect ratio + resolution in row 2', () => {
+    it('renders video modality with the settings chip, the estimate and no capacity bar', () => {
       resetModelStoreStub({
         activeModality: 'video',
         videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
@@ -2694,14 +2962,13 @@ describe('PromptInput', () => {
           onSelectModality={vi.fn()}
         />
       );
-      // Row 1: duration slider + cost
-      expect(screen.getByRole('slider', { name: /video duration/i })).toBeInTheDocument();
-      expect(screen.getByText(/^≈ \$\d+\.\d+/)).toBeInTheDocument();
-      // Row 2: aspect ratio + resolution
-      expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '9:16' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /720p/i })).toBeInTheDocument();
-      // No capacity bar in video mode.
+      expect(
+        screen.getByRole('button', { name: 'Video settings: 4s · 720p, 16:9' })
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('slider', { name: /video duration/i })).not.toBeInTheDocument();
+      expect(
+        within(composerSlot('composer-estimate')).getByText(/^≈ \$\d+\.\d+/)
+      ).toBeInTheDocument();
       expect(screen.queryByTestId('capacity-bar')).not.toBeInTheDocument();
     });
 
@@ -3182,9 +3449,8 @@ describe('PromptInput', () => {
       );
 
       // Both assertions turn on `activeModality`, which is the composer's OWN
-      // input: `BottomRows` selects `ImageBottomRow` over `TextBottomRow`, and
-      // only the text row carries the capacity meter. The same Send control
-      // drives generation in either.
+      // input: an image turn draws no text row, and only a text turn carries
+      // the capacity meter. The same Send control drives generation in either.
       //
       // Deliberately NOT asserted here: the absence of the search toggle. That
       // is `showSearch = searchProps !== undefined && …` — no modality term —
@@ -3215,53 +3481,58 @@ describe('PromptInput', () => {
     });
   });
 
-  describe('a blocked send always carries its notice (§Notices 7)', () => {
-    it('renders the hold reason when the send is blocked by a run in flight', () => {
-      // The disabled button alone is not a notice. A blocked send with no
-      // explanation leaves the user to guess which input to change — and for a
-      // hold there IS no input to change, only waiting.
+  describe("the notice stack is the budget's notices", () => {
+    function renderedNoticeIds(): (string | undefined)[] {
+      return [
+        ...screen
+          .getByTestId(TEST_IDS.budgetMessages)
+          .querySelectorAll<HTMLElement>('[data-slot="notice"]'),
+      ].map((element) => element.dataset['testid']);
+    }
+
+    it('shows exactly the notices the budget lists, in their order', () => {
       mockUsePromptBudget.mockReturnValue({
         ...defaultBudget,
         hasBlockingError: true,
         sendRefusal: 'funds_held_by_run',
-      });
+        notifications: [
+          { id: 'answer_may_be_shortened', type: 'warning', message: 'Sample warning.' },
+          { id: 'free_allowance_pays', type: 'info', message: 'Sample info.' },
+        ],
+        notices: [
+          {
+            id: 'funds_held_by_run',
+            type: 'error',
+            message: 'Sample hold.',
+            blockClears: 'on_its_own',
+          },
+          { id: 'free_allowance_pays', type: 'info', message: 'Sample info.' },
+        ],
+      } satisfies PromptBudgetResult);
 
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
 
-      expect(screen.getByText(/Wait for it to finish/)).toBeInTheDocument();
+      expect(renderedNoticeIds()).toEqual([
+        TEST_ID_BUILDERS.budgetMessage('funds_held_by_run'),
+        TEST_ID_BUILDERS.budgetMessage('free_allowance_pays'),
+      ]);
     });
 
-    it('renders the LENGTH reason for a prompt-too-long refusal, not the hold reason', () => {
-      mockUsePromptBudget.mockReturnValue({
-        ...defaultBudget,
-        hasBlockingError: true,
-        sendRefusal: 'prompt_too_long',
-      });
-
-      renderWithProviders(
-        <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
-      );
-
-      expect(screen.getByText(/Shorten your message/)).toBeInTheDocument();
-      expect(screen.queryByText(/Wait for it to finish/)).not.toBeInTheDocument();
-    });
-
-    it('renders exactly ONE blocking notice', () => {
+    it('adds no notice of its own for a refusal the list leaves out', () => {
       mockUsePromptBudget.mockReturnValue({
         ...defaultBudget,
         hasBlockingError: true,
         sendRefusal: 'funds_held_by_run',
-      });
+        notices: [],
+      } satisfies PromptBudgetResult);
 
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
 
-      // One blocking notice, in the one notice surface the composer has.
-      const blocking = screen.getAllByText(/Wait for it to finish/);
-      expect(blocking).toHaveLength(1);
+      expect(screen.queryByTestId(TEST_IDS.budgetMessages)).not.toBeInTheDocument();
     });
   });
 
@@ -3376,7 +3647,7 @@ describe('PromptInput', () => {
         isBillingLoading: true,
         hasBlockingError: true,
         sendRefusal: 'send_check_unavailable',
-        notifications: [
+        notices: [
           {
             id: 'send_check_unavailable',
             type: 'error',
@@ -3670,6 +3941,11 @@ describe('PromptInput', () => {
       return { affordable: set, admissible: set } as unknown as PromptBudgetResult['mediaOptions'];
     }
 
+    /** Opens the video settings, where the axis controls live. */
+    function openVideoSettings(): void {
+      fireEvent.click(screen.getByRole('button', { name: /^Video settings:/ }));
+    }
+
     function composeVideoTurn(): void {
       mockUseModels.mockReturnValue({
         data: {
@@ -3719,6 +3995,8 @@ describe('PromptInput', () => {
         />
       );
 
+      openVideoSettings();
+
       expect(screen.getByRole('button', { name: '1080p' })).toHaveAttribute(
         'aria-disabled',
         'true'
@@ -3739,6 +4017,8 @@ describe('PromptInput', () => {
           activeModality="video"
         />
       );
+
+      openVideoSettings();
 
       expect(screen.getByRole('button', { name: '1080p' })).not.toHaveAttribute('aria-disabled');
     });
@@ -3764,6 +4044,8 @@ describe('PromptInput', () => {
         />
       );
 
+      openVideoSettings();
+
       expect(screen.queryByRole('button', { name: '1080p' })).not.toBeInTheDocument();
       expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     });
@@ -3774,6 +4056,7 @@ describe('PromptInput', () => {
         ...defaultBudget,
         mediaOptions: undefined,
         sendRefusal: 'send_check_unavailable',
+        notices: [notices('send_check_unavailable')],
       });
 
       renderWithProviders(
@@ -3814,6 +4097,8 @@ describe('PromptInput', () => {
           activeModality="video"
         />
       );
+
+      openVideoSettings();
 
       expect(screen.getByRole('button', { name: '1080p' })).toBeInTheDocument();
       expect(screen.queryByText(noticeText('send_check_unavailable'))).not.toBeInTheDocument();

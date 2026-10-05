@@ -92,12 +92,19 @@ import {
 import { growthBeaconReferencesIn } from '../packages/shared/src/growth/beacon-references.ts';
 
 import { frontendEnvFile } from './lib/bundling/build-mode.ts';
+import { PRIMARY_DIST_DIR, overriddenKeysFor } from './lib/bundling/build-variants.ts';
+import {
+  STRING_QUOTE,
+  STRING_QUOTE_CHARS,
+  checkStackEnvValues,
+  declaredStackEnvValues,
+} from './lib/bundling/stack-env-values.ts';
 import { ORT_DIR, resolveOrtAssets, type OrtAsset } from './lib/bundling/seam.ts';
 import { PRE_PAINT_SCRIPTS } from './lib/bundling/pre-paint-scripts-plugin.ts';
 import { isMainModule } from './lib/cli/is-main.ts';
 import { readCommandLine, type CommandSpec, type FlagRecord } from './lib/cli/command-line.ts';
 import { runMain } from './lib/cli/run-main.ts';
-import { envModeOrDefault, frontendModeFor } from './lib/stack/stack-mode.ts';
+import { ENV_MODE_VARIABLE, envModeFrom, frontendModeFor } from './lib/stack/stack-mode.ts';
 import {
   IOS_PROJECT_PATH,
   collectBuildTargetViolations,
@@ -123,8 +130,13 @@ const APPS_SHIPPING_TTS = new Map<string, boolean>([
   ['apps/sandbox', false],
 ]);
 
-/** The dist directory an app builds into unless a build asks for another one. */
-const PRIMARY_DIST_DIR = 'dist';
+/**
+ * Apps whose dist is assembled without reading any generated env file. The
+ * sandbox origin runs untrusted document code and holds no credential by
+ * design, so its supply is empty: a frontend value baked into it can only be a
+ * leak.
+ */
+const APPS_WITHOUT_FRONTEND_ENV: ReadonlySet<string> = new Set(['apps/sandbox']);
 
 /**
  * @param appDir the app's TTS expectation is keyed on this and nothing else.
@@ -136,7 +148,8 @@ const PRIMARY_DIST_DIR = 'dist';
  * @param envMode the mode the build was invoked for. Its stack's generated env
  *   file is the one the bundle's baked values are compared against, named for
  *   the stack rather than for the mode, because that is how a bundler resolves
- *   one. Omitted by a caller that can name no stack.
+ *   one; an app that reads no env file is held to an empty supply instead.
+ *   Omitted by a caller that can name no stack.
  */
 export function appBundleOptions(
   rootDir: string,
@@ -156,8 +169,24 @@ export function appBundleOptions(
     shipsTts,
     ...(envMode === undefined
       ? {}
-      : { stackEnvFile: path.join(rootDir, frontendEnvFile(frontendModeFor(envMode))) }),
+      : {
+          stackEnvFile: APPS_WITHOUT_FRONTEND_ENV.has(appDir)
+            ? null
+            : path.join(rootDir, frontendEnvFile(frontendModeFor(envMode))),
+        }),
   };
+}
+
+/**
+ * What a build hook verifies its finished dist with: held to its declared
+ * frontend supply when the build ships, and to none otherwise.
+ */
+export function shippingBundleOptions(
+  rootDir: string,
+  appDir: string,
+  mode: EnvMode
+): VerifyBundleOptions {
+  return appBundleOptions(rootDir, appDir, undefined, shipsBundlesIn(mode) ? mode : undefined);
 }
 
 /** The web dist directories named as CLI arguments, defaulting to the primary one. */
@@ -412,12 +441,17 @@ export interface VerifyBundleOptions {
    */
   readonly ortAssets?: readonly OrtAsset[];
   /**
-   * The generated env file of the stack the build was invoked for. Absent for a
-   * caller that can name no stack: the command-line verifier runs over whatever
-   * a directory holds, including the OTA dists, which a native build writes
-   * with no generated file in reach at all.
+   * The generated env file of the stack the build was invoked for, or `null`
+   * for a build that reads none, whose bundle may bake no frontend value at
+   * all. Absent for a caller that names no stack, which leaves the comparison
+   * unrun.
    */
-  readonly stackEnvFile?: string;
+  readonly stackEnvFile?: string | null;
+  /**
+   * The keys the build declares it bakes in place of {@link stackEnvFile}, each
+   * free to carry a value other than the one the file declares.
+   */
+  readonly overriddenKeys?: readonly string[];
   /**
    * Whether this bundle answers HTTP requests. A statement about the bundle,
    * made by the caller that knows: the mobile release builds go into the
@@ -954,15 +988,6 @@ export function requiredE2eBuildFlagValue(
 }
 
 /**
- * The quote characters a string literal can arrive under. A minified build
- * emits the inlined env values as template literals, so the backtick sits here
- * beside the ordinary quotes.
- */
-const STRING_QUOTE_CHARS = '\'"`';
-
-const STRING_QUOTE = `[${STRING_QUOTE_CHARS}]`;
-
-/**
  * The flag in object-key position at whatever string literal follows it, as a
  * bundler emits the inlined `import.meta.env`. Anchored on its left so a longer
  * entry name ending in this one cannot pass for it, and closed with the quote
@@ -1120,145 +1145,6 @@ async function checkReactBuild(files: readonly BundleFile[]): Promise<string[]> 
   return violations;
 }
 
-/**
- * The prefix this comparison covers: the one a generated frontend env file
- * writes its entries under. An entry under any other prefix sits outside the
- * comparison entirely — declared on one side or baked on the other, it is
- * checked against nothing here.
- */
-const FRONTEND_ENV_PREFIX = 'VITE_';
-
-/** A written value under the quote pair the generator wrapped it in, if it wrapped one. */
-const QUOTED_ENV_VALUE = /^(['"])(.*)\1$/u;
-
-/** Where the text inside that pair sits in a match of it. */
-const QUOTED_ENV_TEXT = 2;
-
-/**
- * A generated value as the loader that baked it reads one: the surrounding
- * quote pair is the generator's escaping, and the contents are taken verbatim.
- * Read this way rather than unescaped, because what the file supplies a loader
- * is what the build had to bake.
- */
-function loadedEnvValue(raw: string): string {
-  return QUOTED_ENV_VALUE.exec(raw)?.[QUOTED_ENV_TEXT] ?? raw;
-}
-
-/**
- * What the generator wrote for the stack a build was invoked for, read out of
- * the file it wrote it to.
- *
- * Derived rather than written down: a list of the values that vary between
- * stacks would be a closed set, and would stop covering a value on the day the
- * registry gains one — which is the failure this comparison exists to catch.
- *
- * @param envFile the generated frontend env file, absolute. A missing one
- *   throws rather than yielding an empty set, which would pass every bundle.
- */
-export async function declaredStackEnvValues(envFile: string): Promise<Map<string, string>> {
-  const source = await fs.readFile(envFile, 'utf8');
-  const declared = new Map<string, string>();
-  for (const line of source.split('\n')) {
-    const separator = line.indexOf('=');
-    if (separator === -1) continue;
-    const key = line.slice(0, separator).trim();
-    if (!key.startsWith(FRONTEND_ENV_PREFIX)) continue;
-    declared.set(key, loadedEnvValue(line.slice(separator + 1).trim()));
-  }
-  return declared;
-}
-
-/**
- * A frontend variable in object-key position at the literal a bundler inlined
- * it to, as both an unminified build (quoted key, quoted value) and a minified
- * one (bare key, template literal) emit it. Anchored on its left so a longer
- * identifier ending in a variable's name cannot pass for one.
- *
- * Global because every chunk that reads the environment bakes the whole object
- * and each occurrence has to be looked at; `matchAll` also refuses a non-global
- * pattern.
- */
-const BAKED_FRONTEND_VALUE = new RegExp(
-  String.raw`(?<![\w$])(?<keyQuote>${STRING_QUOTE})?(?<key>${FRONTEND_ENV_PREFIX}[A-Z0-9_]+)` +
-    String.raw`\k<keyQuote>?\s*:\s*(?<quote>${STRING_QUOTE})(?<baked>[^${STRING_QUOTE_CHARS}]*)\k<quote>`,
-  'gu'
-);
-
-/**
- * Holds the bundle to the stack the build was invoked for: what it bakes
- * against what the generator wrote for that stack, in both directions.
- *
- * The build derives its mode from one stack selector and the generated file is
- * its sole supply, so under the restructure this holds trivially — which is
- * exactly what makes it cheap to keep and meaningful when it fires: a bundle
- * carrying another stack's addresses is invisible until a user meets it.
- *
- * Violations name the values. Every one of them is a value the bundle already
- * serves to anyone who loads it, so naming one discloses nothing the artifact
- * does not.
- */
-async function checkStackEnvValues(
-  files: readonly BundleFile[],
-  declared: ReadonlyMap<string, string>
-): Promise<string[]> {
-  const baked = await bakedFrontendValues(files);
-  const violations = [...baked].flatMap(([key, carriers]) =>
-    bakedValueViolations(key, carriers, declared.get(key))
-  );
-  for (const key of declared.keys()) {
-    if (!baked.has(key)) {
-      violations.push(
-        `no built artifact bakes ${key}, which the stack this build was invoked for ` +
-          `declares — nothing in this bundle read the generated environment file`
-      );
-    }
-  }
-  return violations;
-}
-
-/**
- * Every frontend value the bundle bakes, by variable and then by value, at the
- * files carrying each.
- *
- * The carriers are a set: a chunk that reads the environment bakes the whole
- * object, a bundler emits that object more than once in one chunk, and listing
- * a file once per occurrence tells a reader nothing it can act on.
- */
-async function bakedFrontendValues(
-  files: readonly BundleFile[]
-): Promise<Map<string, Map<string, Set<string>>>> {
-  const baked = new Map<string, Map<string, Set<string>>>();
-  for (const file of files.filter((candidate) => EXECUTABLE_TEXT.test(candidate.relativePath))) {
-    const source = await fs.readFile(file.absolutePath, 'utf8');
-    for (const match of source.matchAll(BAKED_FRONTEND_VALUE)) {
-      const key = match.groups?.['key'] ?? '';
-      const value = match.groups?.['baked'] ?? '';
-      const carriers = baked.get(key) ?? new Map<string, Set<string>>();
-      carriers.set(value, (carriers.get(value) ?? new Set<string>()).add(file.relativePath));
-      baked.set(key, carriers);
-    }
-  }
-  return baked;
-}
-
-/** What one baked variable's values are, against the one value the stack declares for it. */
-function bakedValueViolations(
-  key: string,
-  carriers: ReadonlyMap<string, ReadonlySet<string>>,
-  expected: string | undefined
-): string[] {
-  return [...carriers]
-    .filter(([value]) => value !== expected)
-    .map(([value, carrying]) =>
-      expected === undefined
-        ? `built artifact bakes ${key}="${value}", which the stack this build was invoked ` +
-          `for declares nothing for: ${[...carrying].join(', ')} — this build read some ` +
-          `other stack's generated environment file`
-        : `built artifact bakes ${key}="${value}" where the stack this build was invoked ` +
-          `for declares "${expected}": ${[...carrying].join(', ')}`
-    );
-}
-
 /** Cloudflare reads response headers for a static origin from this file. */
 const HEADERS_FILE = '_headers';
 
@@ -1296,6 +1182,16 @@ export function checkPagesLimits(files: readonly BundleFile[]): string[] {
   return violations;
 }
 
+/** The frontend values a build declares it bakes: its env file's, or none for a build reading none. */
+async function declaredSupply(stackEnvFile: string | null): Promise<Map<string, string>> {
+  return stackEnvFile === null ? new Map() : await declaredStackEnvValues(stackEnvFile);
+}
+
+/** Whether a bundle answers HTTP requests: its caller's statement, else its directory's name. */
+function servesOverHttp(options: VerifyBundleOptions): boolean {
+  return options.servedOverHttp ?? path.basename(options.distributionDir) === PRIMARY_DIST_DIR;
+}
+
 export async function collectBundleViolations(options: VerifyBundleOptions): Promise<string[]> {
   const files = await listBundleFiles(options.distributionDir);
   // A response-header file means something only where a response exists. A
@@ -1303,8 +1199,7 @@ export async function collectBundleViolations(options: VerifyBundleOptions): Pro
   // mobile release build compiles into its binary — answers no request, so the
   // requirement would be asserting about nothing. The caller's statement
   // decides it wherever there is one, and the dist name only where there is not.
-  const servedOverHttp =
-    options.servedOverHttp ?? path.basename(options.distributionDir) === PRIMARY_DIST_DIR;
+  const servedOverHttp = servesOverHttp(options);
   const headerChecks = servedOverHttp ? checkHeadersFile(files) : [];
   // Only a merged dist has a marketing half to read; anywhere else this matches
   // no file, which is the same answer as a dist whose marketing half is clean.
@@ -1318,7 +1213,11 @@ export async function collectBundleViolations(options: VerifyBundleOptions): Pro
   const stackEnvChecks =
     options.stackEnvFile === undefined
       ? []
-      : await checkStackEnvValues(files, await declaredStackEnvValues(options.stackEnvFile));
+      : checkStackEnvValues(
+          await executableSources(files),
+          await declaredSupply(options.stackEnvFile),
+          new Set(options.overriddenKeys)
+        );
   if (!options.shipsTts) {
     // Every ORT and worker check below presupposes the engine is present: the
     // self-hosted check requires a `dist/ort/` tree, and two others fail
@@ -1411,6 +1310,44 @@ export function shipsBundlesIn(mode: EnvMode): boolean {
 }
 
 /**
+ * The mode a command-line run verifies for, which the run must name. An unnamed
+ * mode is refused rather than defaulted: a default would answer that a shipping
+ * run which forgot to say so had nothing to verify, under the same exit a full
+ * verification gives.
+ */
+export function requestedMode(env: NodeJS.ProcessEnv): EnvMode {
+  const mode = envModeFrom(env);
+  if (mode === undefined) {
+    throw new Error(
+      `${ENV_MODE_VARIABLE} names no mode, so there is no build to verify the bundles against. ` +
+        `Name the mode they were built under: \`${ENV_MODE_VARIABLE}=${SHIPPING_BUILD_MODE}\` ` +
+        `for a shipping build.`
+    );
+  }
+  return mode;
+}
+
+/**
+ * What the command line verifies one web dist with: the production environment
+ * file the shipping build generated, the keys the dist's build variant bakes in
+ * place of it, and what the command line states about delivery.
+ */
+export function commandLineBundleOptions(
+  repoRoot: string,
+  distributionDirName: string,
+  flags: FlagRecord
+): VerifyBundleOptions {
+  const options = {
+    ...appBundleOptions(repoRoot, 'apps/web', distributionDirName, SHIPPING_BUILD_MODE),
+    ...httpDeliveryStatement(flags),
+  };
+  return {
+    ...options,
+    overriddenKeys: overriddenKeysFor(distributionDirName, servesOverHttp(options)),
+  };
+}
+
+/**
  * What a run under a mode that builds no shipping bundle reports in place of a
  * verdict.
  *
@@ -1467,7 +1404,7 @@ if (isMainModule(import.meta.url) && (globalThis as CliHost)[CLI_RUNNING] !== tr
       return;
     }
 
-    const mode = envModeOrDefault(process.env);
+    const mode = requestedMode(process.env);
     if (!shipsBundlesIn(mode)) {
       console.log(noShippingBundlesNotice(mode));
       return;
@@ -1486,12 +1423,8 @@ if (isMainModule(import.meta.url) && (globalThis as CliHost)[CLI_RUNNING] !== tr
       );
     }
     console.log('Verified the pinned build target');
-    const delivery = httpDeliveryStatement(parsed.flags);
     for (const distributionDirName of requestedDistributionDirectories(parsed.positionals)) {
-      const options = {
-        ...appBundleOptions(repoRoot, 'apps/web', distributionDirName),
-        ...delivery,
-      };
+      const options = commandLineBundleOptions(repoRoot, distributionDirName, parsed.flags);
       await verifyBundle(options);
       console.log(`Verified ${options.distributionDir}`);
     }

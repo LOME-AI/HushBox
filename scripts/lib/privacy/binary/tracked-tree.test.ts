@@ -8,6 +8,8 @@ import { BINARY_FORMATS, detectBinaryFormat } from './format-registry.js';
 import { TOOLCHAIN_LITERALS } from './leak-values.js';
 import { LIVE_RULE_NAMES } from '../rules.js';
 import { PRIVACY_ALLOWLIST_PATH, parsePrivacyAllowlist } from '../allowlist.js';
+import { absoluteGitDirectory } from '../worktree.js';
+import { listRecordFiles } from '../../../records/record-files.js';
 import { classifyBinaryBlob, isBinaryBlob, isBinaryExemption } from './scan.js';
 import type { BinaryFormat, BinaryFormatId } from './format-registry.js';
 import type { BinaryVerdict } from './scan.js';
@@ -56,6 +58,12 @@ const allowlist = parsePrivacyAllowlist(
   LIVE_RULE_NAMES
 );
 const BINARY_EXEMPTIONS = allowlist.filter((entry) => isBinaryExemption(entry));
+
+/**
+ * The files this repository ignores and the records overlay keeps. The whole-tree
+ * privacy scan reads them beside the tracked ones, so an exemption naming one is live.
+ */
+const RECORD_FILES = await listRecordFiles(REPO_ROOT, await absoluteGitDirectory(REPO_ROOT));
 
 interface SweptFile {
   readonly file: string;
@@ -129,7 +137,7 @@ function sweep(): readonly SweptFile[] {
     .split('\0')
     .filter(Boolean);
   const results: SweptFile[] = [];
-  for (const file of listed) {
+  for (const file of new Set([...listed, ...RECORD_FILES])) {
     const absolute = path.join(REPO_ROOT, file);
     let stat;
     try {
@@ -157,8 +165,8 @@ function sweep(): readonly SweptFile[] {
 const verdictOf = (file: string): BinaryVerdict | undefined =>
   sweep().find((entry) => entry.file === file)?.verdict;
 
-describe('the tracked binary tree', () => {
-  it('dispatches every tracked binary to a registered format', () => {
+describe('the binary tree the whole-tree scan examines', () => {
+  it('dispatches every binary in it to a registered format', () => {
     const unrecognized = sweep()
       .filter((entry) => entry.formatId === undefined)
       .map((entry) => entry.file);
@@ -217,7 +225,7 @@ describe('format dispatch on real tracked files', () => {
     expect(detectBinaryFormat(read(file))?.id).toBe('flac');
   });
 
-  it('finds no tracked binary wearing an extension its magic bytes contradict', () => {
+  it('finds no binary in the tree wearing an extension its magic bytes contradict', () => {
     const mismatched = sweep()
       .filter((entry) => entry.extensionMismatch)
       .map((entry) => entry.file);

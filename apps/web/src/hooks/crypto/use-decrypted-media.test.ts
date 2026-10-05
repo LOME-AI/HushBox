@@ -3,7 +3,13 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactNode } from 'react';
 import { MAX_MEDIA_OBJECT_BYTES } from '@hushbox/shared';
-import { useDecryptedMedia, useMessageContentKey } from '@/hooks/crypto/use-decrypted-media';
+import {
+  MessageContentKeySourceContext,
+  contentKeySourceFor,
+  useDecryptedMedia,
+  useMessageContentKey,
+  type MessageContentKeySource,
+} from '@/hooks/crypto/use-decrypted-media';
 import { blobCacheKeys } from '@/hooks/crypto/use-decrypt-blob';
 import { installBlobUrlCacheGc } from '@/lib/media/blob-url-cache-gc';
 import type { ContentKey, WrappedSecret } from '@hushbox/crypto';
@@ -471,5 +477,51 @@ describe('useMessageContentKey', () => {
     rerender({ conv: 'conv-1', epoch: 1, wrapped: 'wrapped-b64' });
 
     expect(mockUnwrapContentKeyFromEpoch).toHaveBeenCalledTimes(1);
+  });
+
+  describe('under a provided key source', () => {
+    // Brand casts: this file mocks `@hushbox/crypto`, so its brand constructors are absent.
+    const givenWrap = new TextEncoder().encode('given-wrap-b64') as WrappedSecret;
+    const givenKey = new Uint8Array([8, 8, 8]) as ContentKey;
+
+    function sourceWrapper(
+      source: MessageContentKeySource
+    ): ({ children }: { children: ReactNode }) => ReactNode {
+      function KeySourceWrapper({
+        children,
+      }: Readonly<{ children: ReactNode }>): React.JSX.Element {
+        return createElement(MessageContentKeySourceContext, { value: source }, children);
+      }
+      return KeySourceWrapper;
+    }
+
+    it('reports an error and no key for a wrap the source was not given', () => {
+      const { result } = renderHook(() => useMessageContentKey('conv-1', 1, 'other-wrap-b64'), {
+        wrapper: sourceWrapper(contentKeySourceFor(givenWrap, givenKey)),
+      });
+
+      expect(result.current.contentKey).toBeNull();
+      expect(result.current.wrappedContentKey).toBeNull();
+      expect(result.current.error?.message).toBe('Content key not available');
+    });
+
+    it('resolves again under a source provided in place of the first', () => {
+      const replacementKey = new Uint8Array([9, 9, 9]) as ContentKey;
+      let provided = contentKeySourceFor(givenWrap, givenKey);
+      function SwappableSourceWrapper({
+        children,
+      }: Readonly<{ children: ReactNode }>): React.JSX.Element {
+        return createElement(MessageContentKeySourceContext, { value: provided }, children);
+      }
+
+      const { result, rerender } = renderHook(
+        () => useMessageContentKey('conv-1', 1, 'given-wrap-b64'),
+        { wrapper: SwappableSourceWrapper }
+      );
+      provided = contentKeySourceFor(givenWrap, replacementKey);
+      rerender();
+
+      expect(result.current.contentKey).toBe(replacementKey);
+    });
   });
 });

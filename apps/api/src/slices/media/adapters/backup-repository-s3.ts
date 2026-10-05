@@ -14,15 +14,17 @@ import type {
   BackupVersionCursor,
   BackupVersionPage,
 } from '../ports/index.js';
+import type { BackupStoreError } from '../ports/backup-repository.js';
 import type { ResultAsync } from '../../../lib/result/index.js';
 import type { DomainError } from '../../../lib/errors/index.js';
 
 /**
  * The read-only S3 view of the backup repository, over the same aws4fetch
  * codepath the media adapter uses: MinIO locally, Backblaze B2 in production.
- * The credential behind it lists and holds nothing else — no object body, no
- * write, no delete — so neither a bug here nor a stolen key can damage a
- * backup or read one.
+ * The credential behind it carries `listBuckets`, `listFiles` and
+ * `readBucketLifecycleRules` and nothing else — no object body, no write, no
+ * delete — so neither a bug here nor a stolen key can damage a backup or read
+ * one.
  *
  * Object versions are read through the S3 form (`GET /<bucket>?versions`),
  * which needs only the list capability this credential already holds — unlike
@@ -32,7 +34,8 @@ import type { DomainError } from '../../../lib/errors/index.js';
  * is the thing the published ceiling actually rests on.
  *
  * Bucket lifecycle rules are read through the S3 form
- * (`GET /<bucket>?lifecycle`), which B2 answers from its own native rules —
+ * (`GET /<bucket>?lifecycle`), which B2 grants only to `readBucketLifecycleRules`
+ * (`listFiles` does not cover it) and answers from its own native rules —
  * `NoncurrentVersionExpiration.NoncurrentDays` is how it states the
  * `daysFromHidingToDeleting` the retention promise rests on. A bucket carrying
  * no configuration answers 404 with `NoSuchLifecycleConfiguration`, which is a
@@ -49,6 +52,23 @@ const AUDIT_NETWORK = {
 } as const;
 
 const LIST_PAGE_LIMIT = 1000;
+
+/** A store's non-OK answer to one read, kept so the returned error can carry its status. */
+class StoreRefusal extends Error {
+  readonly status: number;
+
+  constructor(read: string, status: number) {
+    // The status and nothing else: a store's error body is text we did not
+    // write, bound for a channel that carries codes only.
+    super(`${read} returned ${String(status)}`);
+    this.name = 'StoreRefusal';
+    this.status = status;
+  }
+}
+
+function withStoreStatus(error: DomainError): BackupStoreError {
+  return error.cause instanceof StoreRefusal ? { ...error, status: error.cause.status } : error;
+}
 
 /** The B2 error code for a bucket that simply carries no lifecycle rules. */
 const NO_LIFECYCLE_CODE = 'NoSuchLifecycleConfiguration';
@@ -144,53 +164,59 @@ export function createBackupRepositoryReader(
   return {
     repositoryPrefix,
 
-    newestSnapshotAt(): ResultAsync<Date | null, DomainError> {
-      return runner.run(async (signal) => {
-        let cursor: string | undefined;
-        let newest: Date | null = null;
-        do {
-          const response = await aws.fetch(listUrl(cursor), { method: 'GET', signal });
+    newestSnapshotAt(): ResultAsync<Date | null, BackupStoreError> {
+      return runner
+        .run(async (signal) => {
+          let cursor: string | undefined;
+          let newest: Date | null = null;
+          do {
+            const response = await aws.fetch(listUrl(cursor), { method: 'GET', signal });
+            if (!response.ok) {
+              throw new StoreRefusal('backup snapshot listing', response.status);
+            }
+            const page = parseListObjectsV2Response(await response.text());
+            for (const object of page.objects) {
+              if (newest === null || object.uploaded > newest) newest = object.uploaded;
+            }
+            cursor = page.nextCursor;
+          } while (cursor !== undefined);
+          return newest;
+        })
+        .mapErr(withStoreStatus);
+    },
+
+    lifecycleRules(): ResultAsync<readonly BackupLifecycleRule[], BackupStoreError> {
+      return runner
+        .run(async (signal) => {
+          const response = await aws.fetch(`${bucketUrl}?lifecycle`, { method: 'GET', signal });
+          const body = await response.text();
+          if (response.status === 404 && extractTag(body, 'Code') === NO_LIFECYCLE_CODE) {
+            return [];
+          }
           if (!response.ok) {
-            // The status and nothing else: a store's error body is text we did
-            // not write, bound for a channel that carries codes only.
-            throw new Error(`backup snapshot listing returned ${String(response.status)}`);
+            throw new StoreRefusal('backup lifecycle read', response.status);
           }
-          const page = parseListObjectsV2Response(await response.text());
-          for (const object of page.objects) {
-            if (newest === null || object.uploaded > newest) newest = object.uploaded;
-          }
-          cursor = page.nextCursor;
-        } while (cursor !== undefined);
-        return newest;
-      });
+          return parseLifecycleConfigurationResponse(body);
+        })
+        .mapErr(withStoreStatus);
     },
 
-    lifecycleRules(): ResultAsync<readonly BackupLifecycleRule[], DomainError> {
-      return runner.run(async (signal) => {
-        const response = await aws.fetch(`${bucketUrl}?lifecycle`, { method: 'GET', signal });
-        const body = await response.text();
-        if (response.status === 404 && extractTag(body, 'Code') === NO_LIFECYCLE_CODE) {
-          return [];
-        }
-        if (!response.ok) {
-          throw new Error(`backup lifecycle read returned ${String(response.status)}`);
-        }
-        return parseLifecycleConfigurationResponse(body);
-      });
-    },
-
-    listObjectVersions(cursor?: BackupVersionCursor): ResultAsync<BackupVersionPage, DomainError> {
+    listObjectVersions(
+      cursor?: BackupVersionCursor
+    ): ResultAsync<BackupVersionPage, BackupStoreError> {
       // One page per call, so the retry policy re-draws the failed page rather
       // than the whole listing, and the caller keeps the page budget: how many
       // pages a pass may draw is a judgement about the auditor's cost, not
       // about how to talk to the store.
-      return runner.run(async (signal) => {
-        const response = await aws.fetch(versionsUrl(cursor), { method: 'GET', signal });
-        if (!response.ok) {
-          throw new Error(`backup version listing returned ${String(response.status)}`);
-        }
-        return parseListObjectVersionsResponse(await response.text());
-      });
+      return runner
+        .run(async (signal) => {
+          const response = await aws.fetch(versionsUrl(cursor), { method: 'GET', signal });
+          if (!response.ok) {
+            throw new StoreRefusal('backup version listing', response.status);
+          }
+          return parseListObjectVersionsResponse(await response.text());
+        })
+        .mapErr(withStoreStatus);
     },
   };
 }

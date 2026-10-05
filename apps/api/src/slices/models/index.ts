@@ -1,6 +1,7 @@
 export {
   buildSmartModelCandidates,
   buildTrialSmartModelCandidates,
+  callMaxPrice,
   createCatalogRefreshEntry,
   createEstimateRun,
   createModelPricingResolver,
@@ -11,6 +12,7 @@ export {
   findTierLockedModel,
   listAdminCatalog,
   listDescriptors,
+  maxPriceReachesAnchor,
   mediaTurnMinCostNanoUsd,
   modelDisplayOf,
   pickEffortClassifier,
@@ -18,6 +20,7 @@ export {
   priceUsageBillableNanoUsd,
   productionRefreshJitter,
   refreshCatalog,
+  reserveMediaBillableNanoUsd,
   resolveToolRegistry,
   smartModelMinimumNanoUsd,
   snapshotResolver,
@@ -26,6 +29,9 @@ export {
   trialMessageReserveNanoUsd,
   upsertCatalog,
 } from './domain/index.js';
+export { readExposedCatalog } from './domain/catalog/list-descriptors.js';
+export { CATALOG_REFRESH_JOB_TYPE } from './domain/catalog/refresh-job-declaration.js';
+export { createCatalogRefreshJobRegistration } from './domain/catalog/refresh-job.js';
 export { WEB_SEARCH_TOOL_NAME } from '@hushbox/shared';
 export { createModelsManifest } from './routes.js';
 export { MODELS_ROUTE_POSTURES } from './rate-limit-posture.js';

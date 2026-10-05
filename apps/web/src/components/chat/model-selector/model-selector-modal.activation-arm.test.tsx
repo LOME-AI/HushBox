@@ -67,7 +67,7 @@ function catalogRow(id: string, overrides: Partial<Model> = {}): Model {
     maxOutputTokens: 64_000,
     description: 'A probe model',
     supportedParameters: [],
-    pricing: { inputPerToken: '10', outputPerToken: '20' },
+    pricing: { anchorContextTokens: 1_000_000, inputPerToken: '10', outputPerToken: '20' },
     popularityRank: 1,
     ...overrides,
   };

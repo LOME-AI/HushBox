@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { SMART_MODEL_ID } from '@hushbox/shared';
 import {
+  askedModelId,
   canRegenerateMessage,
   buildMessagesForRegeneration,
   inferRegenerateModality,
@@ -678,5 +680,20 @@ describe('inferRegenerateModality', () => {
     ];
 
     expect(inferRegenerateModality('u1', messages)).toBe('text');
+  });
+});
+
+describe('askedModelId', () => {
+  it('reads a Smart Model reply as Smart Model, not the model it resolved to', () => {
+    expect(askedModelId({ modelName: 'openai/gpt-5', isSmartModel: true })).toBe(SMART_MODEL_ID);
+  });
+
+  it("reads any other reply as its own model's id", () => {
+    expect(askedModelId({ modelName: 'openai/gpt-5' })).toBe('openai/gpt-5');
+  });
+
+  it('reads a reply that names no model as none', () => {
+    expect(askedModelId({ modelName: null })).toBeUndefined();
+    expect(askedModelId({ modelName: '' })).toBeUndefined();
   });
 });

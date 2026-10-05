@@ -62,6 +62,17 @@ export interface InferOptions {
    * download bounded solely by the provider/SDK default.
    */
   readonly downloadByteCap?: number;
+  /**
+   * The run's spend gate, asked inside a tool loop: before each step after the
+   * first, with every completed step's inline cost in USD (absent where a step
+   * reported none), and before each tool call executes. A refused step ends the
+   * loop with its finish; a refused tool call runs nothing and gets no result
+   * and no error. Absent asks nothing, and a call with no loop never asks.
+   */
+  readonly continuation?: {
+    mayStartNextStep(completedStepCostsUsd: readonly (number | undefined)[]): boolean;
+    mayExecuteTool(): boolean;
+  };
 }
 
 /**

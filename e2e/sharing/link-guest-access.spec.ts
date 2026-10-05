@@ -10,7 +10,7 @@ import { expectDelegatedBudget } from '../helpers/exact-money.js';
 import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-link.js';
 import {
   expectSharedConversationLoaded,
-  expectSendInputDisabled,
+  expectGuestBar,
   expectReadOnlyNotice,
   expectDelegatedBudgetNotice,
 } from '../helpers/link-assertions.js';
@@ -65,7 +65,7 @@ test.describe('Link Guest Access', SPEC_MATRIX, () => {
       await guestChatPage.assertMessageVisible('Hello from Alice', { timeout: TIMEOUTS.ASSERT });
       await guestChatPage.assertMessageVisible('Hi from Bob');
 
-      await expectSendInputDisabled(unauthenticatedPage);
+      await expectGuestBar(unauthenticatedPage, { signedIn: false });
       await expectReadOnlyNotice(unauthenticatedPage);
     });
 
@@ -172,7 +172,7 @@ test.describe('Link Guest Access', SPEC_MATRIX, () => {
         timeout: TIMEOUTS.ASSERT,
       });
 
-      await expectSendInputDisabled(unauthenticatedPage);
+      await expectGuestBar(unauthenticatedPage, { signedIn: false });
       await expectReadOnlyNotice(unauthenticatedPage);
     });
 

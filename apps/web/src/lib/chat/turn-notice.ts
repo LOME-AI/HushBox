@@ -9,6 +9,7 @@ import {
   rateLimitedMessage,
   retryAfterSecondsOf,
   type MessageSegment,
+  type Notice,
   type UserFacingMessage,
 } from '@hushbox/shared';
 
@@ -17,7 +18,7 @@ export interface TurnNotice {
   readonly cause: string;
   /** A segment carrying `link` renders as an inline link to that route. */
   readonly action: readonly MessageSegment[];
-  readonly clears: 'on_its_own' | 'when_the_user_acts';
+  readonly clears: NonNullable<Notice['blockClears']>;
   readonly regenerate: 'offered' | 'withheld';
 }
 

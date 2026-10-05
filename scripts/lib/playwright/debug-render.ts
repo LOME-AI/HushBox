@@ -330,6 +330,20 @@ function renderRamRootLine(peakBytes: number | null, workers: number | undefined
   );
 }
 
+/**
+ * The RAM filesystem's peak use against its size. It counts every occupant, so
+ * it is what a full filesystem shows, where the root's line is what this run's
+ * files hold.
+ */
+function renderRamFilesystemLine(peak: ResourceSummary['ramFilesystemPeak']): string {
+  const label = '**RAM filesystem holding the E2E RAM root, peak use:**';
+  if (peak === undefined) return `${label} ${NOT_MEASURED}`;
+  return (
+    `${label} ${mebibytes(peak.usedBytes)} of its ${mebibytes(peak.sizeBytes)} ` +
+    '(every occupant, files unlinked but still open included)'
+  );
+}
+
 export function renderResourceSection(resources?: ResourceReport): string[] {
   if (!resources) return [];
   const { summary, scan } = resources;
@@ -358,7 +372,9 @@ export function renderResourceSection(resources?: ResourceReport): string[] {
     '',
     renderDStateLine(summary.dStateWaits),
     '',
-    renderRamRootLine(summary.ramRootPeakBytes, resources.workers)
+    renderRamRootLine(summary.ramRootPeakBytes, resources.workers),
+    '',
+    renderRamFilesystemLine(summary.ramFilesystemPeak)
   );
 
   if (scan.totalHits > 0) {

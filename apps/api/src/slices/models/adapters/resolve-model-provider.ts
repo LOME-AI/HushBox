@@ -2,13 +2,13 @@ import path from 'node:path';
 import { recordServiceEvidence, SERVICE_NAMES } from '@hushbox/db';
 import { CASSETTE_DIRECTORY } from '@hushbox/shared/cassettes';
 import { createModelProvider } from './dispatch.js';
-import { createMockModelProvider } from './mock-provider.js';
+import { createMockModelProvider, refusingBelowAnchor } from './mock-provider.js';
 import { createCassetteFetch } from './cassette/recording-fetch.js';
 import { createCassetteStore } from './cassette/cassette-store.js';
 import { cassetteModeFor } from './cassette/mode.js';
 import type { CassetteStore } from './cassette/cassette-store.js';
 import type { CreateModelProviderOptions } from './dispatch.js';
-import type { MockDirectives } from './mock-provider.js';
+import type { MaxPriceReachesAnchor, MockDirectives } from './mock-provider.js';
 import type { ModelProvider } from '../ports/index.js';
 import type { Database } from '@hushbox/db';
 import type { InferenceEvent } from '@hushbox/shared';
@@ -74,6 +74,13 @@ interface ResolveModelProviderInput {
    * default. Ignored on the real paths.
    */
   readonly isDevServer?: boolean;
+  /**
+   * The gateway's price comparison the mock refuses by: whether a call's cap
+   * admits the model's cheapest endpoint. Injected by the caller, which can
+   * reach the un-bake an adapter cannot. Unused on the real paths, where the
+   * gateway compares for itself.
+   */
+  readonly maxPriceReachesAnchor: MaxPriceReachesAnchor;
 }
 
 /** Test seams: a fake provider factory and a fake cassette store, so the real paths are unit-testable without a live call. */
@@ -121,10 +128,9 @@ export function resolveModelProvider(
   const createProvider = internals.createProvider ?? createModelProvider;
 
   if (input.useMock) {
-    return createMockModelProvider(
-      input.mockDirectives,
-      input.awaitStreamRelease,
-      input.isDevServer
+    return refusingBelowAnchor(
+      createMockModelProvider(input.mockDirectives, input.awaitStreamRelease, input.isDevServer),
+      input.maxPriceReachesAnchor
     );
   }
 

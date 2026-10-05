@@ -9,6 +9,7 @@ import {
   splitAspectRatios,
 } from '@/components/chat/media/generation-settings-popover';
 import { RatioChip } from '@/components/chat/media/ratio-chip';
+import { VideoSettingsChip } from '@/components/chat/media/video-settings-chip';
 import type { UseModelsStub } from '@/test-utils/models-hook-stub';
 import type { MediaDimensionAvailability, Model } from '@hushbox/shared';
 
@@ -373,6 +374,199 @@ describe('GenerationSettingsPopover', () => {
     it('still offers the grid', async () => {
       const sheet = await openPopover();
       expect(tileNames(sheet)).toEqual([...COMMON_ASPECT_RATIOS, 'Auto', '7 more']);
+    });
+  });
+});
+
+const VIDEO_MODEL_ID = 'fictional/video';
+
+function videoModel(): Model {
+  return {
+    id: VIDEO_MODEL_ID,
+    name: 'Video',
+    provider: 'Fictional',
+    description: 'Video generation model.',
+    modality: 'video',
+    contextLength: 0,
+    supportedParameters: [],
+    supportedAspectRatios: ['16:9', '9:16'],
+    supportedVideoResolutions: ['720p', '1080p'],
+    supportedVideoDurationsSeconds: [4, 6, 8],
+    pricing: {
+      perSecondByResolution: { '720p': '100000000', '1080p': '150000000' },
+      dearestPerSecondByResolution: { '720p': '100000000', '1080p': '150000000' },
+    },
+  } satisfies Model;
+}
+
+function selectVideoModel(): void {
+  modelStoreStubRef.current = createModelStoreStub({
+    activeModality: 'video',
+    videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+    selections: {
+      text: [],
+      image: [],
+      audio: [],
+      video: [{ id: VIDEO_MODEL_ID, name: 'Video' }],
+    },
+  });
+}
+
+async function openVideoPopover(options: OpenOptions = {}): Promise<HTMLElement> {
+  render(
+    <GenerationSettingsPopover
+      modality="video"
+      trigger={<VideoSettingsChip />}
+      anchor={{ current: null }}
+      {...(options.dimensions !== undefined && { dimensions: options.dimensions })}
+      {...(options.sendRefusal !== undefined && { sendRefusal: options.sendRefusal })}
+    />
+  );
+  await userEvent.click(screen.getByRole('button', { name: /^Video settings:/ }));
+  return screen.getByRole('dialog', { name: 'Video settings' });
+}
+
+describe('GenerationSettingsPopover for a video turn', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useCatalog([videoModel()]);
+    selectVideoModel();
+  });
+
+  it('opens from its chip as a dialog named Video settings', async () => {
+    const popover = await openVideoPopover();
+    expect(popover).toBeInTheDocument();
+  });
+
+  it('marks its chip open while it is open', async () => {
+    await openVideoPopover();
+    expect(screen.getByRole('button', { name: /^Video settings:/ })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+  });
+
+  it('heads the anchored popover with the Video settings title', async () => {
+    const popover = await openVideoPopover();
+    expect(within(popover).getByRole('heading', { name: 'Video settings' })).toBeInTheDocument();
+  });
+
+  it('holds the aspect ratio pills under their heading', async () => {
+    const popover = await openVideoPopover();
+    expect(within(popover).getByRole('heading', { name: 'Aspect ratio' })).toBeInTheDocument();
+    const ratios = within(popover).getByRole('group', { name: 'Aspect ratio' });
+    expect(within(ratios).getByRole('button', { name: '16:9' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(within(ratios).getByRole('button', { name: '9:16' })).toBeInTheDocument();
+  });
+
+  it('holds the resolution pills under their heading', async () => {
+    const popover = await openVideoPopover();
+    expect(within(popover).getByRole('heading', { name: 'Resolution' })).toBeInTheDocument();
+    const resolutions = within(popover).getByRole('group', { name: 'Resolution' });
+    expect(within(resolutions).getByRole('button', { name: '720p' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(within(resolutions).getByRole('button', { name: '1080p' })).toBeInTheDocument();
+  });
+
+  it('holds the duration slider under its heading, over the durations the model offers', async () => {
+    const popover = await openVideoPopover();
+    expect(within(popover).getByRole('heading', { name: 'Duration' })).toBeInTheDocument();
+    const slider = within(popover).getByRole('slider', { name: 'Video duration in seconds' });
+    expect(slider).toHaveAttribute('min', '4');
+    expect(slider).toHaveAttribute('max', '8');
+    for (const seconds of [4, 6, 8]) {
+      expect(
+        within(popover).getByRole('button', { name: `Set duration to ${String(seconds)} seconds` })
+      ).toBeInTheDocument();
+    }
+  });
+
+  it('sets the duration from a tick on the slider', async () => {
+    const popover = await openVideoPopover();
+    await userEvent.click(
+      within(popover).getByRole('button', { name: 'Set duration to 6 seconds' })
+    );
+    expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({ durationSeconds: 6 });
+  });
+
+  it('chooses a ratio for the video turn', async () => {
+    const popover = await openVideoPopover();
+    await userEvent.click(within(popover).getByRole('button', { name: '9:16' }));
+    expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({ aspectRatio: '9:16' });
+  });
+
+  it('chooses a resolution for the video turn', async () => {
+    const popover = await openVideoPopover();
+    await userEvent.click(within(popover).getByRole('button', { name: '1080p' }));
+    expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({ resolution: '1080p' });
+  });
+
+  it('draws no image ratio grid', async () => {
+    const popover = await openVideoPopover();
+    expect(within(popover).queryByRole('button', { name: /^\d+ more$/u })).not.toBeInTheDocument();
+    expect(within(popover).queryByRole('button', { name: 'Auto' })).not.toBeInTheDocument();
+  });
+
+  it('greys a duration the payer cannot afford, with its reason', async () => {
+    const popover = await openVideoPopover({
+      dimensions: [
+        {
+          dimensionId: 'durationSeconds',
+          options: [
+            { optionId: '4', label: '4s', availability: { available: true } },
+            { optionId: '6', label: '6s', availability: { available: true } },
+            {
+              optionId: '8',
+              label: '8s',
+              availability: { available: false, reason: 'insufficient_funds' },
+            },
+          ],
+        },
+      ],
+    });
+    const refused = within(popover).getByRole('button', { name: 'Set duration to 8 seconds' });
+    expect(refused).toHaveAttribute('aria-disabled', 'true');
+    expect(within(popover).getByText(noticeText('insufficient_funds'))).toBeInTheDocument();
+  });
+
+  it('says once that the send could not be checked, in place of the controls', async () => {
+    const popover = await openVideoPopover({ sendRefusal: 'send_check_unavailable' });
+    const spoken = within(popover)
+      .getAllByRole('status')
+      .filter((region) => region.textContent === noticeText('send_check_unavailable'));
+    expect(spoken).toHaveLength(1);
+    expect(within(popover).queryByRole('slider')).not.toBeInTheDocument();
+    expect(within(popover).queryByRole('group', { name: 'Resolution' })).not.toBeInTheDocument();
+  });
+
+  it('shows the estimated cost with its estimate note', async () => {
+    const popover = await openVideoPopover();
+    const cost = within(popover).getByText('Cost').parentElement;
+    expect(cost).toHaveTextContent(/≈ \$0\.\d{3}\(estimate\)/u);
+  });
+
+  describe('below 768px', () => {
+    beforeEach(() => {
+      installPhoneViewport();
+    });
+
+    it('is a sheet titled Video settings, with its own close', async () => {
+      const sheet = await openVideoPopover();
+      expect(within(sheet).getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    });
+
+    it('still holds the ratio, resolution and duration controls', async () => {
+      const sheet = await openVideoPopover();
+      expect(within(sheet).getByRole('group', { name: 'Aspect ratio' })).toBeInTheDocument();
+      expect(within(sheet).getByRole('group', { name: 'Resolution' })).toBeInTheDocument();
+      expect(
+        within(sheet).getByRole('slider', { name: 'Video duration in seconds' })
+      ).toBeInTheDocument();
     });
   });
 });

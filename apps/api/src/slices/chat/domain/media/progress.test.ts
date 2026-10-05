@@ -22,6 +22,7 @@ import {
   VIDEO_EXPECTED_GENERATION_MULTIPLIER,
   createVideoProgressEmitter,
 } from './progress.js';
+import { callMaxPrice } from '../../../models/index.js';
 import type {
   FlowStreamEvent,
   InferenceEvent,
@@ -372,6 +373,8 @@ describe('video progress over a live engine run', () => {
     ports: { in: [textTag()], out: VIDEO_TAG },
     price: () => ok(5n),
     priceMedia: () => ok(70n),
+    reserveMedia: () => ok(70n),
+    maxPrice: (bound) => callMaxPrice(VIDEO_DESCRIPTOR.pricing, bound),
   };
 
   function fakeTelemetry(): Telemetry {
@@ -453,7 +456,7 @@ describe('video progress over a live engine run', () => {
               costCircuitLimitNanoUsd: 1_000_000n,
             },
           }),
-        settlement: () => Promise.resolve(),
+        settlement: () => Promise.resolve({ billed: [] }),
       },
       runKey: 'run-key',
       emit: progress.emit,

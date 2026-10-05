@@ -1274,7 +1274,7 @@ export function createChatSettlementCommit(deps: ChatSettlementDeps): Settlement
         contentItemIdFor: (key) => contentItemIdByKey.get(key),
       },
     });
-    await charging(tx, settled);
+    const billed = await charging(tx, settled);
     // Stamp the conversation onto every usage record of this run (keyed by
     // runId) so per-conversation spend analytics can group by it. Runs for all
     // turn shapes — solo and group — where `chargeWithinTx`'s group-only
@@ -1284,5 +1284,6 @@ export function createChatSettlementCommit(deps: ChatSettlementDeps): Settlement
       deps.identity.runId,
       deps.identity.conversationId
     );
+    return billed;
   };
 }

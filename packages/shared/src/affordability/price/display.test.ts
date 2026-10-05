@@ -31,6 +31,7 @@ function wireRow(overrides: Partial<Model>): Model {
 
 const TIERED_ROW = wireRow({
   pricing: {
+    anchorContextTokens: 1_000_000,
     inputPerToken: '3450',
     outputPerToken: '17250',
     longContextRates: [
@@ -65,7 +66,9 @@ describe('modelPriceDisplay of a text row', () => {
   });
 
   it('lists no long-context rate for an untiered row', () => {
-    const row = wireRow({ pricing: { inputPerToken: '3450', outputPerToken: '17250' } });
+    const row = wireRow({
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '3450', outputPerToken: '17250' },
+    });
 
     expect(modelPriceDisplay(row).longContext).toEqual([]);
   });
@@ -83,13 +86,17 @@ describe('modelPriceDisplay of a text row', () => {
   });
 
   it('flags a row whose base rates reach $0.10 per 1k tokens together as expensive', () => {
-    const row = wireRow({ pricing: { inputPerToken: '30000', outputPerToken: '70000' } });
+    const row = wireRow({
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '30000', outputPerToken: '70000' },
+    });
 
     expect(modelPriceDisplay(row).expensive).toBe(true);
   });
 
   it('leaves a row one nano per token under that threshold unflagged', () => {
-    const row = wireRow({ pricing: { inputPerToken: '30000', outputPerToken: '69999' } });
+    const row = wireRow({
+      pricing: { anchorContextTokens: 1_000_000, inputPerToken: '30000', outputPerToken: '69999' },
+    });
 
     expect(modelPriceDisplay(row).expensive).toBe(false);
   });
@@ -97,6 +104,7 @@ describe('modelPriceDisplay of a text row', () => {
   it('judges the threshold on base rates even when a long-context rate reaches it', () => {
     const row = wireRow({
       pricing: {
+        anchorContextTokens: 1_000_000,
         inputPerToken: '3450',
         outputPerToken: '17250',
         longContextRates: [
@@ -110,7 +118,9 @@ describe('modelPriceDisplay of a text row', () => {
 });
 
 describe('modelPriceDisplay of a row with no price', () => {
-  const unpriced = modelPriceDisplay(wireRow({ pricing: { inputPerToken: '3450' } }));
+  const unpriced = modelPriceDisplay(
+    wireRow({ pricing: { anchorContextTokens: 1_000_000, inputPerToken: '3450' } })
+  );
 
   it('shows no rate', () => {
     expect([unpriced.inputPer1k, unpriced.outputPer1k]).toEqual([undefined, undefined]);
@@ -241,8 +251,69 @@ describe('smartPoolRange', () => {
     });
   });
 
-  it('takes each base rate’s maximum across the pool, never a long-context rate', () => {
+  it('takes the minimum from base rates when a pool model is tiered', () => {
+    const cheapTiered = tokenPricingFixture({
+      input: 100n,
+      output: 900n,
+      tiers: [{ abovePromptTokens: 200_000, input: 150n, output: 950n }],
+    });
+
+    expect(smartPoolRange([cheapTiered, dear]).minPricing).toEqual({
+      inputPerToken: '100',
+      outputPerToken: '500',
+    });
+  });
+
+  it('takes the maximum from a long-context rate when that is the dearest in the pool’s anchor schedules', () => {
     expect(smartPoolRange([cheap, dear]).maxPricing).toEqual({
+      inputPerToken: '9000',
+      outputPerToken: '9000',
+    });
+  });
+
+  it('takes the maximum from a base rate when no long-context rate exceeds it', () => {
+    const untieredDear = tokenPricingFixture({ input: 20_000n, output: 30_000n });
+
+    expect(smartPoolRange([untieredDear, dear]).maxPricing).toEqual({
+      inputPerToken: '20000',
+      outputPerToken: '30000',
+    });
+  });
+
+  it('takes the maximum from the dearest of several long-context tiers', () => {
+    const twoTiers = tokenPricingFixture({
+      input: 400n,
+      output: 500n,
+      tiers: [
+        { abovePromptTokens: 200_000, input: 1000n, output: 1000n },
+        { abovePromptTokens: 500_000, input: 5000n, output: 6000n },
+      ],
+    });
+
+    expect(smartPoolRange([cheap, twoTiers]).maxPricing).toEqual({
+      inputPerToken: '5000',
+      outputPerToken: '6000',
+    });
+  });
+
+  it('takes the maximum leg by leg, so a tier and a base rate can bound one row', () => {
+    const dearInputTier = tokenPricingFixture({
+      input: 100n,
+      output: 500n,
+      tiers: [{ abovePromptTokens: 200_000, input: 9000n, output: 600n }],
+    });
+    const dearOutputBase = tokenPricingFixture({ input: 400n, output: 20_000n });
+
+    expect(smartPoolRange([dearInputTier, dearOutputBase]).maxPricing).toEqual({
+      inputPerToken: '9000',
+      outputPerToken: '20000',
+    });
+  });
+
+  it('takes an untiered pool’s maximum from its base rates, leg by leg', () => {
+    const mid = tokenPricingFixture({ input: 400n, output: 500n });
+
+    expect(smartPoolRange([cheap, mid]).maxPricing).toEqual({
       inputPerToken: '400',
       outputPerToken: '900',
     });

@@ -75,6 +75,7 @@ function sendableAt(
       modality: 'text',
       pinned: {},
       webSearch,
+      effortAuto: true,
     },
     { models: pool, nowMs: PREMIUM_RECENCY_MS }
   ).admissible.sendable;
@@ -138,6 +139,7 @@ describe('smartSlotMinTurnCostNanoUsd', () => {
         modality: 'text',
         pinned: {},
         webSearch: false,
+        effortAuto: true,
       },
       { models: pool, nowMs: PREMIUM_RECENCY_MS }
     ).admissible;

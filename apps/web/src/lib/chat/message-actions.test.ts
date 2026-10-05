@@ -4,6 +4,7 @@ import {
   resolveMessageActions,
   buildChatContext,
   regenerateRefusalOf,
+  rerunGateScope,
   type MessageAction,
   type ChatContext,
   type MessageContext,
@@ -72,6 +73,7 @@ function makeMessage(
     senderId: string;
     parentMessageId: string | null;
     awaitingStoredRow: true;
+    unsavedQuestion: true;
   }> = {}
 ): MessageContext['message'] {
   const base: MessageContext['message'] = {
@@ -88,6 +90,9 @@ function makeMessage(
   if (overrides.awaitingStoredRow !== undefined) {
     base.awaitingStoredRow = overrides.awaitingStoredRow;
   }
+  if (overrides.unsavedQuestion !== undefined) {
+    base.unsavedQuestion = overrides.unsavedQuestion;
+  }
   return base;
 }
 
@@ -99,6 +104,7 @@ function makeMsgContext(
       senderId: string;
       parentMessageId: string | null;
       awaitingStoredRow: true;
+      unsavedQuestion: true;
     }>;
     isStreaming?: boolean;
     isError?: boolean;
@@ -196,6 +202,262 @@ describe('buildChatContext', () => {
       currentUserId: 'user-1',
       isGroupChat: false,
     });
+  });
+
+  describe('a message-link reader', () => {
+    const readRow: ChatContext = {
+      mode: 'link-guest',
+      privilege: 'read',
+      currentUserId: undefined,
+      isGroupChat: false,
+    };
+
+    it('takes the read-only link row when signed out', () => {
+      const ctx = buildChatContext({
+        isAuthenticated: false,
+        isLinkGuest: false,
+        isMessageLink: true,
+        privilege: undefined,
+        currentUserId: undefined,
+        isGroupChat: false,
+      });
+
+      expect(ctx).toEqual(readRow);
+    });
+
+    it('takes the read-only link row when signed in', () => {
+      const ctx = buildChatContext({
+        isAuthenticated: true,
+        isLinkGuest: false,
+        isMessageLink: true,
+        privilege: undefined,
+        currentUserId: 'reader-1',
+        isGroupChat: false,
+      });
+
+      expect(ctx).toEqual(readRow);
+    });
+
+    it('takes the read-only link row whatever privilege or group the caller names', () => {
+      const ctx = buildChatContext({
+        isAuthenticated: true,
+        isLinkGuest: true,
+        isMessageLink: true,
+        privilege: 'owner',
+        currentUserId: 'reader-1',
+        isGroupChat: true,
+      });
+
+      expect(ctx).toEqual(readRow);
+    });
+
+    it('is offered Copy alone on a reply when signed in', () => {
+      const ctx = buildChatContext({
+        isAuthenticated: true,
+        isLinkGuest: false,
+        isMessageLink: true,
+        privilege: undefined,
+        currentUserId: 'reader-1',
+        isGroupChat: false,
+      });
+
+      const actions = resolveMessageActions(
+        ctx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy']);
+    });
+
+    it('is offered Copy alone on a reply when signed out', () => {
+      const ctx = buildChatContext({
+        isAuthenticated: false,
+        isLinkGuest: false,
+        isMessageLink: true,
+        privilege: undefined,
+        currentUserId: undefined,
+        isGroupChat: false,
+      });
+
+      const actions = resolveMessageActions(
+        ctx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy']);
+    });
+  });
+
+  describe('every other viewer resolves as it did without the message-link flag', () => {
+    const viewers: {
+      viewer: string;
+      options: Omit<Parameters<typeof buildChatContext>[0], 'isMessageLink'>;
+      context: ChatContext;
+    }[] = [
+      {
+        viewer: 'a solo owner',
+        options: {
+          isAuthenticated: true,
+          isLinkGuest: false,
+          privilege: 'owner',
+          currentUserId: 'user-1',
+          isGroupChat: false,
+        },
+        context: { mode: 'solo', privilege: 'owner', currentUserId: 'user-1', isGroupChat: false },
+      },
+      {
+        viewer: 'a group member who may write',
+        options: {
+          isAuthenticated: true,
+          isLinkGuest: false,
+          privilege: 'write',
+          currentUserId: 'user-1',
+          isGroupChat: true,
+        },
+        context: { mode: 'group', privilege: 'write', currentUserId: 'user-1', isGroupChat: true },
+      },
+      {
+        viewer: 'a group member who may only read',
+        options: {
+          isAuthenticated: true,
+          isLinkGuest: false,
+          privilege: 'read',
+          currentUserId: 'user-1',
+          isGroupChat: true,
+        },
+        context: { mode: 'group', privilege: 'read', currentUserId: 'user-1', isGroupChat: true },
+      },
+      {
+        viewer: 'a write-link guest',
+        options: {
+          isAuthenticated: false,
+          isLinkGuest: true,
+          privilege: 'write',
+          currentUserId: 'guest-1',
+          isGroupChat: true,
+        },
+        context: {
+          mode: 'link-guest',
+          privilege: 'write',
+          currentUserId: 'guest-1',
+          isGroupChat: true,
+        },
+      },
+      {
+        viewer: 'a read-link guest',
+        options: {
+          isAuthenticated: false,
+          isLinkGuest: true,
+          privilege: 'read',
+          currentUserId: 'guest-1',
+          isGroupChat: true,
+        },
+        context: {
+          mode: 'link-guest',
+          privilege: 'read',
+          currentUserId: 'guest-1',
+          isGroupChat: true,
+        },
+      },
+      {
+        viewer: 'a trial visitor',
+        options: {
+          isAuthenticated: false,
+          isLinkGuest: false,
+          privilege: undefined,
+          currentUserId: undefined,
+          isGroupChat: false,
+        },
+        context: {
+          mode: 'trial',
+          privilege: undefined,
+          currentUserId: undefined,
+          isGroupChat: false,
+        },
+      },
+    ];
+
+    it.each(viewers)('$viewer keeps their row when the flag is false', ({ options, context }) => {
+      expect(buildChatContext({ ...options, isMessageLink: false })).toEqual(context);
+    });
+
+    it.each(viewers)('$viewer keeps their row when the flag is absent', ({ options, context }) => {
+      expect(buildChatContext(options)).toEqual(context);
+    });
+  });
+});
+
+describe('rerunGateScope', () => {
+  const rows: { row: string; context: ChatContext; grants: boolean }[] = [
+    {
+      row: 'solo owner',
+      context: { mode: 'solo', privilege: 'owner', currentUserId: 'u', isGroupChat: false },
+      grants: true,
+    },
+    {
+      row: 'group owner',
+      context: { mode: 'group', privilege: 'owner', currentUserId: 'u', isGroupChat: true },
+      grants: true,
+    },
+    {
+      row: 'group admin',
+      context: { mode: 'group', privilege: 'admin', currentUserId: 'u', isGroupChat: true },
+      grants: true,
+    },
+    {
+      row: 'group write',
+      context: { mode: 'group', privilege: 'write', currentUserId: 'u', isGroupChat: true },
+      grants: true,
+    },
+    {
+      row: 'group read',
+      context: { mode: 'group', privilege: 'read', currentUserId: 'u', isGroupChat: true },
+      grants: false,
+    },
+    {
+      row: 'trial',
+      context: {
+        mode: 'trial',
+        privilege: undefined,
+        currentUserId: undefined,
+        isGroupChat: false,
+      },
+      grants: true,
+    },
+    {
+      row: 'link-guest write',
+      context: { mode: 'link-guest', privilege: 'write', currentUserId: 'g', isGroupChat: false },
+      grants: false,
+    },
+    {
+      row: 'link-guest read',
+      context: { mode: 'link-guest', privilege: 'read', currentUserId: 'g', isGroupChat: false },
+      grants: false,
+    },
+  ];
+
+  it.each(rows.filter((r) => r.grants))(
+    'prices a re-run on the $row row against the conversation and the privilege',
+    ({ context }) => {
+      expect(rerunGateScope(context, 'conv-1', 'write')).toEqual({
+        conversationId: 'conv-1',
+        currentUserPrivilege: 'write',
+      });
+    }
+  );
+
+  it.each(rows.filter((r) => !r.grants))('grants no re-run on the $row row', ({ context }) => {
+    expect(rerunGateScope(context, 'conv-1', 'read')).toBeUndefined();
+  });
+
+  it('names nothing the caller does not hold', () => {
+    const solo: ChatContext = {
+      mode: 'solo',
+      privilege: 'owner',
+      currentUserId: 'u',
+      isGroupChat: false,
+    };
+    expect(rerunGateScope(solo)).toEqual({});
   });
 });
 
@@ -495,44 +757,40 @@ describe('resolveMessageActions', () => {
   });
 
   describe('link-guest (write privilege)', () => {
+    // A write-link guest sends through the guest chat route; every re-run and fork route accepts
+    // signed-in members only, so Copy is the one action the guest can complete on a message.
     const linkWriteCtx: ChatContext = {
       mode: 'link-guest',
       privilege: 'write',
       currentUserId: 'guest-1',
-      isGroupChat: false,
+      isGroupChat: true,
     };
 
-    it('shows copy, regenerate, fork on AI message (no share)', () => {
+    it('offers Copy alone on a reply', () => {
       const actions = resolveMessageActions(
         linkWriteCtx,
         makeMsgContext({ message: { role: 'assistant' } })
       );
 
-      expect(actions.has('copy')).toBe(true);
-      expect(actions.has('regenerate')).toBe(true);
-      expect(actions.has('fork')).toBe(true);
-      expect(actions.has('share')).toBe(false);
+      expect(actionsArray(actions)).toEqual(['copy']);
     });
 
-    it('shows copy, retry, edit on own user message (no fork)', () => {
+    it('offers Copy alone on its own question', () => {
       const actions = resolveMessageActions(
         linkWriteCtx,
         makeMsgContext({ message: { role: 'user', senderId: 'guest-1' } })
       );
 
-      expect(actions.has('copy')).toBe(true);
-      expect(actions.has('retry')).toBe(true);
-      expect(actions.has('edit')).toBe(true);
-      expect(actions.has('fork')).toBe(false);
+      expect(actionsArray(actions)).toEqual(['copy']);
     });
 
-    it('keeps regenerate available on errored AI message (link-guest write)', () => {
+    it('offers Copy alone on an errored reply', () => {
       const actions = resolveMessageActions(
         linkWriteCtx,
         makeMsgContext({ message: { role: 'assistant' }, isError: true })
       );
 
-      expect(actions.has('regenerate')).toBe(true);
+      expect(actionsArray(actions)).toEqual(['copy']);
     });
   });
 
@@ -581,6 +839,88 @@ describe('resolveMessageActions', () => {
     });
   });
 
+  describe('the full action set each row offers', () => {
+    const rows: {
+      row: string;
+      context: ChatContext;
+      reply: MessageAction[];
+      ownQuestion: MessageAction[];
+    }[] = [
+      {
+        row: 'solo owner',
+        context: { mode: 'solo', privilege: 'owner', currentUserId: 'me', isGroupChat: false },
+        reply: ['copy', 'fork', 'regenerate', 'share'],
+        ownQuestion: ['copy', 'edit', 'retry'],
+      },
+      {
+        row: 'group owner',
+        context: { mode: 'group', privilege: 'owner', currentUserId: 'me', isGroupChat: true },
+        reply: ['copy', 'fork', 'regenerate', 'share'],
+        ownQuestion: ['copy', 'edit', 'retry'],
+      },
+      {
+        row: 'group admin',
+        context: { mode: 'group', privilege: 'admin', currentUserId: 'me', isGroupChat: true },
+        reply: ['copy', 'fork', 'regenerate', 'share'],
+        ownQuestion: ['copy', 'edit', 'retry'],
+      },
+      {
+        row: 'group write',
+        context: { mode: 'group', privilege: 'write', currentUserId: 'me', isGroupChat: true },
+        reply: ['copy', 'fork', 'regenerate', 'share'],
+        ownQuestion: ['copy', 'edit', 'retry'],
+      },
+      {
+        row: 'group read',
+        context: { mode: 'group', privilege: 'read', currentUserId: 'me', isGroupChat: true },
+        reply: ['copy'],
+        ownQuestion: ['copy'],
+      },
+      {
+        row: 'trial',
+        context: {
+          mode: 'trial',
+          privilege: undefined,
+          currentUserId: undefined,
+          isGroupChat: false,
+        },
+        reply: ['copy', 'regenerate'],
+        ownQuestion: ['copy', 'edit', 'retry'],
+      },
+      {
+        row: 'link-guest write',
+        context: { mode: 'link-guest', privilege: 'write', currentUserId: 'me', isGroupChat: true },
+        reply: ['copy'],
+        ownQuestion: ['copy'],
+      },
+      {
+        row: 'link-guest read',
+        context: { mode: 'link-guest', privilege: 'read', currentUserId: 'me', isGroupChat: true },
+        reply: ['copy'],
+        ownQuestion: ['copy'],
+      },
+    ];
+
+    it.each(rows)(
+      'the $row row offers its reply and own-question actions',
+      ({ context, reply, ownQuestion }) => {
+        const onReply = resolveMessageActions(
+          context,
+          makeMsgContext({ message: { role: 'assistant' } })
+        );
+        const onOwnQuestion = resolveMessageActions(
+          context,
+          makeMsgContext({ message: { role: 'user', senderId: 'me' } })
+        );
+
+        expect({ reply: actionsArray(onReply), ownQuestion: actionsArray(onOwnQuestion) }).toEqual({
+          reply,
+          ownQuestion,
+        });
+      }
+    );
+  });
+
   describe("a watcher's tile waiting for its stored row", () => {
     const groupWriteCtx: ChatContext = {
       mode: 'group',
@@ -605,6 +945,30 @@ describe('resolveMessageActions', () => {
       );
 
       expect(actionsArray(actions)).toEqual(['copy', 'fork', 'regenerate', 'share']);
+    });
+  });
+
+  describe("a failed turn's question drawn from its record", () => {
+    const soloCtx: ChatContext = {
+      mode: 'solo',
+      privilege: 'owner',
+      currentUserId: 'user-1',
+      isGroupChat: false,
+    };
+
+    it('offers Copy and nothing else', () => {
+      const actions = resolveMessageActions(
+        soloCtx,
+        makeMsgContext({ message: { role: 'user', unsavedQuestion: true } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy']);
+    });
+
+    it('leaves a stored question its usual actions', () => {
+      const actions = resolveMessageActions(soloCtx, makeMsgContext({ message: { role: 'user' } }));
+
+      expect(actionsArray(actions)).toEqual(['copy', 'edit', 'retry']);
     });
   });
 

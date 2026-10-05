@@ -40,29 +40,39 @@ end
 `;
 
 /**
- * Atomic admission check-and-add over the HOLDS state only.
+ * Atomic admission check-and-add over the HOLDS state, gated on the snapshot
+ * the balance was priced from.
  *
- * KEYS[1] wallet holds hash · KEYS[2..] budget scope hashes. ARGV: holdId,
- * estimate, nowMs, holdTtlSeconds, concurrentRunCap, effectiveSpendable,
- * applyBalanceCheck (1|0), then one remaining-budget per scope key (same order).
+ * KEYS[1] wallet snapshot · KEYS[2] wallet holds hash · KEYS[3..] budget scope
+ * hashes. ARGV: holdId, estimate, nowMs, holdTtlSeconds, concurrentRunCap,
+ * effectiveSpendable, applyBalanceCheck (1|0), snapshotSeq, walletSeq, then one
+ * remaining-budget per scope key (same order).
  *
  * The spendable-funds rule (`balance + paid cushion`, free/unknown → raw
  * balance) is computed ONCE in TypeScript by `spendableFundsNanoUsd` and passed
- * in as `effectiveSpendable`; this script never re-derives it. The advisory
- * balance is TS-supplied on purpose (the ledger is truth and same-wallet
- * settlement serializes under FOR UPDATE), but every check that reads-and-writes
- * mutable Redis state — the active-holds sum, the concurrent-run cap, and each
- * per-scope check-and-add — stays inside this atomic section, because those are
- * the parts that race between concurrent admissions.
+ * in as `effectiveSpendable`; this script never re-derives it. That balance is
+ * read before this section, so the script answers `'stale'` unless the stored
+ * snapshot's `ledgerSeq` still equals `snapshotSeq`, the sequence the balance
+ * came from, and is at most `walletSeq`, the sequence read before the scope
+ * rows. A release removes a hold only together with a snapshot that carries
+ * its charge ({@link SETTLED_RELEASE_SCRIPT}), so a matching sequence means no
+ * released hold's charge is missing from the balance, and no such charge is
+ * missing from the scope rows either: every charge advances the wallet sequence
+ * in the same transaction as its scope spends. An absent snapshot is stale too.
+ *
+ * Every check that reads-and-writes mutable Redis state — the active-holds sum,
+ * the concurrent-run cap, and each per-scope check-and-add — stays inside this
+ * atomic section, because those are the parts that race between concurrent
+ * admissions.
  *
  * `applyBalanceCheck` is 0 for free wallets (no balance gate; the daily
  * allowance rides in as a budget scope) and 1 for paid/unknown wallets, so a
  * stale/untyped snapshot still fails closed.
  *
- * Returns 'run-cap' | 'insufficient-balance' | 'admitted', or
+ * Returns 'stale' | 'run-cap' | 'insufficient-balance' | 'admitted', or
  * `'budget-exceeded:<index>'` where the index is the refused scope's ZERO-BASED
- * position in the caller's `budgets` — KEYS[i] and ARGV[i + 6] are both built
- * from that array at one site, so `i - 2` names the scope that bound and the
+ * position in the caller's `budgets` — KEYS[i] and ARGV[i + 7] are both built
+ * from that array at one site, so `i - 3` names the scope that bound and the
  * caller resolves its level from its own array rather than by decoding an id.
  * Expired holds are pruned lazily on every pass; the hold is written to the
  * wallet hash AND every scope hash only after every check passes, so N racers
@@ -74,20 +84,22 @@ local now = tonumber(ARGV[3])
 local ttlMs = tonumber(ARGV[4]) * 1000
 local effectiveSpendable = tonumber(ARGV[6])
 local applyBalanceCheck = tonumber(ARGV[7])
+local snapshot = redis.call('GET', KEYS[1])
+if not snapshot then return 'stale' end
+local storedSeq = tonumber(cjson.decode(snapshot).ledgerSeq)
+if storedSeq ~= tonumber(ARGV[8]) then return 'stale' end
+if storedSeq > tonumber(ARGV[9]) then return 'stale' end
 ${ACTIVE_HOLDS_LUA}
-local heldSum, heldCount = activeHolds(KEYS[1], now)
+local heldSum, heldCount = activeHolds(KEYS[2], now)
 if heldCount >= tonumber(ARGV[5]) then return 'run-cap' end
 if applyBalanceCheck == 1 and effectiveSpendable - heldSum < estimate then return 'insufficient-balance' end
-for i = 2, #KEYS do
-  local remaining = tonumber(ARGV[i + 6])
+for i = 3, #KEYS do
+  local remaining = tonumber(ARGV[i + 7])
   local scopeSum = activeHolds(KEYS[i], now)
-  if remaining - scopeSum < estimate then return 'budget-exceeded:' .. (i - 2) end
+  if remaining - scopeSum < estimate then return 'budget-exceeded:' .. (i - 3) end
 end
 
 local value = ARGV[2] .. ':' .. string.format('%.0f', now + ttlMs)
-redis.call('HSET', KEYS[1], ARGV[1], value)
-redis.call('PEXPIRE', KEYS[1], ttlMs, 'GT')
-redis.call('PEXPIRE', KEYS[1], ttlMs, 'NX')
 for i = 2, #KEYS do
   redis.call('HSET', KEYS[i], ARGV[1], value)
   redis.call('PEXPIRE', KEYS[i], ttlMs, 'GT')
@@ -148,16 +160,51 @@ return status .. ':' .. string.format('%.0f', total)
 `;
 
 /**
- * Snapshot write-through CAS: writes ARGV[1] (the snapshot JSON) only when
- * its ledgerSeq (ARGV[2]) is newer than the stored one, so two racing
- * commits can never regress the snapshot to an older balance. ARGV[3] = TTL
- * seconds. Returns 1 when written, 0 when the stored snapshot was newer.
+ * The one implementation of the snapshot compare-and-set: writes `payload`
+ * only when `seq` is newer than the stored snapshot's `ledgerSeq`, so two
+ * racing writers can never regress the snapshot to an older balance. Returns 1
+ * when written, 0 when the stored snapshot was as new or newer. Embedded
+ * verbatim by every script that writes the snapshot.
+ */
+export const SNAPSHOT_CAS_LUA = `
+local function casSnapshot(key, payload, seq, ttlSeconds)
+  local current = redis.call('GET', key)
+  if current and tonumber(cjson.decode(current).ledgerSeq) >= tonumber(seq) then
+    return 0
+  end
+  redis.call('SET', key, payload, 'EX', ttlSeconds)
+  return 1
+end
+`;
+
+/**
+ * Snapshot write-through. KEYS[1] wallet snapshot. ARGV: the snapshot JSON, its
+ * ledgerSeq, TTL seconds. Returns 1 when written, 0 when the stored snapshot
+ * was as new or newer.
  */
 export const SNAPSHOT_CAS_SCRIPT = `
-local current = redis.call('GET', KEYS[1])
-if current and tonumber(cjson.decode(current).ledgerSeq) >= tonumber(ARGV[2]) then
-  return 0
+${SNAPSHOT_CAS_LUA}
+return casSnapshot(KEYS[1], ARGV[1], ARGV[2], ARGV[3])
+`;
+
+/**
+ * A run's release: writes the wallet's committed snapshot through and removes
+ * the run's hold, in one atomic step. Because a release never removes a hold
+ * without a snapshot at least as new as its run's charge, admission's sequence
+ * check ({@link ADMISSION_SCRIPT}) never pairs a pre-charge balance with a hold
+ * the release removed. A hold that expires instead (its TTL, or the lazy prune
+ * in {@link ACTIVE_HOLDS_LUA}) goes with no snapshot write; the snapshot then
+ * stands until a newer write-through replaces it or its TTL lapses, after which
+ * admission bootstraps from Postgres.
+ *
+ * KEYS[1] wallet snapshot · KEYS[2] wallet holds hash · KEYS[3..] budget scope
+ * hashes. ARGV: the snapshot JSON, its ledgerSeq, TTL seconds, holdId.
+ */
+export const SETTLED_RELEASE_SCRIPT = `
+${SNAPSHOT_CAS_LUA}
+casSnapshot(KEYS[1], ARGV[1], ARGV[2], ARGV[3])
+for i = 2, #KEYS do
+  redis.call('HDEL', KEYS[i], ARGV[4])
 end
-redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
 return 1
 `;

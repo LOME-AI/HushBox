@@ -8,6 +8,7 @@ import {
   VALUE_STORE_BYTE_BUDGET_BYTES,
   zodFor,
 } from '@hushbox/shared';
+import { reservedCallFor } from '@hushbox/shared/affordability/price/reservation';
 import { domainWireCode } from '../../../../lib/errors/index.js';
 import { FINGERPRINT_CODES } from '../../../../lib/telemetry/index.js';
 import {
@@ -26,14 +27,15 @@ import {
   absorbedLossEvent,
   costCircuitTripEvent,
   runFailureCode,
+  settleAgainstHold,
 } from './failures.js';
 import { collectCharge } from './run-charges.js';
 import { ingestRun } from './run-plan.js';
+import { runScopedContextFor } from './run-scoped-context.js';
 import {
   FAILED_DEFECT,
   LEVEL_STREAM_CONCURRENCY,
   applyNodeFailure,
-  clientContextFor,
   commitsModelReply,
   feedsInPortOrder,
   finalCostOf,
@@ -156,6 +158,12 @@ class RunExecution {
    */
   private readonly charges: SettlementCharge[] = [];
   private limitNanoUsd = 0n;
+  /**
+   * What admission reserved, kept for the run: each call is handed to the node
+   * it was reserved for, and after settlement the whole is compared with what
+   * was billed. Set before the walk, so every reader runs after it.
+   */
+  private reservation!: RunReservation;
   /** The spend gate's first closer; the gate is open while this is undefined. */
   private closedBy: SpendGateCause | FlowAbortReason | undefined;
   private readonly drainAtMs: number;
@@ -261,6 +269,7 @@ class RunExecution {
         ...(wireCode === undefined ? {} : { code: wireCode }),
       });
     }
+    this.reservation = estimate.value;
     const decision = await this.request.hooks.admission({
       definition: this.request.definition,
       estimate: estimate.value.totalNanoUsd,
@@ -865,15 +874,14 @@ class RunExecution {
     streaming: boolean,
     routingOnly = false
   ): NodeRunContext {
-    const mapper = this.request.mapFilePartFor?.(nodeId);
     const base = {
+      ...this.reservationOf(nodeId),
       values: this.store,
       clock: this.deps.clock,
       rng: this.deps.rng,
       signal: this.controller.signal,
       spend,
-      ...clientContextFor(this.request, routingOnly),
-      ...(mapper === undefined ? {} : { mapFilePart: mapper }),
+      ...runScopedContextFor(this.request, nodeId, routingOnly),
     };
     if (!streaming) return base;
     const streamId = `${nodeId}#${String(this.streamSequence)}`;
@@ -886,6 +894,12 @@ class RunExecution {
         cursor += 1;
       },
     };
+  }
+
+  /** The call admission reserved for a node, chosen by the price core's one rule. */
+  private reservationOf(nodeId: string): Pick<NodeRunContext, 'reservation'> {
+    const chosen = reservedCallFor(this.reservation.calls, nodeId);
+    return chosen === undefined ? {} : { reservation: chosen };
   }
 
   /**
@@ -917,7 +931,7 @@ class RunExecution {
 
   private async settle(outputs: Record<string, ContentValue>): Promise<RunFailure | undefined> {
     try {
-      await this.request.hooks.settlement({
+      await settleAgainstHold(this.deps, this.request, this.reservation, {
         runKey: this.request.runKey,
         outputs,
         charges: this.charges,

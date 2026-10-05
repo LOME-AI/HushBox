@@ -210,11 +210,11 @@ describe('bindTrialHooks', () => {
 });
 
 describe('createTrialSettlementCommit', () => {
-  it('is a no-op commit (persists nothing, charges nothing)', async () => {
+  it('is a no-op commit that posts no charge (persists nothing, charges nothing)', async () => {
     const commit = createTrialSettlementCommit();
     await expect(
       commit({} as never, { runKey: 'k', outputs: {}, charges: [] } as never)
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual([]);
   });
 });
 

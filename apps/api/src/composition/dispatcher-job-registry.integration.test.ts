@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
 import {
   createDispatcherJobRegistry,
@@ -10,6 +10,7 @@ import { SESSION_REVOKE_JOB_TYPE } from '../slices/identity/index.js';
 import { MEDIA_RECLAIM_USER_JOB_TYPE } from '../slices/media/index.js';
 import { NEWSLETTER_DISPATCH_JOB_TYPE } from '../slices/newsletter/index.js';
 import { ADMIN_DIGEST_JOB_TYPE } from '../slices/admin/index.js';
+import { CATALOG_REFRESH_JOB_TYPE, DESCRIPTOR_VERSION } from '../slices/models/index.js';
 import { GROWTH_ROLLUP_HOUR_LOST, GROWTH_ROLLUP_JOB_TYPE } from '../slices/growth/index.js';
 import { rateLimitBound } from '../lib/rate-limit/index.js';
 import { REALTIME_REDIS_KEYS } from '../lib/redis/define-key.js';
@@ -187,6 +188,41 @@ describe('createDispatcherJobRegistry — the registry the live JobDispatcher DO
     const registered = registry.get(PAYMENT_VERIFY_JOB_TYPE);
     expect(registered).toBeDefined();
     expect(registered?.schema.safeParse({ paymentId: crypto.randomUUID() }).success).toBe(true);
+  });
+
+  it('registers and resolves catalog.refresh.v1 (a stale catalog read enqueues it — must not dead-letter as unknown)', () => {
+    const registry = createDispatcherJobRegistry(env, db);
+    expect(registry.types()).toContain(CATALOG_REFRESH_JOB_TYPE);
+    const registered = registry.get(CATALOG_REFRESH_JOB_TYPE);
+    expect(registered?.shard).toBe('bulk');
+    expect(registered?.idempotency).toBe('natural');
+    expect(registered?.schema.safeParse({ descriptorVersion: DESCRIPTOR_VERSION }).success).toBe(
+      true
+    );
+  });
+
+  describe('the registered catalog.refresh.v1 handler', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("runs the refresh, never the catalog read's refusing registration", async () => {
+      // A gateway offering nothing. The read-side registration would reject
+      // before fetching; this run fetches, and settles to an outcome — which
+      // outcome turns on what the rest of this database's catalog exposes.
+      const gateway = vi.fn(() => Promise.resolve(Response.json({ data: [] })));
+      vi.stubGlobal('fetch', gateway);
+      const registered = createDispatcherJobRegistry(env, db).get(CATALOG_REFRESH_JOB_TYPE);
+      if (registered === undefined) throw new Error('catalog.refresh.v1 did not resolve');
+
+      const outcome = await runRegistered(
+        registered,
+        executionWith({ descriptorVersion: DESCRIPTOR_VERSION })
+      );
+
+      expect(gateway).toHaveBeenCalled();
+      expect(['ok', 'fail']).toContain(outcome.kind);
+    });
   });
 
   it('registers and resolves media.reclaimUser.v1 (account deletion enqueues it — must not dead-letter as unknown)', () => {

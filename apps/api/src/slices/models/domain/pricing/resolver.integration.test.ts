@@ -1,6 +1,8 @@
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { LOCAL_NEON_DEV_CONFIG, createDb, modelCatalog } from '@hushbox/db';
+import { CATALOG_GENERATION_HEX_LENGTH } from '@hushbox/shared';
+import { TEST_DAY_START } from '@hushbox/shared/test-time';
 import {
   TEST_GATEWAY_BASE_URL,
   catalogFetch,
@@ -9,7 +11,7 @@ import {
 import { createModelPricingResolver } from './resolver.js';
 import { refreshCatalog } from '../catalog/refresh.js';
 import { createCatalogSightingRecorder } from '../../adapters/catalog-lifecycle.js';
-import type { ModelPricingResolver } from './estimate-run.js';
+import type { CatalogPricingResolver } from './resolver.js';
 import type { Telemetry } from '../../../../lib/telemetry/index.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
@@ -51,7 +53,7 @@ async function refresh(fetch: typeof globalThis.fetch): Promise<void> {
   result._unsafeUnwrap();
 }
 
-async function resolver(): Promise<ModelPricingResolver> {
+async function resolver(): Promise<CatalogPricingResolver> {
   const result = await createModelPricingResolver({ db, telemetry: silentTelemetry });
   return result._unsafeUnwrap();
 }
@@ -90,5 +92,29 @@ describe('createModelPricingResolver', () => {
 
     const resolve = await resolver();
     expect(resolve(modelId)).toBeUndefined();
+  });
+
+  it('carries the generation of the catalog read it snapshots', async () => {
+    const modelId = freshModelId('generation');
+    await refresh(
+      catalogFetch({ models: [modelEntryFixture({ id: modelId })], zdrModelIds: [modelId] })
+    );
+    await db
+      .update(modelCatalog)
+      .set({ adminDisabledAt: new Date(TEST_DAY_START) })
+      .where(eq(modelCatalog.modelId, modelId));
+    const disabled = await resolver();
+
+    await db
+      .update(modelCatalog)
+      .set({ adminDisabledAt: null })
+      .where(eq(modelCatalog.modelId, modelId));
+    const enabled = await resolver();
+
+    expect(enabled(modelId)?.id).toBe(modelId);
+    expect(enabled.generation).toMatch(
+      new RegExp(`^[0-9a-f]{${String(CATALOG_GENERATION_HEX_LENGTH)}}$`)
+    );
+    expect(enabled.generation).not.toBe(disabled.generation);
   });
 });

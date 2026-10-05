@@ -989,6 +989,60 @@ describe('usePromptBudget', () => {
       );
     });
 
+    it('does not blame the balance for a short answer the answer rooms hold', () => {
+      // A Smart-slot answer of 4,000 tokens, held by its candidates' provider
+      // cap while the balance funds more.
+      mockUseResolveBilling.mockReturnValue({ fundingSource: 'personal_balance' });
+      mockUseBudgetCalculation.mockReturnValue({
+        ...baseBudgetResult,
+        maxOutputTokens: 4000,
+        maxAnswerTokens: 4000,
+        answerHeldByRoom: true,
+      });
+
+      const { result } = renderHook(() => usePromptBudget(defaultInput));
+
+      expect(result.current.notifications.map((notice) => notice.id)).not.toContain(
+        'answer_may_be_shortened'
+      );
+    });
+
+    it('drops the warning when only the answer room starts holding the same answer', () => {
+      mockUseResolveBilling.mockReturnValue({ fundingSource: 'personal_balance' });
+      const heldByBalance: BudgetCalculationResult = {
+        ...baseBudgetResult,
+        maxOutputTokens: 4000,
+        maxAnswerTokens: 4000,
+      };
+      mockUseBudgetCalculation.mockReturnValue(heldByBalance);
+      const { result, rerender } = renderHook(() => usePromptBudget(defaultInput));
+      expect(result.current.notifications.map((notice) => notice.id)).toContain(
+        'answer_may_be_shortened'
+      );
+
+      mockUseBudgetCalculation.mockReturnValue({ ...heldByBalance, answerHeldByRoom: true });
+      rerender();
+
+      expect(result.current.notifications.map((notice) => notice.id)).not.toContain(
+        'answer_may_be_shortened'
+      );
+    });
+
+    it('warns of the same short answer when the balance is what holds it', () => {
+      mockUseResolveBilling.mockReturnValue({ fundingSource: 'personal_balance' });
+      mockUseBudgetCalculation.mockReturnValue({
+        ...baseBudgetResult,
+        maxOutputTokens: 4000,
+        maxAnswerTokens: 4000,
+      });
+
+      const { result } = renderHook(() => usePromptBudget(defaultInput));
+
+      expect(result.current.notifications.map((notice) => notice.id)).toContain(
+        'answer_may_be_shortened'
+      );
+    });
+
     it('hasBlockingError is true when billing is denied', () => {
       mockUseResolveBilling.mockReturnValue({
         fundingSource: 'denied',

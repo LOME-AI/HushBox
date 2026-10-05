@@ -16,6 +16,7 @@ import {
   wallets,
 } from '@hushbox/db';
 import { userFactory } from '@hushbox/db/factories';
+import { spendableFundsNanoUsd } from '@hushbox/shared';
 import { applyPipeline } from '../../../../middleware/pipeline.js';
 import { SESSION_COOKIE_NAME } from '../../../../middleware/pipeline-session.js';
 import { okAsync } from '../../../../lib/result/index.js';
@@ -63,6 +64,19 @@ const testEnv: Bindings & TelemetryEnv = {
 };
 
 const db = createDb(DATABASE_URL, { neonDev: LOCAL_NEON_DEV_CONFIG });
+
+/** Admission's scope read: the wallet's committed sequence, then `scopes`. */
+function scopesAt(
+  deps: Parameters<typeof admitRun>[0],
+  walletId: string,
+  scopes: readonly BudgetScope[] = []
+): Parameters<typeof admitRun>[1]['readScopes'] {
+  return () =>
+    deps.stores.readWalletSnapshot(deps.db, walletId).map((row) => {
+      if (row === null) throw new Error('scope read: the wallet does not exist');
+      return { scopes, walletSeq: row.ledgerSeq };
+    });
+}
 
 const createdUserIds: string[] = [];
 const createdConversationIds: string[] = [];
@@ -418,7 +432,40 @@ describe('owner-facing budget management', () => {
     expect(memberBody.ownerBalanceNanoUsd).toBeNull();
   });
 
-  it('refuses a stranger on the display, set-member-cap, and set-conversation-cap', async () => {
+  it('hides the display from a stranger behind the missing-conversation 404', async () => {
+    const owner = await newUser();
+    const stranger = await newUser();
+    const { conversationId } = await seedConversation(owner.userId, [
+      { userId: owner.userId, privilege: 'owner' },
+    ]);
+
+    const display = await send('GET', `/conversations/${conversationId}/budgets`, stranger.cookie);
+
+    expect(display.status).toBe(404);
+    const body: { code: string } = await display.json();
+    expect(body.code).toBe('NOT_FOUND');
+  });
+
+  it('hides the display from a departed member behind the missing-conversation 404', async () => {
+    const owner = await newUser();
+    const departed = await newUser();
+    const { conversationId, memberIds } = await seedConversation(owner.userId, [
+      { userId: owner.userId, privilege: 'owner' },
+      { userId: departed.userId, privilege: 'write' },
+    ]);
+    await db
+      .update(conversationMembers)
+      .set({ leftAt: new Date() })
+      .where(eq(conversationMembers.id, memberIds.get(departed.userId)!));
+
+    const display = await send('GET', `/conversations/${conversationId}/budgets`, departed.cookie);
+
+    expect(display.status).toBe(404);
+    const body: { code: string } = await display.json();
+    expect(body.code).toBe('NOT_FOUND');
+  });
+
+  it('refuses a stranger on set-member-cap and set-conversation-cap', async () => {
     const owner = await newUser();
     const target = await newUser();
     const stranger = await newUser();
@@ -428,7 +475,6 @@ describe('owner-facing budget management', () => {
     ]);
     const targetId = memberIds.get(target.userId)!;
 
-    const display = await send('GET', `/conversations/${conversationId}/budgets`, stranger.cookie);
     const setMember = await send(
       'PUT',
       `/conversations/${conversationId}/member/${targetId}/budget`,
@@ -442,7 +488,6 @@ describe('owner-facing budget management', () => {
       { capNanoUsd: '500' }
     );
 
-    expect(display.status).toBe(403);
     expect(setMember.status).toBe(403);
     expect(setConversation.status).toBe(403);
   });
@@ -699,7 +744,7 @@ describe('hold-aware effective remaining', () => {
       estimateNanoUsd: estimate,
       deadlineClass: 'text',
       concurrentRunCap: RUN_CAP,
-      budgets: scopes,
+      readScopes: scopesAt(admissionDeps, ownerWalletId, scopes),
       now,
     });
     expect(admitted._unsafeUnwrap().admitted).toBe(true);
@@ -723,7 +768,7 @@ describe('hold-aware effective remaining', () => {
       estimateNanoUsd: served + 1n,
       deadlineClass: 'text',
       concurrentRunCap: RUN_CAP,
-      budgets: scopesAfter,
+      readScopes: scopesAt(admissionDeps, ownerWalletId, scopesAfter),
       now,
     });
     expect(over._unsafeUnwrap()).toEqual({ admitted: false, reason: 'member-budget-exceeded' });
@@ -734,20 +779,87 @@ describe('hold-aware effective remaining', () => {
       estimateNanoUsd: served,
       deadlineClass: 'text',
       concurrentRunCap: RUN_CAP,
-      budgets: scopesAfter,
+      readScopes: scopesAt(admissionDeps, ownerWalletId, scopesAfter),
       now,
     });
     expect(at._unsafeUnwrap().admitted).toBe(true);
 
     const scopeIds = scopes.map((scope) => scope.scopeId);
-    const firstRelease = await releaseHold(redis, { walletId: ownerWalletId, holdId, scopeIds });
+    const firstRelease = await releaseHold(admissionDeps, {
+      walletId: ownerWalletId,
+      holdId,
+      scopeIds,
+    });
     firstRelease._unsafeUnwrap();
-    const secondRelease = await releaseHold(redis, {
+    const secondRelease = await releaseHold(admissionDeps, {
       walletId: ownerWalletId,
       holdId: secondHoldId,
       scopeIds,
     });
     secondRelease._unsafeUnwrap();
+  });
+
+  it("takes the owner's own run elsewhere off a member's remaining when the owner's balance binds", async () => {
+    const owner = await newUser();
+    const member = await newUser();
+    const { conversationId, memberIds } = await seedConversation(owner.userId, [
+      { userId: owner.userId, privilege: 'owner' },
+      { userId: member.userId, privilege: 'write' },
+    ]);
+    const memberId = memberIds.get(member.userId)!;
+    // Half a dollar plus the cushion is one dollar of spendable funds, below
+    // both generous caps, so the owner's wallet is the binding dimension.
+    const ownerWalletId = await seedPurchasedWallet(owner.userId, 500_000_000n);
+    const generousCap = 100_000_000_000n;
+    await db
+      .update(conversations)
+      .set({ conversationBudgetNanoUsd: generousCap })
+      .where(eq(conversations.id, conversationId));
+    await db
+      .insert(memberBudgets)
+      .values({ memberId, budgetNanoUsd: generousCap, spentNanoUsd: 0n });
+
+    // The owner's own run in another conversation holds forty cents of the
+    // owner's wallet; it touches none of this conversation's scopes.
+    const now = new Date();
+    const elsewhere = await resolveScopesFor({
+      memberId: crypto.randomUUID(),
+      conversationId: crypto.randomUUID(),
+      conversationCap: generousCap,
+      now,
+    });
+    const holdId = crypto.randomUUID();
+    const held = 400_000_000n;
+    const admitted = await admitRun(admissionDeps, {
+      walletId: ownerWalletId,
+      holdId,
+      estimateNanoUsd: held,
+      deadlineClass: 'text',
+      concurrentRunCap: RUN_CAP,
+      readScopes: scopesAt(
+        admissionDeps,
+        ownerWalletId,
+        elsewhere.filter((scope) => scope.kind === 'conversation')
+      ),
+      now,
+    });
+    expect(admitted._unsafeUnwrap().admitted).toBe(true);
+
+    try {
+      const response = await send('GET', `/conversations/${conversationId}/budgets`, member.cookie);
+      expect(response.status).toBe(200);
+      const body: { members: { effectiveRemainingNanoUsd: string }[] } = await response.json();
+      expect(body.members[0]?.effectiveRemainingNanoUsd).toBe(
+        String(spendableFundsNanoUsd(500_000_000n) - held)
+      );
+    } finally {
+      const released = await releaseHold(admissionDeps, {
+        walletId: ownerWalletId,
+        holdId,
+        scopeIds: elsewhere.map((scope) => scope.scopeId),
+      });
+      released._unsafeUnwrap();
+    }
   });
 
   it('pairs each member with their OWN held sum (distinct per-scope amounts)', async () => {
@@ -802,7 +914,7 @@ describe('hold-aware effective remaining', () => {
       estimateNanoUsd: 300_000_000n,
       deadlineClass: 'text',
       concurrentRunCap: RUN_CAP,
-      budgets: scopesA,
+      readScopes: scopesAt(admissionDeps, ownerWalletId, scopesA),
       now,
     });
     expect(admittedA._unsafeUnwrap().admitted).toBe(true);
@@ -812,7 +924,7 @@ describe('hold-aware effective remaining', () => {
       estimateNanoUsd: 500_000_000n,
       deadlineClass: 'text',
       concurrentRunCap: RUN_CAP,
-      budgets: scopesB,
+      readScopes: scopesAt(admissionDeps, ownerWalletId, scopesB),
       now,
     });
     expect(admittedB._unsafeUnwrap().admitted).toBe(true);
@@ -834,13 +946,13 @@ describe('hold-aware effective remaining', () => {
       // B: min(2e9 − 0 − 5e8 = 1.5e9, 9.2e9, owner) = 1.5e9.
       expect(remainingOf(memberBId)).toBe('1500000000');
     } finally {
-      const releaseA = await releaseHold(redis, {
+      const releaseA = await releaseHold(admissionDeps, {
         walletId: ownerWalletId,
         holdId: holdIdA,
         scopeIds: scopesA.map((scope) => scope.scopeId),
       });
       releaseA._unsafeUnwrap();
-      const releaseB = await releaseHold(redis, {
+      const releaseB = await releaseHold(admissionDeps, {
         walletId: ownerWalletId,
         holdId: holdIdB,
         scopeIds: scopesB.map((scope) => scope.scopeId),
@@ -849,7 +961,7 @@ describe('hold-aware effective remaining', () => {
     }
   });
 
-  it('reads every scope hold in one Redis script exec (M+1 hashes, one round trip)', async () => {
+  it("reads every scope hold and the owner wallet's holds in one Redis script exec", async () => {
     const owner = await newUser();
     const memberA = await newUser();
     const memberB = await newUser();
@@ -881,7 +993,7 @@ describe('hold-aware effective remaining', () => {
     );
     const view = result._unsafeUnwrap();
     if (!('members' in view)) throw new Error('expected the budgets view, got a refusal');
-    // Owner viewer: two member rows + the conversation scope = 3 hashes, 1 exec.
+    // Owner viewer: two member scopes + the conversation scope + the owner's wallet = 4 hashes.
     expect(view.members).toHaveLength(2);
     expect(execs).toBe(1);
   });

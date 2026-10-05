@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { assertRegistration } from './entry.js';
-import { NEUTRAL_POST } from './post.js';
+import { NEUTRAL_POST } from './post-test-support.js';
 
 import type { GlContext, GlLayer } from './layer.js';
 

@@ -53,7 +53,10 @@ function trialRemainingElement(remaining: number): BudgetError {
  * still holding the whole allowance has sent nothing today and is told nothing;
  * an unavailable read renders nothing rather than a guessed number.
  */
-function withTrialRemaining(notices: BudgetError[], trial: TrialRemaining): BudgetError[] {
+function withTrialRemaining(
+  notices: readonly BudgetError[],
+  trial: TrialRemaining
+): readonly BudgetError[] {
   const { remaining } = trial;
   if (trial.allowanceUntouched || remaining === undefined) return notices;
   const element = trialRemainingElement(remaining);
@@ -67,13 +70,13 @@ function withTrialRemaining(notices: BudgetError[], trial: TrialRemaining): Budg
  * thread already says why no message will go through, so neither the count nor
  * the free-preview notice stands beside it.
  */
-function withoutTrialStanding(notices: BudgetError[]): BudgetError[] {
+function withoutTrialStanding(notices: readonly BudgetError[]): readonly BudgetError[] {
   return notices.filter((notice) => notice.id !== FREE_PREVIEW_REASON);
 }
 
 interface ComposerMessagesProps {
   /** The composer's notices, verdict-first, as the budget vocabulary produced them. */
-  notices: BudgetError[];
+  notices: readonly BudgetError[];
   /** Whether this composer spends the free preview rather than a wallet. */
   isTrial: boolean;
   /** Whether a run is streaming; its end is what moves the count. */

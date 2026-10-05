@@ -4,15 +4,16 @@
  * Samples system CPU / memory / load on an interval using only Node built-ins
  * (`os.*`), so those series run identically on Linux (CI/container), macOS, and
  * Windows. On Linux it also reads disk load and blocked threads from the
- * kernel's `/proc` and `/sys`, and walks the E2E RAM root; elsewhere those
- * series are not measured. Paired with the log-based
- * {@link ResourceScan}, the summary turns "tests crashed" into an actionable
- * verdict: e.g. CPU idle + process/thread-limit errors ⇒ raise the container's
+ * kernel's `/proc` and `/sys`, walks the E2E RAM root, and reads the RAM
+ * filesystem holding it; elsewhere those series are not measured. Paired with
+ * the log-based {@link ResourceScan}, the summary turns "tests crashed" into an
+ * actionable verdict: e.g. CPU idle + process/thread-limit errors ⇒ raise the container's
  * process limit, not the worker count.
  */
 
 import { randomBytes } from 'node:crypto';
 import { closeSync, fstatSync, openSync, readFileSync, readSync, readdirSync } from 'node:fs';
+import { statfs } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +25,7 @@ import {
 } from './lib/playwright/stall-windows.js';
 import { e2eRamPaths, ramRootUsedBytes } from './lib/stack/ram-root.js';
 import { wranglerDebugLogPath } from './wrangler-dev.js';
+import type { StatsFs } from 'node:fs';
 import type { Socket } from 'node:net';
 import type { ResourceScan } from './resource-scan.js';
 
@@ -60,6 +62,21 @@ export interface ResourceSample {
    * failed, or sampling stopped first.
    */
   ramRootBytes: number | null;
+  /**
+   * The RAM filesystem holding the root, as `statfs` reads it when this sample
+   * is taken. It counts every occupant, other checkouts' roots and files
+   * unlinked but still held open included, so it shows space the walk of the
+   * root cannot see. Null where there is no root, or where no reading finished
+   * for this sample: one was still running, the reading failed, the filesystem
+   * states no size, or sampling stopped first.
+   */
+  ramFilesystem: FilesystemUse | null;
+}
+
+/** A filesystem's used space and its size, in bytes. */
+export interface FilesystemUse {
+  usedBytes: number;
+  sizeBytes: number;
 }
 
 /** One mounted btrfs's transaction commits over one sampling interval, from its `commit_stats`. */
@@ -112,6 +129,8 @@ export interface ResourceSummary {
   dStateWaits: DStateWait[] | null;
   /** The most the E2E RAM root occupied in any sample; null when no sample measured it. */
   ramRootPeakBytes: number | null;
+  /** The RAM filesystem's reading with the most used in any sample; absent when no sample measured it. */
+  ramFilesystemPeak?: FilesystemUse;
 }
 
 interface DiskPeak {
@@ -160,6 +179,8 @@ export interface ResourceSamplerOptions {
   ramRoot?: string | null;
   /** Overridable for tests; the default walks the root. */
   measureRamRoot?: (root: string) => Promise<number>;
+  /** Overridable for tests; the default is the kernel's reading of the filesystem holding the root. */
+  statfs?: (target: string) => Promise<Pick<StatsFs, 'blocks' | 'bfree' | 'bsize'>>;
 }
 
 /** The platform a sampler runs on, and the directory its `/proc` and `/sys` are read under. */
@@ -239,6 +260,13 @@ function summarizeRamRoot(samples: readonly ResourceSample[]): number | null {
   return readings.length === 0 ? null : Math.max(...readings);
 }
 
+function summarizeRamFilesystem(samples: readonly ResourceSample[]): FilesystemUse | undefined {
+  const readings = samples.flatMap((sample) =>
+    sample.ramFilesystem === null ? [] : [sample.ramFilesystem]
+  );
+  return readings.toSorted((a, b) => b.usedBytes - a.usedBytes)[0];
+}
+
 export function summarizeSamples(
   samples: readonly ResourceSample[],
   durationMs: number,
@@ -246,6 +274,7 @@ export function summarizeSamples(
 ): Omit<ResourceSummary, 'isolateStalls'> {
   const cores = os.cpus().length;
   const totalMemBytes = os.totalmem();
+  const ramFilesystemPeak = summarizeRamFilesystem(samples);
   const base: Omit<ResourceSummary, 'isolateStalls'> = {
     durationMs,
     sampleCount: samples.length,
@@ -258,6 +287,7 @@ export function summarizeSamples(
     diskPeaks: summarizeDisks(samples),
     dStateWaits: summarizeDState(samples),
     ramRootPeakBytes: summarizeRamRoot(samples),
+    ...(ramFilesystemPeak === undefined ? {} : { ramFilesystemPeak }),
   };
   if (samples.length === 0) return base;
 
@@ -333,7 +363,10 @@ function takeSample(
   previous: CpuTimes,
   startMs: number,
   heapBytes: number | undefined
-): { sample: Omit<ResourceSample, keyof KernelSeries | 'ramRootBytes'>; cpus: CpuTimes } {
+): {
+  sample: Omit<ResourceSample, keyof KernelSeries | 'ramRootBytes' | 'ramFilesystem'>;
+  cpus: CpuTimes;
+} {
   const cpus = os.cpus();
   const total = os.totalmem();
   const used = total - os.freemem();
@@ -970,6 +1003,17 @@ function ramRootOf(configured: string | null | undefined): string | null {
   return configured === undefined ? (e2eRamPaths()?.root ?? null) : configured;
 }
 
+/** The used space and size of the filesystem `readStatfs` describes at `target`. */
+async function filesystemUse(
+  readStatfs: NonNullable<ResourceSamplerOptions['statfs']>,
+  target: string
+): Promise<FilesystemUse | null> {
+  const { blocks, bfree, bsize } = await readStatfs(target);
+  // A filesystem that reports no blocks states no size to measure its use against.
+  if (blocks === 0) return null;
+  return { usedBytes: (blocks - bfree) * bsize, sizeBytes: blocks * bsize };
+}
+
 export function createResourceSampler(
   intervalMs: number = DEFAULT_INTERVAL_MS,
   options: ResourceSamplerOptions = {}
@@ -978,6 +1022,7 @@ export function createResourceSampler(
   const host = options.host ?? { platform: process.platform, root: path.sep };
   const ramRoot = host.platform === 'linux' ? ramRootOf(options.ramRoot) : null;
   const measureRamRoot = options.measureRamRoot ?? ramRootUsedBytes;
+  const readStatfs = options.statfs ?? statfs;
   const oomCounter = createHeapOomCounter(
     options.oomLogPath === undefined ? runWorkerLogPath() : options.oomLogPath
   );
@@ -987,28 +1032,47 @@ export function createResourceSampler(
   let previousCpus: CpuTimes = [];
   let heapProbe: HeapProbe | null = null;
   let kernel: { read: () => KernelSeries } | null = null;
-  let walking = false;
   let stopped = false;
 
   /**
-   * Walks the root for `sample`. A sample taken while the last walk is still
-   * running starts none and is not measured, so walks never pile up behind a
-   * stalled filesystem. A walk that fails leaves its sample not measured too,
-   * because this series is reporting only and must never be able to fail a run.
+   * Takes one reading per sample in the background. A sample taken while the
+   * last reading is still running starts none and is not measured, so readings
+   * never pile up behind a stalled filesystem. A reading that fails, or lands
+   * after sampling stopped, leaves its sample not measured too, because these
+   * series are reporting only and must never be able to fail a run.
    */
-  async function measureRamRootFor(sample: ResourceSample): Promise<void> {
-    if (ramRoot === null || walking) return;
-    walking = true;
-    try {
-      const bytes = await measureRamRoot(ramRoot);
-      if (!stopped) sample.ramRootBytes = bytes;
-    } catch {
-      // A walk that failed measured nothing, so its sample stays not measured.
-      sample.ramRootBytes = null;
-    } finally {
-      walking = false;
-    }
+  function backgroundReader<T>(
+    read: () => Promise<T | null>,
+    record: (sample: ResourceSample, reading: T | null) => void
+  ): (sample: ResourceSample) => Promise<void> {
+    let reading = false;
+    return async (sample) => {
+      if (reading) return;
+      reading = true;
+      try {
+        const value = await read();
+        if (!stopped) record(sample, value);
+      } catch {
+        record(sample, null);
+      } finally {
+        reading = false;
+      }
+    };
   }
+
+  const ramRootReaders =
+    ramRoot === null
+      ? []
+      : [
+          backgroundReader(
+            () => measureRamRoot(ramRoot),
+            (sample, bytes) => Object.assign(sample, { ramRootBytes: bytes })
+          ),
+          backgroundReader(
+            () => filesystemUse(readStatfs, ramRoot),
+            (sample, use) => Object.assign(sample, { ramFilesystem: use })
+          ),
+        ];
 
   return {
     start(): void {
@@ -1024,9 +1088,10 @@ export function createResourceSampler(
           ...sample,
           ...(kernel?.read() ?? KERNEL_NOT_MEASURED),
           ramRootBytes: null,
+          ramFilesystem: null,
         };
         samples.push(taken);
-        void measureRamRootFor(taken);
+        for (const readFor of ramRootReaders) void readFor(taken);
         // Read along with the samples rather than in one pass at the end: the
         // log is written at gigabytes per run, and the reader is a reporter.
         oomCounter.scan();

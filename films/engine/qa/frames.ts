@@ -19,7 +19,7 @@ interface Span {
 }
 
 /** What the frame rules read of a film spec. */
-export interface FramesSpec {
+interface FramesSpec {
   durationInFrames: number;
   shots: readonly Span[];
   cues: readonly { id: string; from: number; kind: CueKind }[];

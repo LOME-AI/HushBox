@@ -7,11 +7,10 @@ interface MessageMediaListProps {
   /**
    * Error from resolving the message content key (missing/rotated epoch key).
    * Forwarded to every item so undecryptable media shows an error instead of a
-   * perpetual spinner. Optional: callers that can't fail key resolution
-   * (e.g. the public share view) omit it.
+   * perpetual spinner.
    */
   contentKeyError?: Error | null;
-  /** Accessibility prefix forwarded to each item ("Generated" | "Shared"). */
+  /** Accessibility prefix forwarded to each item's label. */
   ariaPrefix: string;
 }
 
@@ -19,7 +18,6 @@ interface MessageMediaListProps {
  * Shared media container for a message: stacks each media item with the spacing
  * the chat bubble uses. Returns null when there are no media items so a
  * text-only message renders no empty container (preserves the chat's DOM).
- * Used by the chat bubble, the public share view, and the share dialog preview.
  */
 export function MessageMediaList({
   media,

@@ -58,7 +58,7 @@ describe('getConversation zero-row disambiguation', () => {
 
   it('omits a fork whose tip message predates the caller epoch floor', async () => {
     const stores = fakeStores({
-      conversations: { get: () => okAsync(conversationRecord()) },
+      conversations: { get: () => okAsync(conversationRecord()), memberCount: () => okAsync(1) },
       members: { activeByUser: () => okAsync(memberRecord({ visibleFromEpoch: 3 })) },
       forks: {
         list: () =>
@@ -82,6 +82,21 @@ describe('getConversation zero-row disambiguation', () => {
     expect(outcome.forks).toEqual([]);
   });
 
+  it('carries the conversation member count on the success path', async () => {
+    const stores = fakeStores({
+      conversations: { get: () => okAsync(conversationRecord()), memberCount: () => okAsync(3) },
+      members: { activeByUser: () => okAsync(memberRecord()) },
+      forks: { list: () => okAsync([]) },
+    });
+    const result = await getConversation(stores, {
+      conversationId: 'c1',
+      caller: { kind: 'user', userId: 'owner' },
+    });
+    const outcome = result._unsafeUnwrap();
+    if ('refusal' in outcome) throw new Error('expected a success outcome');
+    expect(outcome.memberCount).toBe(3);
+  });
+
   it('includes the conversation forks on the success path', async () => {
     const forkRow = {
       id: 'f1',
@@ -91,7 +106,7 @@ describe('getConversation zero-row disambiguation', () => {
       createdAt: new Date(0),
     };
     const stores = fakeStores({
-      conversations: { get: () => okAsync(conversationRecord()) },
+      conversations: { get: () => okAsync(conversationRecord()), memberCount: () => okAsync(1) },
       members: { activeByUser: () => okAsync(memberRecord()) },
       forks: { list: () => okAsync([forkRow]) },
     });

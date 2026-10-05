@@ -11,10 +11,10 @@ import type { MediaModel } from '../dimensions/media-model.ts';
 import type { FundingSnapshot, PromptBasis } from './turn-types.ts';
 
 const PER_IMAGE = 40_000_000n;
-/** One generated image's stored bytes at the media byte rate: 8,000,000 × 18. */
-const IMAGE_STORAGE = 144_000_000n;
-/** What one image turn costs the payer: the generation and the bytes it rests in. */
-const IMAGE_TURN = PER_IMAGE + IMAGE_STORAGE;
+/** A media turn's stored bytes, reserved once: the value-store budget, 20,971,520 × 18. */
+const RUN_STORAGE = 377_487_360n;
+/** What one image turn costs the payer: the generation and the run storage. */
+const IMAGE_TURN = PER_IMAGE + RUN_STORAGE;
 
 function imageModel(): MediaModel {
   return {

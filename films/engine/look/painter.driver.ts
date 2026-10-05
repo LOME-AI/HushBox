@@ -3,7 +3,7 @@ import { HEIGHT, WIDTH } from '../time/grid.js';
 import type { LoadedLook, LookCanvas, LookContext, LookSurface, RenderFrame } from './contract.js';
 
 /** Everything `renderFrame` receives beside the canvases the painter owns. */
-export type LookParts = Omit<LookContext, 'canvas' | 'context' | 'front'>;
+type LookParts = Omit<LookContext, 'canvas' | 'context' | 'front'>;
 
 /**
  * A look bound to its own canvases: each `paint` clears the look's canvas, and

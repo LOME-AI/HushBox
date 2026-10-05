@@ -8,7 +8,7 @@
  * up: a name this file does not carry cannot reach either entry point,
  * whichever of them stars it. What is published is the vocabulary a caller legitimately names — the
  * fail-closed result channel, the funding pre-adapters, the storage rates and
- * the byte estimate they price, the wire fragment, the reasoning-plan
+ * the media run's storage bound they price, the wire fragment, the reasoning-plan
  * producers, and the display formatters.
  *
  * The plan producers are published while the LADDER they compute from is not,

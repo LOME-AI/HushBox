@@ -20,15 +20,20 @@ import { ERROR_CODES, PAID_CUSHION_NANO_USD, applyMarkup } from '@hushbox/shared
 import { HOUR_MS, TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
 import { tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
 import {
+  DAILY_ALLOWANCE_NANO_USD,
   admitRun,
   chargeWithinTx,
   createBillingStores,
+  refreshWalletSnapshot,
   releaseHold,
   resolveBudgetScopes,
 } from '../../../billing/index.js';
+import { readFundingSnapshot } from '../../../billing/domain/wallets/spendable.js';
 import { createConversationsStores } from '../../../conversations/index.js';
+import { getConversationBudgets } from '../../../conversations/domain/budgets/budgets.js';
 import { createEstimateRun, snapshotResolver } from '../../../models/index.js';
 import { runSettlement } from '../../../../lib/idempotency/index.js';
+import { okAsync } from '../../../../lib/result/index.js';
 import { CHAT_TURN_HOOKS, PER_WALLET_CONCURRENT_RUN_CAP } from '../constants.js';
 import { compileSingleTurn } from './definition.js';
 import { resolveTurnContext } from './context.js';
@@ -38,6 +43,7 @@ import {
   seedConversationWithEpoch,
 } from '../../../../test-support/conversation-seed.js';
 import { holdTableLock } from '../../../../test-support/hold-table-lock.js';
+import type { BudgetScope } from '../../../billing/index.js';
 import type { TurnContext } from './context.js';
 import type { ModelDescriptor } from '@hushbox/shared';
 import type { Result } from '../../../../lib/result/index.js';
@@ -77,7 +83,21 @@ if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
 
 const db = createDb(DATABASE_URL, { neonDev: LOCAL_NEON_DEV_CONFIG });
 const redis = new Redis({ url: UPSTASH_REDIS_REST_URL, token: UPSTASH_REDIS_REST_TOKEN });
+const deadRedis = new Redis({ url: 'http://localhost:1', token: 'token', retry: false });
 const billing = createBillingStores();
+
+/** Admission's scope read: the wallet's committed sequence, then `scopes`. */
+function scopesAt(
+  deps: Parameters<typeof admitRun>[0],
+  walletId: string,
+  scopes: readonly BudgetScope[] = []
+): Parameters<typeof admitRun>[1]['readScopes'] {
+  return () =>
+    deps.stores.readWalletSnapshot(deps.db, walletId).map((row) => {
+      if (row === null) throw new Error('scope read: the wallet does not exist');
+      return { scopes, walletSeq: row.ledgerSeq };
+    });
+}
 const BYTES = new Uint8Array([9, 9, 9]);
 const NOW = new Date(TEST_DAY_START + 12 * HOUR_MS);
 const createdUserIds: string[] = [];
@@ -245,17 +265,22 @@ async function memberTurnContext(
 /** The member's turn freeze as a `Result`, for a case that expects it to refuse. */
 function resolveMemberTurn(
   fixture: GroupFixture,
-  priced?: ModelDescriptor
+  priced?: ModelDescriptor,
+  turnRedis: Redis = redis
 ): ReturnType<typeof resolveTurnContext> {
-  return resolveTurnContext({ conversations: createConversationsStores, billing }, db, {
-    conversationId: fixture.conversationId,
-    sender: { kind: 'user', userId: fixture.memberUserId },
-    now: NOW,
-    exposedCatalog: priced === undefined ? [] : [priced],
-    selection: { turnSources: [{ kind: 'model', id: priced?.id ?? MODEL.id }] },
-    promptCharacterCount: FREEZE_PROMPT_CHARS,
-    inputCharacterCount: FREEZE_PROMPT_CHARS,
-  });
+  return resolveTurnContext(
+    { conversations: createConversationsStores, billing, redis: turnRedis },
+    db,
+    {
+      conversationId: fixture.conversationId,
+      sender: { kind: 'user', userId: fixture.memberUserId },
+      now: NOW,
+      exposedCatalog: priced === undefined ? [] : [priced],
+      selection: { turnSources: [{ kind: 'model', id: priced?.id ?? MODEL.id }] },
+      promptCharacterCount: FREEZE_PROMPT_CHARS,
+      inputCharacterCount: FREEZE_PROMPT_CHARS,
+    }
+  );
 }
 
 /** Past the pool's acquisition deadline, so a read queued behind the held one would expire. */
@@ -272,7 +297,7 @@ describe('an owner-funded member turn', () => {
         const { released } = await holdTableLock(wallets, HOLD_MS);
 
         const resolved = await resolveTurnContext(
-          { conversations: createConversationsStores, billing },
+          { conversations: createConversationsStores, billing, redis },
           requestDb,
           {
             conversationId: fixture.conversationId,
@@ -428,17 +453,20 @@ async function admitMemberTurn(
       estimateNanoUsd,
       deadlineClass: 'text',
       concurrentRunCap: PER_WALLET_CONCURRENT_RUN_CAP,
-      budgets: scopes,
+      readScopes: scopesAt({ redis, db, stores: billing }, context.walletId, scopes),
       now: NOW,
     }
   );
   const decision = admission._unsafeUnwrap();
   // Best-effort teardown so a leftover hold cannot leak into a sibling case.
-  const released = await releaseHold(redis, {
-    walletId: context.walletId,
-    holdId,
-    scopeIds: scopes.map((scope) => scope.scopeId),
-  });
+  const released = await releaseHold(
+    { redis, db, stores: billing },
+    {
+      walletId: context.walletId,
+      holdId,
+      scopeIds: scopes.map((scope) => scope.scopeId),
+    }
+  );
   released.match(
     () => {},
     () => {}
@@ -525,5 +553,366 @@ describe('a turn against a conversation a member has left', () => {
     const resolved = await resolveMemberTurn(fixture);
 
     expect(resolved._unsafeUnwrap().walletId).toBe(fixture.ownerWalletId);
+  });
+});
+
+describe("a turn while another run holds part of the payer's funds", () => {
+  /** One dollar of spendable funds: the balance plus the purchased cushion. */
+  const ONE_DOLLAR = 1_000_000_000n;
+  /** Forty cents, held by an earlier admitted run. */
+  const FORTY_CENTS = 400_000_000n;
+  const expensiveResolver = snapshotResolver([EXPENSIVE_MODEL]);
+
+  /** A solo conversation: its owner is its only, sending, member. */
+  async function seedSoloConversation(userId: string): Promise<string> {
+    const { conversationId } = await seedConversationWithEpoch(db, { userId, title: BYTES });
+    createdConversationIds.push(conversationId);
+    await db
+      .insert(conversationMembers)
+      .values({ conversationId, userId, privilege: 'owner', visibleFromEpoch: 1 });
+    return conversationId;
+  }
+
+  /** Admits another run's hold of `estimate` against the wallet and scopes, returning its id. */
+  async function holdForAnotherRun(
+    walletId: string,
+    estimateNanoUsd: bigint,
+    budgets: readonly BudgetScope[] = []
+  ): Promise<string> {
+    const holdId = crypto.randomUUID();
+    const admission = await admitRun(
+      { redis, db, stores: billing },
+      {
+        walletId,
+        holdId,
+        estimateNanoUsd,
+        deadlineClass: 'text',
+        concurrentRunCap: PER_WALLET_CONCURRENT_RUN_CAP,
+        readScopes: scopesAt({ redis, db, stores: billing }, walletId, budgets),
+        now: NOW,
+      }
+    );
+    expect(admission._unsafeUnwrap().admitted).toBe(true);
+    return holdId;
+  }
+
+  /** Releases a hold this block placed, so a leftover cannot leak into a sibling case. */
+  async function releaseHeld(
+    walletId: string,
+    holdId: string,
+    scopeIds: readonly string[] = []
+  ): Promise<void> {
+    const released = await releaseHold(
+      { redis, db, stores: billing },
+      { walletId, holdId, scopeIds }
+    );
+    expect(released.isOk()).toBe(true);
+  }
+
+  /** The owner's solo turn on the expensive model, resolved with `turnRedis`. */
+  async function soloTurn(
+    conversationId: string,
+    userId: string,
+    turnRedis: Redis = redis
+  ): Promise<Result<TurnContext, DomainError>> {
+    return resolveTurnContext(
+      { conversations: createConversationsStores, billing, redis: turnRedis },
+      db,
+      {
+        conversationId,
+        sender: { kind: 'user', userId },
+        now: NOW,
+        exposedCatalog: [EXPENSIVE_MODEL],
+        selection: { turnSources: [{ kind: 'model', id: EXPENSIVE_MODEL.id }] },
+        promptCharacterCount: FREEZE_PROMPT_CHARS,
+        inputCharacterCount: FREEZE_PROMPT_CHARS,
+      }
+    );
+  }
+
+  it("admits a reply sized to the funds another run's hold left", async () => {
+    const userId = await seedUser();
+    const walletId = await seedWallets(userId, ONE_DOLLAR - PAID_CUSHION_NANO_USD);
+    const conversationId = await seedSoloConversation(userId);
+    const otherHoldId = await holdForAnotherRun(walletId, FORTY_CENTS);
+
+    try {
+      const resolved = await soloTurn(conversationId, userId);
+      const context = resolved._unsafeUnwrap();
+      const definition = compileSingleTurn(expensiveResolver, EXPENSIVE_MODEL.id, {
+        budget: {
+          promptCharacterCount: FREEZE_PROMPT_CHARS,
+          inputCharacterCount: FREEZE_PROMPT_CHARS,
+          funding: context.funding,
+        },
+        hooks: CHAT_TURN_HOOKS,
+      })._unsafeUnwrap();
+      const estimate = createEstimateTotal(expensiveResolver)(definition)._unsafeUnwrap();
+      expect(estimate).toBeLessThanOrEqual(ONE_DOLLAR - FORTY_CENTS);
+
+      const holdId = crypto.randomUUID();
+      const admission = await admitRun(
+        { redis, db, stores: billing },
+        {
+          walletId,
+          holdId,
+          estimateNanoUsd: estimate,
+          deadlineClass: 'text',
+          concurrentRunCap: PER_WALLET_CONCURRENT_RUN_CAP,
+          readScopes: scopesAt({ redis, db, stores: billing }, walletId),
+          now: NOW,
+        }
+      );
+      expect(admission._unsafeUnwrap().admitted).toBe(true);
+      await releaseHeld(walletId, holdId);
+    } finally {
+      await releaseHeld(walletId, otherHoldId);
+    }
+  });
+
+  it("sizes a free payer's reply to the allowance the other run left", async () => {
+    const userId = await seedUser();
+    await seedWallets(userId, 0n);
+    const freeRows = await db
+      .select({ id: wallets.id, type: wallets.type })
+      .from(wallets)
+      .where(eq(wallets.userId, userId));
+    const freeWalletId = first(
+      freeRows.filter((row) => row.type === 'free'),
+      'free wallet'
+    ).id;
+    const conversationId = await seedSoloConversation(userId);
+    const resolvedScopes = await resolveBudgetScopes(billing, db, {
+      now: NOW,
+      allowance: { userId },
+    });
+    const scopes = resolvedScopes._unsafeUnwrap();
+    const held = 20_000_000n;
+    const otherHoldId = await holdForAnotherRun(freeWalletId, held, scopes);
+
+    try {
+      const resolved = await soloTurn(conversationId, userId);
+      expect(resolved._unsafeUnwrap().funding).toEqual({
+        spendableNanoUsd: DAILY_ALLOWANCE_NANO_USD - held,
+        kind: 'free',
+      });
+    } finally {
+      await releaseHeld(
+        freeWalletId,
+        otherHoldId,
+        scopes.map((scope) => scope.scopeId)
+      );
+    }
+  });
+
+  it("sizes an owner-funded member's reply to the allocation the other run left", async () => {
+    const memberCap = 900_000_000n;
+    const held = 300_000_000n;
+    const fixture = await seedOwnerFundedGroup({ memberBudgetNanoUsd: memberCap });
+    const resolvedScopes = await resolveBudgetScopes(billing, db, {
+      now: NOW,
+      memberBudget: { memberId: fixture.memberId },
+    });
+    const scopes = resolvedScopes._unsafeUnwrap();
+    const otherHoldId = await holdForAnotherRun(fixture.ownerWalletId, held, scopes);
+
+    try {
+      const context = await memberTurnContext(fixture);
+      expect(context.walletId).toBe(fixture.ownerWalletId);
+      expect(context.funding.spendableNanoUsd).toBe(memberCap - held);
+    } finally {
+      await releaseHeld(
+        fixture.ownerWalletId,
+        otherHoldId,
+        scopes.map((scope) => scope.scopeId)
+      );
+    }
+  });
+
+  describe("an owner-funded member while the owner's own run elsewhere holds part of the owner's wallet", () => {
+    /** The owner's balance: one dollar of spendable funds once the cushion is added. */
+    const OWNER_BALANCE = ONE_DOLLAR - PAID_CUSHION_NANO_USD;
+
+    /**
+     * A group whose caps far exceed the owner's dollar, so the owner's wallet is
+     * the binding term, and a hold of forty cents on that wallet from a run in a
+     * conversation of the owner's own that this member is not part of.
+     */
+    async function seedWithOwnerRunElsewhere(): Promise<{
+      readonly fixture: GroupFixture;
+      readonly release: () => Promise<void>;
+    }> {
+      const fixture = await seedOwnerFundedGroup({ ownerBalanceNanoUsd: OWNER_BALANCE });
+      const resolvedScopes = await resolveBudgetScopes(billing, db, {
+        now: NOW,
+        conversationBudget: { conversationId: crypto.randomUUID(), capNanoUsd: ONE_DOLLAR },
+      });
+      const elsewhere = resolvedScopes._unsafeUnwrap();
+      const holdId = await holdForAnotherRun(fixture.ownerWalletId, FORTY_CENTS, elsewhere);
+      return {
+        fixture,
+        release: () =>
+          releaseHeld(
+            fixture.ownerWalletId,
+            holdId,
+            elsewhere.map((scope) => scope.scopeId)
+          ),
+      };
+    }
+
+    it("admits a member's reply sized to the owner's funds less the owner's run elsewhere", async () => {
+      const { fixture, release } = await seedWithOwnerRunElsewhere();
+
+      try {
+        const context = await memberTurnContext(fixture, EXPENSIVE_MODEL);
+        expect(context.walletId).toBe(fixture.ownerWalletId);
+        const definition = compileSingleTurn(expensiveResolver, EXPENSIVE_MODEL.id, {
+          budget: {
+            promptCharacterCount: FREEZE_PROMPT_CHARS,
+            inputCharacterCount: FREEZE_PROMPT_CHARS,
+            funding: context.funding,
+          },
+          hooks: CHAT_TURN_HOOKS,
+        })._unsafeUnwrap();
+        const estimate = createEstimateTotal(expensiveResolver)(definition)._unsafeUnwrap();
+        expect(estimate).toBeLessThanOrEqual(ONE_DOLLAR - FORTY_CENTS);
+
+        const decision = await admitMemberTurn(fixture, context, estimate);
+        expect(decision.admitted).toBe(true);
+      } finally {
+        await release();
+      }
+    });
+
+    it("reads an owner-funded member's funds in one Redis round trip", async () => {
+      const { fixture, release } = await seedWithOwnerRunElsewhere();
+      let calls = 0;
+      // A counting seam over the real client: Redis is a true external seam.
+      // Only the calls the funding read is expected to make are stood in for,
+      // so any other command fails the send rather than going uncounted.
+      const counting = {
+        get: (key: string): Promise<unknown> => {
+          calls += 1;
+          return redis.get(key);
+        },
+        createScript: (source: string) => {
+          const script = redis.createScript(source);
+          return {
+            exec: (keys: string[], args: string[]): Promise<unknown> => {
+              calls += 1;
+              return script.exec(keys, args);
+            },
+          };
+        },
+      } as unknown as Redis;
+
+      try {
+        const resolved = await resolveMemberTurn(fixture, EXPENSIVE_MODEL, counting);
+        expect(resolved._unsafeUnwrap().walletId).toBe(fixture.ownerWalletId);
+        expect(calls).toBe(1);
+      } finally {
+        await release();
+      }
+    });
+
+    it('gives the budgets display, the served snapshot and the send path one figure', async () => {
+      const { fixture, release } = await seedWithOwnerRunElsewhere();
+
+      try {
+        const display = await getConversationBudgets(
+          { stores: createConversationsStores(db), billing, db, redis },
+          { conversationId: fixture.conversationId, callerUserId: fixture.memberUserId, now: NOW }
+        );
+        const view = display._unsafeUnwrap();
+        if (!('members' in view)) throw new Error('expected the budgets view, got a refusal');
+        const served = await readFundingSnapshot(
+          { redis, db, stores: billing },
+          {
+            userId: fixture.memberUserId,
+            conversationId: fixture.conversationId,
+            conversationFunding: () =>
+              okAsync({
+                conversationId: fixture.conversationId,
+                memberId: fixture.memberId,
+                ownerUserId: fixture.ownerUserId,
+                conversationBudgetNanoUsd: fixture.conversationBudgetNanoUsd,
+              }),
+            now: NOW,
+          }
+        );
+        const context = await memberTurnContext(fixture, EXPENSIVE_MODEL);
+
+        expect({
+          display: BigInt(view.members[0]?.effectiveRemainingNanoUsd ?? 'missing'),
+          served: served._unsafeUnwrap().spendableNanoUsd,
+          sendPath: context.funding.spendableNanoUsd,
+        }).toEqual({
+          display: ONE_DOLLAR - FORTY_CENTS,
+          served: ONE_DOLLAR - FORTY_CENTS,
+          sendPath: ONE_DOLLAR - FORTY_CENTS,
+        });
+      } finally {
+        await release();
+      }
+    });
+  });
+
+  it("refuses a purchased payer's send as unavailable when Redis is down", async () => {
+    const userId = await seedUser();
+    await seedWallets(userId, ONE_DOLLAR);
+    const conversationId = await seedSoloConversation(userId);
+
+    const resolved = await soloTurn(conversationId, userId, deadRedis);
+
+    expect(resolved._unsafeUnwrapErr().code).toBe('unavailable');
+  });
+
+  it("refuses a free payer's send as unavailable when Redis is down", async () => {
+    const userId = await seedUser();
+    await seedWallets(userId, 0n);
+    const conversationId = await seedSoloConversation(userId);
+
+    const resolved = await soloTurn(conversationId, userId, deadRedis);
+
+    expect(resolved._unsafeUnwrapErr().code).toBe('unavailable');
+  });
+
+  it("refuses an owner-funded member's send as unavailable when Redis is down", async () => {
+    const fixture = await seedOwnerFundedGroup();
+
+    const resolved = await resolveMemberTurn(fixture, undefined, deadRedis);
+
+    expect(resolved._unsafeUnwrapErr().code).toBe('unavailable');
+  });
+
+  it('keeps a payer with a purchased balance on the purchased wallet once holds exceed its funds', async () => {
+    // Another run was admitted while the balance was higher; a later debit
+    // leaves the holds above what the wallet can spend. Who pays is decided on
+    // the balance, so the payer stays purchased with a negative figure rather
+    // than falling to the free allowance.
+    const userId = await seedUser();
+    const walletId = await seedWallets(userId, ONE_DOLLAR);
+    const conversationId = await seedSoloConversation(userId);
+    const held = ONE_DOLLAR + FORTY_CENTS;
+    const otherHoldId = await holdForAnotherRun(walletId, held);
+    const debitedBalance = 100_000_000n;
+    await db
+      .update(wallets)
+      .set({ balanceNanoUsd: debitedBalance, ledgerSeq: 1n })
+      .where(eq(wallets.id, walletId));
+    const refreshed = await refreshWalletSnapshot({ redis, db, stores: billing }, walletId);
+    expect(refreshed.isOk()).toBe(true);
+
+    try {
+      const resolved = await soloTurn(conversationId, userId);
+      const context = resolved._unsafeUnwrap();
+      expect(context.walletId).toBe(walletId);
+      expect(context.funding).toEqual({
+        spendableNanoUsd: debitedBalance + PAID_CUSHION_NANO_USD - held,
+        kind: 'purchased',
+      });
+    } finally {
+      await releaseHeld(walletId, otherHoldId);
+    }
   });
 });

@@ -27,9 +27,6 @@ export {
   charStorageDollars,
   CHARACTERS_PER_KILOBYTE,
   CREDIT_CARD_FEE_RATE,
-  ESTIMATED_AUDIO_BYTES_PER_SECOND,
-  ESTIMATED_IMAGE_BYTES,
-  ESTIMATED_VIDEO_BYTES_PER_SECOND,
   EXPENSIVE_MODEL_THRESHOLD_PER_1K,
   HUSHBOX_FEE_RATE,
   KILOBYTES_PER_GIGABYTE,
@@ -139,6 +136,7 @@ export {
   combinedRateNanoUsd,
   exceedsTrialBudget,
   isPremiumModel,
+  isTrialPremiumModel,
   MIN_POOL_FOR_PRICE_PERCENTILE,
   PREMIUM_PRICE_PERCENTILE,
   PREMIUM_RECENCY_MS,
@@ -160,6 +158,7 @@ export { mediaModelFromWire } from './model/wire-media-row.ts';
 // display surface asks this one producer rather than reading a rate field.
 export { modelPriceDisplay } from './price/display.ts';
 export type { ModelPriceDisplay } from './price/display.ts';
+export { billedNanoUsd, holdOverrunLegs, parseChargeKey } from './price/hold-overrun.ts';
 export { trialFundingSnapshot } from './trial-funding.ts';
 export { freeDailyAllowanceNanoUsd } from './free-allowance.ts';
 export { trialDailyMessageAllowance } from './trial-allowance.ts';
